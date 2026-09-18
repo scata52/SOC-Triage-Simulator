@@ -1,0 +1,19 @@
+{
+  "name": "soc-triage-simulator",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types scripts/smoke.ts"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "description": "A SOC triage training simulator: realistic synthetic alerts, MITRE ATT&CK tagging, rubric grading, and progress tracking for CySA+ / SOC analyst practice.",
+  "license": "MIT"
+}
