@@ -79,9 +79,10 @@ export class SiemDatabase {
 
   // Run exactly one statement (anything after the first is never compiled),
   // returning column names and rows.
-  private query(sql: string): { columns: string[]; rows: Cell[][] } {
+  private query(sql: string, params?: (string | number)[]): { columns: string[]; rows: Cell[][] } {
     const stmt = this.db.prepare(sql);
     try {
+      if (params) stmt.bind(params);
       const columns = stmt.getColumnNames();
       const rows: Cell[][] = [];
       while (stmt.step()) rows.push(stmt.get() as Cell[]);
@@ -138,6 +139,20 @@ export class SiemDatabase {
       render,
       recordIdColumn: cols.findIndex((c) => c.name === 'RecordId'),
     };
+  }
+
+  // Whole rows by RecordId, from whichever tables hold them (debrief view of
+  // evidence the analyst did or did not find).
+  lookup(recordIds: readonly string[]): { table: string; columns: string[]; row: Cell[] }[] {
+    const ids = [...new Set(recordIds)].filter((id) => /^[A-Za-z0-9]{1,32}$/.test(id));
+    if (!ids.length) return [];
+    const out: { table: string; columns: string[]; row: Cell[] }[] = [];
+    for (const t of TABLES) {
+      const r = this.query(`SELECT * FROM ${q(t.name)} WHERE ${q('RecordId')} IN (${ids.map(() => '?').join(', ')})`, ids);
+      for (const row of r.rows) out.push({ table: t.name, columns: r.columns, row });
+    }
+    const order = new Map(ids.map((id, i) => [id, i]));
+    return out.sort((a, b) => (order.get(String(a.row.at(-1))) ?? 0) - (order.get(String(b.row.at(-1))) ?? 0));
   }
 
   close(): void {

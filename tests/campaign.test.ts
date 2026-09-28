@@ -49,7 +49,7 @@ async function play(worldSeed: string, actorId: string, policy: Policy, maxShift
     }
     const subs: Submission[] = scenario.cases.map((c, i) => ({ alertId: c.alertId, verdict: c.alertId === plan.campaignAlertId ? policy(c) : perfectVerdict(c), atSec: 60 * (i + 1) }));
     const result = scoreShift(scenario.cases, subs);
-    const after = recordShift(state, w, shift, scenario, result, plan.campaignAlertId);
+    const after = recordShift(state, w, shift, scenario.infra, result, plan.campaignAlertId);
     turns.push({ shift, scenario, campaignCase, before: state, after });
     state = after;
   }

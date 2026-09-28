@@ -85,6 +85,37 @@ export function base32(bytes: ArrayLike<number>): string {
   return out;
 }
 
+export function base32ToBytes(text: string): Uint8Array | null {
+  const clean = text.toLowerCase().replace(/=+$/, '');
+  if (!/^[a-z2-7]+$/.test(clean)) return null;
+  const out: number[] = [];
+  let bits = 0;
+  let value = 0;
+  for (const ch of clean) {
+    value = ((value << 5) | B32.indexOf(ch)) & 0xffff;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Uint8Array.from(out);
+}
+
+// Shannon entropy in bits per character: ~2.5–3.5 for words, 4.5+ for
+// random-looking labels and encoded data.
+export function entropy(text: string): number {
+  if (!text) return 0;
+  const counts = new Map<string, number>();
+  for (const ch of text) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  let h = 0;
+  for (const n of counts.values()) {
+    const p = n / text.length;
+    h -= p * Math.log2(p);
+  }
+  return h;
+}
+
 export function defang(value: string): string {
   return value.replace(/^http/i, 'hxxp').replace(/\./g, '[.]');
 }

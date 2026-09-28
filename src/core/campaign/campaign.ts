@@ -226,7 +226,7 @@ function historyOf(c: ResolvedCase, r: ShiftResult['cases'][number], shift: numb
 }
 
 // Apply a finished shift to the campaign.
-export function recordShift(state: CampaignState, world: World, shift: number, scenario: Scenario, result: ShiftResult, campaignAlertId?: string): CampaignState {
+export function recordShift(state: CampaignState, world: World, shift: number, infra: Scenario['infra'], result: ShiftResult, campaignAlertId?: string): CampaignState {
   const next: CampaignState = JSON.parse(JSON.stringify(state)) as CampaignState;
   // Every verdict of the shift becomes history.
   result.cases.forEach((r, i) => next.history.push(historyOf(r.case, r, shift, i)));
@@ -237,7 +237,7 @@ export function recordShift(state: CampaignState, world: World, shift: number, s
   if (!r) return next;
   const actor = actorOf(state);
   const step = actor.playbook[state.stage];
-  const used = scenario.infra[campaignAlertId] ?? emptyInfra();
+  const used = infra[campaignAlertId] ?? emptyInfra();
   const idx = new WorldIndex(world);
   const victim = idx.person(state.victimId);
 

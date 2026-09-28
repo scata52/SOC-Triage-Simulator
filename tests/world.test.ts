@@ -111,3 +111,15 @@ describe('synthetic domains and addresses', () => {
     expect(registeredDomain('x.top')).toBe('x.top');
   });
 });
+
+import { base32, base32ToBytes, entropy } from '../src/core/synth/encoding.ts';
+describe('encoding helpers', () => {
+  it('round-trips base32 and scores entropy', () => {
+    const bytes = Uint8Array.from([0, 1, 2, 250, 251, 99, 42, 7, 8]);
+    expect([...base32ToBytes(base32(bytes))!]).toEqual([...bytes]);
+    expect(base32ToBytes('not base32!')).toBeNull();
+    expect(entropy('aaaa')).toBe(0);
+    expect(entropy('mail')).toBe(2);
+    expect(entropy(base32(Uint8Array.from({ length: 40 }, (_, i) => (i * 97 + 13) % 256)))).toBeGreaterThan(4);
+  });
+});
