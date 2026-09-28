@@ -78,11 +78,12 @@ export/import; a backend would be the one additive option later (§11).
 ```
 src/
   core/                       pure TypeScript — no DOM; runs in browser, worker and Node
-    rng.ts                    seeded PRNG (mulberry32/xmur3) — carried over from v1
+    rng.ts                    seeded PRNG (xmur3 + mulberry32) with stable forks
     types.ts                  shared domain types
-    taxonomy/                 mitre.ts, cysa.ts (carried over, extended)
+    taxonomy/                 mitre.ts, cysa.ts
     synth/                    the synthetic-data policy: address pools, domain
-                              generators, names, geo registry, fictitious orgs
+                              generators, names, geo registry, fictitious orgs,
+                              encodings (Base64/UTF-16LE, Base32, entropy)
     world/                    World: org, sites, people, hosts, service accounts,
                               apps, network, VPN — generated once per profile
     logs/
@@ -90,26 +91,32 @@ src/
       corpus.ts               CorpusBuilder: typed row emitters, record ids, finalise
       noise/                  baseline activity per source, with deliberate decoys
     query/
-      kql/                    lexer, parser (Pratt), transpiler → SQLite SQL
+      kql/                    lexer, parser (Pratt), transpiler → SQLite, reference
       sql-guard.ts            read-only enforcement for SQL mode
-      functions.ts            JS UDFs registered into SQLite (has, regex, …)
-      engine.ts               sql.js wrapper: build DB from corpus, run, schema
+      udf.ts                  JS functions registered into SQLite (has, regex, …)
+      engine.ts               sql.js wrapper: load corpus, run, look up rows
     cases/
       model.ts                CaseTemplate v2, CaseContext, CaseSpec
-      context.ts              builds a CaseContext (picker, infra, emitter, clock)
-      generate.ts             template + seed + world → Case (spec + corpus)
+      picker.ts, infra.ts     people/hosts from the world; attacker infrastructure
+      scenario.ts             world + seed + items → corpus + resolved cases
       templates/              identity, email, endpoint, network, impact, ops
-    grading/                  grade.ts (verdict, evidence, indicators), ioc.ts
+    grading/                  grade.ts (verdict, evidence, indicators), indicators.ts
     study/                    srs.ts (SM-2), scheduler.ts (due + weakness)
-    shift/                    plan.ts (compose), score.ts (prioritisation, SLA)
+    shift/                    plan.ts (compose), score.ts (prioritisation)
     campaign/                 actors.ts, campaign.ts (stages, consequences)
-  state/                      profile v2 (localStorage), v1 → v2 migration
+  state/                      profile v2 (pure transitions), storage, v1 migration
   ui/                         Preact app
-    app.tsx, router.ts, store/ (signals), components/, screens/, sound.ts
-    workers/query.worker.ts   hosts sql.js
-  styles/                     tokens, base, components, screens
-tests/                        vitest
-e2e/                          playwright + axe
+    App.tsx, router.ts, main.tsx
+    store/app.ts              profile signal + persistence, settings, toasts
+    lib/                      SIEM worker client and protocol, alert types, format, sound
+    workers/siem.worker.ts    builds the scenario and hosts it in sql.js
+    components/               workspace, editor, results, tools, panels, debrief, ui
+    screens/                  home, library, case, shift + handover, intel, study,
+                              stats, help, settings
+    styles/                   tokens, base, components, screens
+public/                       service worker, web manifest, icon
+tests/                        Vitest
+e2e/                          Playwright + axe
 ```
 
 `core/` never imports from `ui/` or `state/`. Everything that decides a grade
@@ -181,19 +188,24 @@ pre-rendered text blocks:
 
 ```ts
 const template: CaseTemplate = {
-  id, category, difficulty, title, cysaDomains, twin?, stage?,
+  id, category, difficulty,
+  title,            // neutral — shown before the case is solved; twins share it
+  lesson,           // what it turned out to be — debrief and stats only
+  cysaDomains, tactics, kind, twin?, stages?, when?,
   build(ctx) {
-    const user = ctx.victim.person({ dept: 'Finance' });   // campaign-aware
+    const user = ctx.foothold?.personId ? ctx.idx.person(ctx.foothold.personId)
+                                        : ctx.pick.person({ dept: 'Finance' });
     const c2 = ctx.infra.domain('c2');                      // campaign-aware
-    const hit = ctx.log.process({ ... });                   // → RowRef
+    const hit = ctx.log.proc({ ... });                      // → RowRef
     return {
       alert:   { rule, product, severity, time, summary, entities, fields },
       briefing, attachments?,                               // e.g. rendered email
-      truth:   { disposition, severity, action, techniques, tactics },
-      evidence: [{ id, label, rows: [hit, ...] }],          // pin any row → point
-      indicators: { report: [...], scope: [...], mustNot: [...] },
-      investigation: { hints: [...], solution: [{ title, kql, why }] },
-      rubric, explanation, pitfalls, references,            // carried from v1
+      truth:   { disposition, severity, action, techniques, tactics, alsoAccept? },
+      evidence: [{ id, label, why, rows: [hit, ...] }],     // pin any row → point
+      indicators: { block: [...], scope: [...], mustNot: [...] },
+      hints: [...],
+      solution: [{ title, kql, why, expectEmpty? }],        // reference investigation
+      rubric, explanation, pitfalls, references,
     };
   },
 };
@@ -214,25 +226,28 @@ been worked") and the hint ladder.
 
 ## 7. Query engine
 
-- **Worker** owns the sql.js database. The main thread sends the corpus once,
-  then queries. A query exceeding the time budget terminates the worker; the
-  client respawns it and reloads the (deterministic) corpus.
-- **KQL subset** (documented in-app on the Help screen): `where`, `project`,
-  `project-away`, `project-rename`, `extend`, `summarize … by` (count, countif,
-  dcount, sum, avg, min, max, make_set, make_list), `sort/order by`, `take/limit`,
-  `top N by`, `distinct`, `count`, `search`, `serialize`, `render`; operators
-  `== != =~ !~ < <= > >= contains has startswith endswith matches regex in in~
-  between`, with negations; functions `ago now bin datetime tolower toupper
-  strlen substring strcat isempty isnotempty iff case tostring toint
-  datetime_diff hourofday extract prev next`. Parsed with a Pratt parser into
-  an AST, type-checked against the schema (with did-you-mean suggestions), and
-  compiled to nested SQLite `SELECT`s. The generated SQL is viewable — a
-  deliberate bridge between the two languages.
-- **SQL mode** accepts a single read-only `SELECT`/`WITH` statement.
-- Results render in an accessible table with column sort, cell actions
-  (filter to / exclude / add as indicator / search everywhere / copy) and
-  per-row pinning whenever `RecordId` is present (the transpiler carries it
-  through row-preserving operators).
+- **Worker** builds the scenario from its spec (world seed + case or shift)
+  and owns the sql.js database, so the corpus never crosses to the main
+  thread. A query exceeding the time budget (15 s) terminates the worker; the
+  client respawns it and reopens the last session — deterministic from its
+  spec — before the next request.
+- **KQL subset**, documented in-app from `kql/reference.ts` (whose every
+  example is executed by the tests): `let`, `search`, `where`, `project`,
+  `project-away/-rename/-reorder`, `extend`, `summarize … by` with ~15
+  aggregates (incl. `arg_max`, `make_set`, `stdev`), `sort/order by`,
+  `take/limit`, `top`, `distinct`, `count`, `join` (inner, leftouter,
+  leftanti, leftsemi), `serialize`, `getschema`, `render`; comparison and
+  string operators with negations and case-sensitive variants; ~40 scalar
+  functions. Parsed with a Pratt parser, checked against the schema (with
+  did-you-mean suggestions), compiled to nested SQLite `SELECT`s. The
+  generated SQL is viewable under the results — a bridge between the two
+  languages.
+- **SQL mode** accepts a single read-only `SELECT`/`WITH` statement; SQLite
+  itself runs with `query_only`.
+- Results render in an accessible table with column sort, a row inspector
+  whose values can be filtered on, excluded, searched everywhere, reported as
+  indicators or copied, and per-row pinning whenever `RecordId` is present (the
+  transpiler carries it, hidden, through row-preserving operators).
 
 ## 8. Grading
 
@@ -243,10 +258,14 @@ evidence 20, indicators 15**.
   parent technique, benign twins penalise tagged techniques).
 - **Evidence**: each evidence point is satisfied by pinning any of its rows.
   Hints reduce the evidence component progressively.
-- **Indicators**: recall/precision over malicious indicators to block, recall
-  over scope (affected users/hosts), and a heavy penalty for anything on the
-  case's `mustNot` list — flagging your own VPN egress as malicious is the
-  mistake that takes 400 remote workers offline.
+- **Indicators**: coverage of the indicators to block (10) and of the
+  affected users/hosts (5), matched however the analyst writes them
+  (defanged, URL, `DOMAIN\user`, FQDN); −2 per indicator the evidence does
+  not support (up to −6) and −5 for anything on the case's `mustNot` list —
+  flagging your own VPN egress as malicious is the mistake that takes 400
+  remote workers offline. Nothing to report + nothing reported = full marks.
+- The scenario harness asserts that every template's reference verdict scores
+  exactly 100 and an untouched alert 0.
 - Notes rubric remains a coaching checklist and XP bonus.
 
 ## 9. Shifts, campaign, study
@@ -287,10 +306,14 @@ evidence 20, indicators 15**.
   migration, and the **scenario suite** (every template × many seeds: builds,
   deterministic, perfect answer scores 100, reference investigation finds the
   evidence against a real sql.js database).
-- `npm run test:e2e` — Playwright: practice case end-to-end (query, pin,
-  indicator, verdict, debrief), a shift, keyboard-only flow, mobile viewport
-  (no horizontal scroll), and axe-core scans of every screen.
-- CI runs `check` (typecheck, test, build) and `e2e` jobs on every push/PR.
+- `npm run test:e2e` — Playwright against the production build: practice
+  case end-to-end (query errors, pin, row inspector, indicators, verdict,
+  debrief with runnable reference steps), column sort and runaway-query
+  recovery, a full shift with resume and handover, keyboard access, 360 px
+  viewport, reduced motion, v1 migration, blocked storage, offline play, and
+  axe-core scans of every screen in both themes.
+- CI runs `check` (typecheck, test, build) and `e2e` jobs on pull requests and
+  pushes to `main`. Deploying to Pages is a manual workflow.
 
 ## 11. Deliberately not in this iteration
 
@@ -326,5 +349,12 @@ evidence 20, indicators 15**.
 18. E2E + accessibility tests; CI.
 19. README and screenshots.
 
-Every step keeps `typecheck`, tests and build green. The v1 engine and UI keep
-working alongside the new core until step 12 swaps them.
+Every step keeps `typecheck`, tests and build green. The v1 engine and UI kept
+working alongside the new core until step 12 swapped them.
+
+**Status:** all steps are done. Deviations from the plan above are folded
+into the sections: the worker builds the corpus itself (§7); shifts are the
+late shift inheriting the day's queue (§9); indicator scoring is coverage plus
+penalties rather than precision/recall (§8); offline support precaches from a
+list the build writes (`precache.json`), since the build manifest omits the
+worker and WebAssembly.

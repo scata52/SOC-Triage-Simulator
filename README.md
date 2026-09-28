@@ -1,171 +1,205 @@
 # SOC Triage Simulator
 
-A practice queue for security analysts. Every case is a realistic, synthetic alert with the evidence behind it — Windows Security and Sysmon events, Entra ID sign-in logs, email headers, proxy/firewall/DNS records, EDR detections — and you triage it the way you would on shift:
+A training SOC in your browser. Alerts fire in a fictional company; behind each
+one is a full day of that company's logs — thousands of rows of sign-ins,
+endpoint processes, email, proxy, DNS and firewall traffic, most of it
+perfectly ordinary. You investigate with **real KQL** (or SQL) in a SIEM
+console that runs entirely client-side, pin the rows that prove your case,
+pull out the indicators worth blocking, and make the call. The debrief shows
+what you found, what you missed, and how a senior analyst would have run it —
+as queries you can run against the same logs.
 
-1. **Disposition** — true positive, false positive, or benign/expected?
-2. **Severity** — informational through critical
-3. **Action** — close, monitor, or escalate to IR
-4. **MITRE ATT&CK** — tag the technique(s) the adversary used
-5. **Notes** — write the ticket
+Built as a study companion for **CompTIA CySA+ (CS0-003)** and for anyone
+ramping into a SOC analyst role. No backend, no account, works offline;
+nothing leaves your machine.
 
-Then you get the answer key: a scored breakdown, your call vs. the correct one, a checklist of what a strong write-up would have covered, and a plain-language explanation of what was actually going on and why. Progress is tracked by category, difficulty, CySA+ domain and ATT&CK tactic, so you can see where to drill.
+![The investigation workspace](docs/screenshots/workspace.png)
 
-Built as a study companion for **CompTIA CySA+ (CS0-003)** and for anyone ramping into a SOC analyst role. Runs entirely in the browser — no backend, no accounts, nothing leaves your machine.
+## What you do
 
-![Home](docs/screenshots/home.png)
+- **Work shifts.** Six to nine alerts land in one queue, sharing one set of
+  logs — the noise of one alert is the background of another. One to three are
+  real; the rest are benign look-alikes and routine tickets. A clock runs
+  (20/30/45 minutes or untimed). The handover grades every verdict and how
+  well you **prioritised**: the real incidents are worth more, and worth more
+  the sooner you reach them.
+- **Face a campaign.** A fictional threat actor works through a kill chain
+  against your company, one step per shift, on the same victim and
+  infrastructure. Escalate a step and incident response contains it — the
+  actor burns what you blocked, pivots to a new victim and starts over, and
+  eventually gives up. Miss it and it moves on. The indicators you report land
+  in the `ThreatIntel` table on your next shift; every verdict you give,
+  including the wrong ones, appears in `IncidentHistory`.
+- **Study.** Every case type is a spaced-repetition card (SM-2). Due reviews
+  come first; new picks lean toward your weakest ATT&CK tactics, CySA+ domains
+  and alert categories.
+- **Practise** any of 21 alert types (25 scenarios — several detections come
+  as twins with opposite answers), or the **case of the day**, which is the
+  same for everyone.
+
+![A shift handover, with the campaign consequence](docs/screenshots/handover.png)
+
+## Why it's different
+
+**A real SIEM, not a slideshow.** The console is [sql.js](https://sql.js.org)
+(SQLite compiled to WebAssembly) in a Web Worker, fed with a generated corpus
+in a Sentinel/Defender-style schema (18 tables). KQL is parsed by a Pratt
+parser and transpiled to SQLite: `where`, `project`, `extend`, `summarize`
+with `bin()`, `join`, `search`, `let`, `arg_max`, `prev()/next()`,
+`render timechart` and ~60 functions and operators, with did-you-mean errors
+underlined in the editor. Every example in the in-app reference is executed by
+the test suite.
+
+**You have to find it.** The evidence is not handed to you. The noise contains
+deliberate decoys that resemble every signal — SCCM's encoded PowerShell,
+the authorised vulnerability scanner, the VPN's cloud egress in another
+country, users who really are travelling. Twins differ only in context you
+must look up: change tickets, device inventory, identity data.
+
+**Graded on the investigation, not just the answer.** 100 points: disposition
+30, severity 10, action 10, ATT&CK 15, **evidence pinned 20, indicators 15**.
+Indicators are matched however you write them (defanged, as URLs,
+`DOMAIN\user`, FQDNs) — and reporting your own office's IP or the sanctioned
+scanner costs points.
+
+**Synthetic by construction.** Organisations are Microsoft's fictitious
+companies; external addresses come only from the RFC 5737 documentation
+ranges (and `2001:db8::/32`), internal ones from RFC 1918, ASNs from the
+private range; attacker domains and hashes are generated; threat actors are
+invented. A test scans every cell of every generated corpus to keep it that
+way. Attacker activity appears only as a defender sees it in telemetry.
+
+**Accessible and offline.** Keyboard-complete (the editor never traps Tab),
+screen-reader labelled, usable at 360 px, light and dark themes, reduced
+motion respected, sound off by default. After the first visit a service
+worker keeps the whole thing — SIEM included — available offline.
+
+![The debrief](docs/screenshots/debrief.png)
 
 ## Quick start
 
+Requires [Node.js](https://nodejs.org) 22.12 or newer.
+
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm run dev          # http://localhost:5173
 ```
 
-Other scripts:
+| Script | What it does |
+|---|---|
+| `npm run dev` | Development server |
+| `npm run build` | Typecheck, then production build into `dist/` |
+| `npm run preview` | Serve `dist/` locally (the service worker only runs in a build) |
+| `npm test` | Unit and scenario tests (Vitest) |
+| `npm run test:e2e` | End-to-end and accessibility tests (Playwright + axe) against the production build |
+| `npm run typecheck` | TypeScript, app and tests |
 
-```bash
-npm test           # deterministic smoke test across every scenario x 40 seeds
-npm run typecheck  # tsc --noEmit
-npm run build      # production build into dist/
-npm run preview    # serve dist/ locally
-```
+For the end-to-end tests, install a browser once with
+`npx playwright install chromium`, or point `PW_CHROMIUM_PATH` at an existing
+Chromium.
 
-Requires Node 22+ (the test runner uses Node's built-in TypeScript stripping).
+## How it's tested
 
-## What makes it useful
+- **Every scenario, every seed.** For each template the harness builds cases
+  across several worlds and seeds, runs its reference investigation against a
+  real SQLite database and requires it to surface every evidence row and every
+  indicator the grade expects; checks that the perfect answer scores exactly
+  100 and an untouched alert 0; scans every generated cell for non-synthetic
+  data; sweeps 30 more seeds for crashes; and checks determinism.
+- **Shifts and campaigns** are built end to end — every case in a shared
+  corpus must stay solvable — and whole campaigns are played through (miss
+  everything → breach on one foothold; contain everything → eviction).
+- **The engine**: KQL lexer/parser/transpiler semantics, the read-only SQL
+  guard, grading, SM-2, profile migration from v1.
+- **The app** (Playwright): full investigation and shift flows, persistence,
+  keyboard access, phone width, reduced motion, blocked storage, offline play,
+  and axe accessibility scans of every screen in both themes.
 
-**Cases regenerate.** Each scenario is a generator, not a static file. Identities, hostnames, IPs, hashes, domains, timings and geography are produced from a seeded RNG every time, so the *lesson* repeats but the *data* never looks identical — you learn the pattern, not the answer. Cases are reproducible from their ID, and "Case of the Day" gives everyone the same case on a given date.
+CI runs all of it on every pull request.
 
-**Twins.** Several alerts come in pairs that look the same and mean the opposite: atypical travel that is an account takeover vs. the corporate VPN; PsExec from an attacker vs. from the management server under change control; a workstation port-scanning vs. the authorised vulnerability scanner. Roughly a third of scenarios are benign or false positives, because confidently closing a non-incident is the skill that separates a good Tier 1 from a noisy one.
+## The case types
 
-**Honest grading.** The objective fields carry the score (100 points: disposition 40, severity 20, action 15, ATT&CK 25) with partial credit where it makes sense — one severity level off, the adjacent action, a parent technique instead of the sub-technique. Notes are keyword-matched against a rubric for a small XP bonus and shown as a coaching checklist rather than pretending to grade prose.
-
-**Study mapping.** Every scenario is tagged with CySA+ CS0-003 domains and MITRE ATT&CK Enterprise techniques; the picker carries ~60 techniques so wrong answers are possible. The stats page rolls this up into per-domain scores and a tactic-coverage view.
-
-![Result](docs/screenshots/result.png)
-
-![Stats](docs/screenshots/stats.png)
-
-## Scenarios
-
-| Scenario | Category | Tier |
+| Alert | Category | Tier |
 |---|---|---|
-| Atypical travel sign-in to Microsoft Entra ID | Identity & Access | Tier 2 |
-| Distributed failed sign-ins across many users | Identity & Access | Tier 2 |
-| Repeated RDP logon failures then a success | Identity & Access | Tier 1 |
-| Burst of MFA push notifications, then an approval | Identity & Access | Tier 3 |
-| Atypical travel alert on a sales user | Identity & Access | Tier 2 |
-| Repeated lockouts on a returning employee | Identity & Access | Tier 1 |
-| Reported email with a credential-harvesting link | Phishing & Email | Tier 1 |
-| Malware attachment campaign to finance | Phishing & Email | Tier 2 |
-| User-reported "phishing" newsletter | Phishing & Email | Tier 1 |
-| Word spawns encoded PowerShell | Malware & Endpoint | Tier 2 |
-| certutil used to download a payload | Malware & Endpoint | Tier 2 |
-| New scheduled task running a hidden script | Persistence | Tier 2 |
-| PsExec activity from the management server | Malware & Endpoint | Tier 2 |
-| A workstation is scanning the internal network | Reconnaissance | Tier 2 |
-| Flood of scan alerts from one host | Reconnaissance | Tier 1 |
-| Abnormal DNS query volume and entropy | Command & Control | Tier 3 |
-| Periodic outbound connections with fixed cadence | Command & Control | Tier 3 |
-| PsExec from a user workstation to a domain controller | Lateral Movement | Tier 3 |
-| Account added to Domain Admins outside change control | Privilege Escalation | Tier 2 |
-| Large upload to personal cloud storage | Data Exfiltration | Tier 2 |
-| Mass file modification on a file server | Ransomware | Tier 1 |
+| Atypical travel sign-in (twins) | Identity & Access | 2 |
+| Failed sign-ins across many accounts | Identity & Access | 2 |
+| Failed RDP logons on the jump host | Identity & Access | 1 |
+| Burst of MFA push notifications | Identity & Access | 3 |
+| Repeated account lockouts | Identity & Access | 1 |
+| User-reported email (twins) | Phishing & Email | 1 |
+| Attachment removed after delivery | Phishing & Email | 2 |
+| Many users clicked a new domain | Phishing & Email | 1 |
+| Encoded PowerShell on a laptop | Malware & Endpoint | 2 |
+| certutil file download | Malware & Endpoint | 2 |
+| Malware detection on an endpoint | Malware & Endpoint | 2 |
+| New scheduled task running PowerShell | Persistence | 2 |
+| PsExec service installed remotely (twins) | Lateral Movement | 3 |
+| Horizontal port scan from an internal address (twins) | Reconnaissance | 2 |
+| Coordinated recon and exploitation attempts | Reconnaissance | 2 |
+| Unusual DNS query volume | Command & Control | 3 |
+| Periodic outbound connections | Command & Control | 3 |
+| Member added to Domain Admins | Privilege Escalation | 2 |
+| Large upload to a file-sharing site | Data Exfiltration | 2 |
+| Threat hunt: outbound data movement | Data Exfiltration | 3 |
+| Mass file modification on a file server | Ransomware | 1 |
 
-Answers are deliberately not listed here — they're in the app once you submit.
-
-## Modes
-
-- **Next case** — one alert, graded immediately, then another. Category and difficulty filters apply.
-- **Case of the Day** — deterministic from the date; same case for everyone, once per day.
-- **Shift (5 / 10)** — a run with a summary at the end.
-
-Optional settings: a visible timer, and live note-quality hints while typing (easier mode).
+Answers are deliberately not listed — "twins" fire the same alert with
+opposite verdicts, and the titles are neutral on purpose.
 
 ## Project layout
 
 ```
 src/
-  types.ts                 core types (no enums — erasable syntax only)
-  data/
-    mitre.ts               curated ATT&CK technique catalogue + tactic order
-    cysa.ts                CySA+ CS0-003 domains
-    templates/             one file per area; each scenario is a build(ctx) generator
-      identity.ts  email.ts  endpoint.ts  network.ts  impact.ts  util.ts  index.ts
-  engine/
-    rng.ts                 seeded PRNG (mulberry32) + daily seed
-    fakes.ts               synthetic identities, hosts, IPs, domains, hashes, timestamps, geo
-    generator.ts           template selection, case materialisation, regenerate-from-id
-    grading.ts             scoring rules, rubric keyword detection, XP
-  state/
-    store.ts               localStorage profile, records, ranks, export/import
-    stats.ts               aggregations for the dashboard
-  ui/
-    app.ts                 app shell, hash routing, session/shift state
-    dom.ts                 tiny hyperscript helper (textContent only — no innerHTML)
-    nav.ts  screens/       home, triage, result, stats, about
-scripts/smoke.ts           deterministic test run by `npm test`
+  core/                pure TypeScript, no DOM — runs in the browser, the worker and Node
+    synth/             the synthetic-data policy: address pools, fictitious orgs, names, geo, domains
+    world/             the persistent organisation: people, hosts, sites, VPN, partners
+    logs/              schema (18 tables), corpus builder, noise generators with decoys
+    query/             KQL lexer, parser, transpiler, reference; SQL guard; sql.js engine
+    cases/             template model, picker, attacker infra, scenario builder, 25 templates
+    grading/           verdict grading, indicator matching
+    shift/  campaign/  study/   the game engines
+  state/               profile v2, storage, v1 migration
+  ui/                  Preact app — screens, components, the SIEM worker, styles
+tests/                 Vitest: engine, scenarios, shifts, campaigns, grading, profile
+e2e/                   Playwright + axe
 ```
 
-No framework, no runtime dependencies. Vite + TypeScript for the build, vanilla DOM for the UI.
+[`ARCHITECTURE.md`](ARCHITECTURE.md) explains the design: the world and log
+model, the case template contract, the query engine, grading, and the shift,
+campaign and study engines.
 
 ## Adding a scenario
 
-A scenario is a `CaseTemplate` with a `build({ rng, faker })` function that returns the case body. The faker gives you a consistent environment (company, AD domain, subnet, HQ city) and generators for identities, hosts, IPs, domains, hashes and timestamps; the rng is seeded so the same seed always yields the same case.
-
-```ts
-const myCase: CaseTemplate = {
-  id: 'network-my-scenario',           // unique, stable — used in case IDs and stats
-  category: 'c2',
-  difficulty: 'tier2',
-  title: 'Short alert-style title',
-  cysaDomains: ['1.0', '3.0'],
-  build({ rng, faker }) {
-    const host = faker.workstation();
-    const c2 = faker.maliciousDomain();
-    return {
-      alert: `What the SIEM said about ${host}...`,
-      context: `${faker.env.company} — one line of environment context.`,
-      artifacts: [
-        artifact('Proxy', 'raw', [`${faker.syslog(0)} ${host} -> ${c2}:443`]),
-      ],
-      groundTruth: { disposition: 'true-positive', severity: 'high', action: 'escalate',
-                     techniques: ['T1071.001'], tactics: ['command-and-control'] },
-      rubric: rubric([['id', 'A point a good analyst would note.', ['keyword', 'synonym']]]),
-      explanation: ['Paragraphs of answer key.'],
-      pitfalls: ['What people get wrong.'],
-      references: [{ label: 'ATT&CK T1071.001', url: 'https://attack.mitre.org/techniques/T1071/001/' }],
-    };
-  },
-};
-```
-
-Register it in `src/data/templates/index.ts`, add any new technique IDs to `src/data/mitre.ts`, and run `npm test` — the smoke test checks every template across 40 seeds for determinism, catalogue consistency, and that a perfect answer scores 100.
-
-Keep benign/false-positive cases at `techniques: []`; the grader treats tagging a technique on a non-malicious case as an error, on purpose.
+A scenario is a `CaseTemplate` in `src/core/cases/templates/`. Its `build(ctx)`
+writes the attack (or the innocent explanation) into the shared corpus
+through the corpus builder, and returns the alert, the answer key, handles on
+the evidence rows, the indicators (to block, in scope, and must-not-flag), a
+reference investigation in KQL, hints and the debrief text. The picker gives
+it people and hosts from the world (and the campaign's foothold, when it is
+part of one); `ctx.infra` mints attacker IPs, domains and hashes that respect
+the synthetic-data policy. Register it in `templates/index.ts`, add a line to
+a `tests/scenarios/*.test.ts` file, and the harness will tell you if the case
+is unsolvable, leaks, or scores a perfect answer below 100.
 
 ## Deploying
 
-The repo ships with two GitHub Actions workflows:
-
-- `ci.yml` — typecheck, test and build on every push and PR.
-- `deploy.yml` — builds with `GITHUB_PAGES=1` (which sets the Vite `base` to `/SOC-Triage-Simulator/`) and publishes `dist/` to GitHub Pages on every push to `main`.
-
-To enable: repository **Settings → Pages → Source: GitHub Actions**. The site will be at `https://<user>.github.io/SOC-Triage-Simulator/`.
-
-If you fork under a different repo name, change `base` in `vite.config.ts`.
+`ci.yml` runs typecheck, tests, build and the end-to-end suite on pull
+requests. `deploy.yml` publishes to GitHub Pages and is **manual**
+(Actions → Deploy to GitHub Pages → Run workflow); it builds with
+`GITHUB_PAGES=1`, which sets the base path to `/SOC-Triage-Simulator/`.
+Pages on a private repository needs a paid GitHub plan. Any static host works:
+serve `dist/`.
 
 ## Data and privacy
 
-All identities, hosts, IPs, hashes and domains are generated on the fly and are not real. Progress lives in the browser's localStorage under `soc-triage-sim:v1`; export/import is on the Stats page. Nothing is transmitted anywhere.
+Everything is generated in your browser and none of it is real — see
+Help → About the data in the app. Progress lives in this browser's local
+storage (`soc-triage-sim:v2`); a v1 profile is migrated automatically and
+kept as a backup. Export and import are in Settings. There is no server, no
+account and no tracking.
 
-## Roadmap ideas
-
-- More scenarios (cloud/Kubernetes, OT, insider variations, more Tier 3 chains)
-- Multi-stage cases where one alert leads to the next
-- A "hunt" mode: no alert, just logs, find the thing
-- Spaced repetition of scenarios you scored poorly on
-- Optional LLM-generated free-text feedback on notes (bring your own key)
+MITRE ATT&CK® is a registered trademark of The MITRE Corporation; CySA+ is a
+trademark of CompTIA. This project is not affiliated with either.
 
 ## License
 
