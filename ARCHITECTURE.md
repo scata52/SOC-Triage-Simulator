@@ -251,23 +251,31 @@ evidence 20, indicators 15**.
 
 ## 9. Shifts, campaign, study
 
-- **Shift**: 6–9 alerts land together — typically one campaign stage, zero or
-  one other true positive, benign twins, and fast "ops" noise. All share one
-  corpus (the noise of one alert is the background of another). A real-time
-  budget (20/30/45 min or untimed) runs; verdicts are graded at handover.
-  Shift score = severity-weighted case scores plus **prioritisation**: how
-  early the real incidents were handled relative to the ideal order.
-- **Campaign**: a fictional actor walks a kill-chain playbook (initial access
-  → execution → persistence/C2 → discovery/lateral → objective), one stage per
-  shift, reusing its infrastructure and victims. Your verdicts have
-  consequences: catch a stage and IR contains it (the actor rotates
-  infrastructure and pivots victims; your extracted indicators land in
-  `ThreatIntel`); miss it and the actor progresses on the same foothold. Every
-  prior incident appears in `IncidentHistory` with the verdict you gave. The
-  campaign ends with eviction or with its objective.
-- **Study**: SM-2 cards per template (quality from score), a scheduler that
-  serves due cards first and weights new picks toward the weakest CySA+
-  domains and ATT&CK tactics, and a study-plan screen.
+- **Shift** (`core/shift`): the late-shift analyst sits down at 17:30 local and
+  inherits the day's queue plus whatever fired overnight — 6–9 alerts in one
+  corpus (the noise of one is the background of another): one to three real
+  incidents (the campaign's move when a campaign runs), usually their benign
+  twins (same rule, same title), routine ops tickets, and benign alerts.
+  Threat hunts stay out of the queue. A real-time budget (20/30/45 min or
+  untimed) runs; unworked alerts score zero at handover. Shift score = 80%
+  severity-weighted case scores + 20% **prioritisation** (nDCG of the
+  handling order against the true urgency of each alert).
+- **Campaign** (`core/campaign`): a fictional actor (invented names, avoiding
+  real vendors' naming schemes) walks a kill-chain playbook, one stage per
+  shift, on the same victim, laptop and infrastructure (templates receive
+  them through `foothold` and infra presets). Consequences:
+  escalate a stage as a true positive → IR contains it, the actor is
+  identified, pivots to a new victim and starts over; after `tenacity`
+  containments it is **evicted**. Miss it — or flag it without escalating —
+  and it moves to the next stage; missing the objective is a **breach**.
+  Reported block indicators land in `ThreatIntel` (attributed once the actor
+  is identified) and are burned; unreported infrastructure is reused. Every
+  verdict of every shift appears in `IncidentHistory` as analyst "You".
+- **Study** (`core/study`): SM-2 cards per template (quality from the grade,
+  70% pass mark); due reviews first, then new/early cases drawn with weights
+  exponential in the analyst's weakness across the CySA+ domains, ATT&CK
+  tactics (benign cases train their twin's) and category each case trains;
+  tier-2/3 cases are gated for brand-new analysts.
 
 ## 10. Testing and CI
 
