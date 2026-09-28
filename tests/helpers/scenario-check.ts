@@ -45,6 +45,7 @@ export function checkStructure(c: ResolvedCase): void {
   for (const id of [...c.truth.techniques, ...(c.truth.alsoAccept ?? [])]) expect(technique(id), `technique ${id}`).toBeDefined();
   for (const id of c.truth.techniques) expect(c.truth.alsoAccept ?? []).not.toContain(id);
   for (const d of c.cysaDomains) expect(cysaDomain(d), `domain ${d}`).toBeDefined();
+  expect(c.truth.tactics, `${c.templateId}: template tactics match the truth`).toEqual(t.tactics);
   const ind = c.indicators;
   if (c.truth.disposition === 'true-positive') {
     expect(c.truth.techniques.length).toBeGreaterThan(0);

@@ -21,6 +21,7 @@ const alreadyContained: CaseTemplate = {
   title: 'Malware detection on an endpoint',
   lesson: 'A true positive already contained by EDR',
   cysaDomains: ['1.0', '3.0'],
+  tactics: ['execution'],
   kind: 'incident',
   when: 'business',
   build(ctx) {
@@ -103,6 +104,7 @@ const phishingSimulation: CaseTemplate = {
   title: 'Many users clicked a new domain',
   lesson: 'The company\'s own phishing simulation',
   cysaDomains: ['1.0', '4.0'],
+  tactics: [],
   kind: 'benign',
   when: 'business',
   build(ctx) {
@@ -193,6 +195,7 @@ const authorizedPentest: CaseTemplate = {
   title: 'Coordinated recon and exploitation attempts',
   lesson: 'An authorised penetration test',
   cysaDomains: ['1.0', '2.0', '3.0'],
+  tactics: [],
   kind: 'benign',
   when: 'business',
   build(ctx) {
@@ -277,6 +280,7 @@ const huntNightExfil: CaseTemplate = {
   title: 'Threat hunt: outbound data movement',
   lesson: 'Repository mirrored to an unknown host',
   cysaDomains: ['1.0', '3.0'],
+  tactics: ['exfiltration', 'command-and-control'],
   kind: 'incident',
   when: 'any',
   build(ctx) {

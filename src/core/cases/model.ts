@@ -4,7 +4,7 @@
 // investigation. Nothing about a row marks it as signal except the handle.
 
 import type { Rng } from '../rng.ts';
-import type { Category, CaseReference, Difficulty, GroundTruth, RubricItem, Severity } from '../types.ts';
+import type { Category, CaseReference, Difficulty, GroundTruth, RubricItem, Severity, Tactic } from '../types.ts';
 import type { CorpusBuilder, RowRef } from '../logs/corpus.ts';
 import type { World } from '../world/world.ts';
 import type { WorldIndex } from '../world/index.ts';
@@ -110,6 +110,7 @@ export interface CaseTemplate {
   title: string; // neutral name, safe to show before the case is solved
   lesson: string; // what it turned out to be — shown only in the debrief and stats
   cysaDomains: string[];
+  tactics: Tactic[]; // ATT&CK tactics of the truth (empty for benign/ops cases)
   kind: CaseKind;
   twin?: string;
   stages?: CampaignStage[];
