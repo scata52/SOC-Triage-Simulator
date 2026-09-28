@@ -35,6 +35,6 @@ One logical commit per package, conventional message (`feat(vuln): ...`, `test(v
 A fresh session reads `CLAUDE.md`, `docs/vuln-mgmt/PROGRESS.md`, and only the next work package in PLAN.md. Nothing else until the package requires it.
 
 ### Guardrails
-Synthetic data only; fictional vuln ids `SIMVULN-YYYY-NNNNN` (DESIGN §9); offline static site; no new dependencies; keyboard, screen reader, 360 px, reduced motion; existing SOC content and scores unchanged; CI green.
+Synthetic data only; scenario data fully fictional (`SIMVULN-YYYY-NNNNN` ids, Sim-KEV/Sim-EPSS feeds) and no real-vulnerability dataset in v1; the "no real CVE id" test covers scenario data (DESIGN §9); offline static site; no new dependencies; keyboard, screen reader, 360 px, reduced motion; existing SOC content and scores unchanged; CI green.
 
 Do not enable experimental agent teams.

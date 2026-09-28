@@ -15,7 +15,7 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 - Goal: `src/core/vuln/{model.ts,cvss31.ts,catalogue.ts,ids.ts}` per §2.2, §6.2; `SIMVULN-YYYY-NNNNN` id helper.
 - Owner: implementer. Deps: WP0.
 - Acceptance: (1) `VulnTemplate`, `VulnCaseSpec`, `FindingTruth`, `VulnDecision`, `ReasonCode` exported; (2) CVSS scores match every row of the oracle table in DESIGN §6.2 (verified 2026-09-28), Roundup uses the spec's Appendix A integer method; (3) catalogue deterministic by seed, ≥ 60 entries, ids match `/^SIMVULN-\d{4}-\d{5}$/`; (4) no real CVE strings in `src/core/vuln/**`; (5) catalogue follows the calibrated parameters in DESIGN §6.2 (CVSS mix within ±5 points per band, 6 Sim-KEV entries incl. ≥ 1 Medium and ≥ 1 old id, Sim-EPSS sampled from the two anchor tables, displayed percentile from the all-CVE table: 0.004 → 31st).
-- Tests: `tests/vuln-cvss.test.ts`, `tests/vuln-catalogue.test.ts`, guardrail `tests/vuln-guardrails.test.ts` (CVE regex over source + generated output).
+- Tests: `tests/vuln-cvss.test.ts`, `tests/vuln-catalogue.test.ts`, guardrail `tests/vuln-guardrails.test.ts` (CVE regex over all scenario data as defined in DESIGN §9 rule 2: `src/core/vuln/**` + generated case output; no exceptions).
 
 ## WP1b — Corpus tables and scan writer
 - Goal: add `VulnFindings`, `ScanRuns`, `VulnIntel`, `SoftwareInventory`, `PatchHistory`, `ControlInventory` to `logs/schema.ts` (§6.1); `src/core/vuln/scan-writer.ts`; `buildVulnScenario` in `src/core/vuln/scenario.ts`; worker accepts a vuln spec.
@@ -38,7 +38,7 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 ## WP1e — UI slice + accessibility
 - Goal: routes `#/vuln` and `#/vuln/<slug>/<seed>` (§7), Home card, worklist with decision/schedule/reason controls, move up/down, console tab reuse, note tab, submit → debrief; record attempt (`mode: 'vuln'`, `category: 'vulnmgmt'`) with additive type widening.
 - Owner: implementer. Files: `src/ui/router.ts`, `src/ui/App.tsx`, `src/ui/screens/Vuln*.tsx`, `src/ui/components/Worklist.tsx`, `src/ui/styles/screens.css`, `src/state/profile.ts`, `src/core/types.ts`, `src/core/study/scheduler.ts` (AttemptMode), `src/core/cases/templates/index.ts` (label only), `e2e/vuln.spec.ts`. Deps: WP1d.
-- Acceptance: (1) solve a case end-to-end by keyboard only (e2e); (2) axe clean on library, case, debrief in both themes; (3) 360 px: no horizontal scroll, card layout; (4) reduced motion: no reorder animation; (5) reorder announced via live region; (6) old profile fixture still coerces; (7) XP added to the shared total.
+- Acceptance: (1) solve a case end-to-end by keyboard only (e2e); (2) axe clean on library, case, debrief in both themes; (3) 360 px: no horizontal scroll, card layout; (4) reduced motion: no reorder animation; (5) reorder announced via live region; (6) old profile fixture still coerces; (7) XP added to the shared total; (8) no XP/rank gate: on a fresh profile the Home card and cases of every tier are reachable, and the vuln library has the SOC Library's tier filter (DESIGN §7).
 - Tests: `e2e/vuln.spec.ts`; `tests/profile.test.ts` new cases. CI: none (e2e job globs `e2e/`).
 - **Slice exit**: coordinator + reviewer confirm architecture; record ADR adjustments before content batches.
 
@@ -56,10 +56,10 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 - Acceptance: weak objective raises selection weight (unit test); Stats screen axe clean; existing study tests unchanged.
 - Tests: `tests/study.test.ts` additions, `e2e/vuln.spec.ts` stats check.
 
-## WP5 — Continuity hook (vuln → SOC)
-- Goal: optional `profile.vulnLedger` (cap 50); new SOC template `endpoint-known-vuln-exploit` receiving `ctx.vulnHook`; shift planner injects it at most once per shift when a real must-not-miss was dismissed/deferred; debrief links back.
+## WP5 — Continuity hook (vuln → SOC): one alert, upgradeable
+- Goal: per DESIGN §8. Optional `profile.vulnLedger` (cap 50); pure `selectVulnFollowUp(ledger, shiftSeed) → VulnHook | null`; `planShift` takes the result as an optional slot parallel to `campaign` and adds **exactly one** alert from new SOC template `endpoint-known-vuln-exploit` (receives `ctx.vulnHook`); ledger entry marked consumed; debrief links back. No follow-on stages, no campaign state change.
 - Owner: implementer (engine) + scenario-author (template body, inside a new file coordinated by the coordinator since it lives under `src/core/cases/templates/`). Deps: WP4.
-- Acceptance: (1) deterministic injection given ledger + seed; (2) no injection with empty ledger (existing shift tests unchanged); (3) template passes SOC scenario harness; (4) ledger coerces from old profiles.
+- Acceptance: (1) deterministic injection given ledger + seed; (2) no injection with empty ledger (existing shift tests unchanged); (3) at most one injected alert per shift and a consumed entry never re-injects; (4) campaign state untouched by the injection; (5) template passes SOC scenario harness; (6) ledger coerces from old profiles.
 - Tests: `tests/shift.test.ts`, new `tests/scenarios/vuln-link.test.ts`.
 
 ## WP6 — Polish
@@ -71,9 +71,6 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 - Goal: full accessibility audit (all new screens, both themes, 360 px, keyboard, screen-reader names), fact-check sweep of all vuln content, guardrail-auditor run, update `ARCHITECTURE.md`, `README.md`, AS-BUILT.md, close PROGRESS.md.
 - Owner: reviewer + fact-checker + guardrail-auditor; coordinator edits docs.
 - Acceptance: zero axe violations; fact-checker PASS on every template; NEEDS-HUMAN-CHECK list resolved or explicitly deferred by a human; CI green on the branch.
-
-## Optional WP8 — Real-data snapshot (human-run)
-- Goal: `scripts/refresh-vuln-snapshot.mjs` (Node built-ins only) writing `data/vuln-snapshot/*.json` with source URL + retrieval date; debrief "real-world reference" panel. Only if a human runs it with network. Not required for release.
 
 ---
 ## PROGRESS.md template (for WP0)
@@ -101,7 +98,7 @@ Resolved 2026-09-28 (sources in DESIGN):
 
 ## Decision log (ADR-style)
 - **ADR-1 Sibling `VulnTemplate`, shared lower layers.** SOC `GroundTruth`/grader don't fit vuln decisions; sharing world/corpus/worker keeps one org and one console.
-- **ADR-2 Fictional vuln ids (`SIMVULN-`) by default.** No network in build env; memory-sourced CVE facts are banned. Snapshot path is optional and human-run.
+- **ADR-2 Fictional vuln ids (`SIMVULN-`) by default.** No network in build env; memory-sourced CVE facts are banned. *Superseded by ADR-13: the optional snapshot path is gone.*
 - **ADR-3 Structured reason codes graded; free-text note coaching only.** Keyword grading of prose rewards vocabulary, not judgment; codes with contradiction penalties are deterministic and testable.
 - **ADR-4 CVSS v3.1 only.** Matches the exam (CS0-003 2.3 lists Scope, a v3.x-only metric; verified 2026-09-28) and keeps the calculator small; v4.0 is future work.
 - **ADR-5 Tier-based nDCG for ordering.** Reuses shift scoring; ties within a tier are free so grading doesn't punish defensible orderings.
@@ -117,3 +114,8 @@ Resolved 2026-09-28 (sources in DESIGN):
 - **ADR-10 Feed names Sim-KEV / Sim-EPSS (2026-09-28).** Replace invented "SKEV"/"XPS": learners must recognise the real KEV and EPSS names; the `Sim-` prefix, badge and explainer keep the fiction explicit (DESIGN §3.1).
 - **ADR-11 Add `avoid` decision (2026-09-28).** CS0-003 2.5 lists accept/transfer/avoid/mitigate; without `avoid` the mode could not teach removing an unused component. Near-miss is asymmetric (avoid→patch 0.5, patch→avoid 0); twin T11 in WP3.
 - **ADR-12 Calibrated simulated feeds (2026-09-28).** One-time calibration against CISA KEV, FIRST EPSS and NVD (DESIGN §11) sets the catalogue CVSS mix, Sim-KEV count and Sim-EPSS anchor tables (§6.2). Aggregates only; no raw data or real CVE ids in the repo; no runtime or build-time fetch.
+- **ADR-13 Fact policy: fictional only for v1, no real-vulnerability dataset (2026-09-28).** Scenario data is fully fictional (`SIMVULN-` ids, fictional products, Sim-KEV/Sim-EPSS); the "no real CVE id" test covers scenario data only (`src/core/vuln/**` + generated case output) with no exceptions (DESIGN §9). Reason: keeps the project's "synthetic data only" guardrail unconditional, avoids stale data and re-verification in an offline static site, and calibrated feeds plus the Help explainer already teach the real-world names. Alternative rejected: a curated real-CVE lookup panel as a later package.
+- **ADR-14 Continuity = one SOC alert, upgradeable (2026-09-28).** WP5 injects exactly one alert per qualifying ledger entry, with no campaign stages. The selection is one pure function feeding an optional `planShift` slot beside `campaign`, so attacker-driven behaviour can replace it later without changing the template or ledger (DESIGN §8). Reason: smallest change that proves the link; campaign coupling is riskier to existing shift scoring.
+- **ADR-15 No XP gating; difficulty tiers inside the mode (2026-09-28).** Same as the SOC side: all cases open, Tier 1–3 labels and filter (DESIGN §7). Reason: gating hides cases exam learners need; consistency with the existing Library.
+- **ADR-16 WP8 (real-data snapshot script) removed (2026-09-28).** Follows from ADR-13. It was the last package, so no other package is renumbered.
+- **ADR-17 Keep the CS0-003 mapping for now (2026-09-28, provisional).** CS0-003 (English) retires 2026-12-22, but the whole app maps to CS0-003 and retargeting is app-wide (NEEDS-HUMAN-CHECK 1). Objective tags are template data, so a later CS0-004 remap touches tags and labels only.

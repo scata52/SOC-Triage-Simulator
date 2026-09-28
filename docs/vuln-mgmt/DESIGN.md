@@ -298,6 +298,11 @@ examples for joins (`VulnFindings | join kind=inner VulnIntel on VulnId | where 
 Routes (add to `router.ts`): `#/vuln` (library of vuln cases), `#/vuln/<slug>/<seed>` (case), debrief inline as SOC.
 Home gets a "Vulnerability Management" card next to Practice/Shift.
 
+**Not XP-gated.** The card and every vuln case are open from the first visit, as on the SOC side; XP and rank only display progress.
+Difficulty works as in the SOC Library: each case has a tier (tier1–3, sizes per §2.3) and the vuln library offers the same
+"Difficulty: All tiers / Tier 1 / Tier 2 / Tier 3" filter and tier labels. Reason: gating would hide exactly the cases a returning
+analyst studying for the exam needs, and the SOC side already works this way.
+
 Case screen layout (reuse `Workspace`, `Panels`, `Results`, `Debrief`, tokens.css):
 1. **Brief** panel: scope, SLA policy table, change calendar (list, not a graphic-only calendar).
 2. **Findings worklist** (primary): accessible `<table>` with one row per finding; per row a decision `<select>`, schedule `<select>`,
@@ -319,31 +324,37 @@ carrier of severity (text label + icon). Axe scan in both themes for the new scr
   `Partial<Record<string, number>>`). Profile stays version 2; `coerceProfile` must accept old and new records (test). XP feeds the same rank.
 - **Stats**: domain 2.0 / objectives 2.1–2.5 accuracy; decision confusion matrix (e.g., "you patch things that are false positives").
 - **Study/adaptive**: `VulnTemplate` registered in study pool; `skills()` extended with `objective` kind. SRS cards keyed by template id.
-- **Continuity (supported, WP-C)**: profile gains `vulnLedger: {vulnId, host, decision, decidedDay}[]` (optional field, capped 50).
-  When a *real* must-not-miss finding was marked FP/accept/standard-cycle, the shift planner may inject SOC template
-  `endpoint-known-vuln-exploit` whose `build` receives `ctx.vulnHook {host, vulnId}` and emits exploitation telemetry referencing the
-  same fictional VulnId; its debrief links back to the vuln case. Feasible because shift `plan.ts` composes templates and templates
-  already receive optional context (`foothold`). Campaign actor may use the ledger as an initial-access option (future work).
+- **Continuity (WP5): one SOC alert, upgradeable later.** Profile gains `vulnLedger: {vulnId, host, decision, decidedDay, caseRef}[]`
+  (optional field, capped 50). When a *real* must-not-miss finding was marked FP/accept/standard-cycle, the next shift gets **exactly one**
+  extra alert: SOC template `endpoint-known-vuln-exploit`, whose `build` receives `ctx.vulnHook {host, vulnId, decidedDay}` and emits
+  exploitation telemetry for that host referencing the same fictional VulnId; its debrief links back to the vuln case. At most one per shift,
+  no follow-on stages, no campaign state change, and the ledger entry is marked consumed.
+  Upgrade path (not built in v1): the choice sits behind one pure function `selectVulnFollowUp(ledger, shiftSeed) → VulnHook | null`, and
+  `planShift` takes the result as an optional slot parallel to the existing `campaign` slot. A later attacker-driven version can replace that
+  function, or hand the same `VulnHook` to the campaign actor as its initial-access stage, without changing the template or the ledger format.
+  Feasible because `shift/plan.ts` already composes templates around one optional campaign slot and templates already receive optional context (`foothold`).
 - **Case of the Day**: future work.
 
 ## 9. Fact and safety policy (rules)
+Decision (2026-09-28): **fictional only for v1; no real-vulnerability reference dataset.**
 1. All organizations, hosts, users, IPs, hashes and credentials are synthetic. Nothing is presented as a real incident or real company.
-2. Vulnerability facts (CVE IDs, CVSS scores/vectors, KEV status, EPSS, affected versions) must never come from model memory. Either
-   (a) pull them at build time from a public source (NVD, CISA KEV, FIRST EPSS) into a pinned snapshot file recording source URL and
-   retrieval date, or (b) make them clearly fictional with an ID scheme that cannot be mistaken for a real CVE.
-3. **This build uses (b).** The design environment has no network access to NVD/CISA/FIRST. Fictional IDs use the scheme
-   `SIMVULN-<4-digit year>-<5 digits>` (e.g., `SIMVULN-2026-10421`); product names are fictional; the listing is "Sim-KEV (simulated,
-   modeled on CISA KEV)"; exploit probability is "Sim-EPSS (simulated, modeled on FIRST EPSS)" (§3.1). UI shows a "Simulated data" badge on intel panels.
-4. A guardrail test fails the build if any string matching `/CVE-\d{4}-\d{4,}/i` appears in generated case output or `src/core/vuln/**`,
-   except in `data/vuln-snapshot/*.json` reference metadata (rule 5).
-5. Optional (a): `scripts/refresh-vuln-snapshot.mjs`, human-run with network, writes `data/vuln-snapshot/<source>-<date>.json` with
-   `{sourceUrl, retrievedAt, license, records}`. Snapshot data may appear only as **reference metadata** in the debrief ("a real-world
-   vulnerability with a similar profile"), never as something the fictional org suffered. Not required for the app to work.
-6. Real CVEs may appear as reference metadata, but a fictional org is never claimed to have suffered a real incident.
+2. **Scenario data is fully fictional.** Vulnerability ids use `SIMVULN-<4-digit year>-<5 digits>` (e.g., `SIMVULN-2026-10421`), which
+   cannot be mistaken for a CVE; products are fictional; CVSS vectors are authored for fictional entries and scored by our calculator;
+   exploitation signals come only from the simulated feeds Sim-KEV and Sim-EPSS (§3.1). Intel panels carry a "Simulated data" badge.
+   "Scenario data" = everything under `src/core/vuln/**` (templates included) and everything a vuln case generates (corpus rows,
+   briefing, hints, solution, explanation, debrief text).
+3. No vulnerability fact (CVE id, real CVSS score or vector, KEV status, EPSS value, affected versions) is ever written from model memory.
+   v1 ships **no real-vulnerability data at all**: no snapshot files, no lookup panel, no refresh script.
+4. A guardrail test fails the build if any string matching `/CVE-\d{4}-\d{4,}/i` appears in scenario data (rule 2). No exceptions.
+   The test applies to scenario data only; design docs and Help prose are outside its scope (and still carry no real CVE ids).
+5. Help and debrief prose may *name* real public programs and standards (CVSS, NVD, CISA KEV, FIRST EPSS, CompTIA objectives) to explain
+   concepts, and may quote aggregate figures from §11 with their source, but never a real vulnerability record.
+6. Design-time calibration (§11) uses public feeds for aggregate statistics only; raw data stays out of the repo; nothing is fetched
+   at build or run time.
 7. Everything works offline as a static site. Any backend stays optional and additive.
 8. CS0-003 objective mapping (§1) and CVSS test oracles (§6.2) were verified against primary sources on 2026-09-28; re-verify when
    the target exam version changes. Open items: NEEDS-HUMAN-CHECK list in PLAN.md.
-9. fact-checker agent may veto any scenario violating rules 1–6.
+9. The fact-checker agent may veto any scenario violating rules 1–5.
 
 ## 10. Non-goals and risks
 Non-goals: real scanner file import (Nessus/Qualys XML); CVSS v4.0 calculator; live feeds; i18n; backend; editing existing SOC
@@ -361,7 +372,7 @@ future work (revisit if the CS0-004 objectives name it). NVD practice agrees (§
 | Widening shared unions breaks profile/stats | additive widening, coercion tests with old fixtures |
 | Worklist UI too heavy on mobile | card layout, no drag requirement, e2e at 360 px |
 | Ordering grade feels arbitrary | tier-based relevance, ties free, debrief shows ideal tiers with reasons |
-| Scope creep into CVSS v4 / real feeds | explicit non-goal; ADR-4 |
+| Scope creep into CVSS v4 / real feeds | explicit non-goals; ADR-4, ADR-13 |
 | Simulated feeds drift from reality | one-time calibration (§11); re-run it by hand if the mode is revised, never at build or run time |
 
 ## 11. Calibration (one-time, 2026-09-28)
