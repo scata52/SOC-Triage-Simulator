@@ -4,8 +4,9 @@ import { identityTemplates } from './identity.ts';
 import { emailTemplates } from './email.ts';
 import { endpointTemplates } from './endpoint.ts';
 import { networkTemplates } from './network.ts';
+import { impactTemplates } from './impact.ts';
 
-export const ALL_TEMPLATES: CaseTemplate[] = [...identityTemplates, ...emailTemplates, ...endpointTemplates, ...networkTemplates];
+export const ALL_TEMPLATES: CaseTemplate[] = [...identityTemplates, ...emailTemplates, ...endpointTemplates, ...networkTemplates, ...impactTemplates];
 
 const BY_ID = new Map(ALL_TEMPLATES.map((t) => [t.id, t]));
 
