@@ -7,7 +7,7 @@ Project overview: see `README.md` and `ARCHITECTURE.md`. Checks: `npm run typech
 Design: `docs/vuln-mgmt/DESIGN.md`. Plan: `docs/vuln-mgmt/PLAN.md`. State: `docs/vuln-mgmt/PROGRESS.md`. Baseline: `docs/vuln-mgmt/AS-BUILT.md`.
 
 ### Roles and delegation
-The main session is the **coordinator**: plans, delegates, integrates, commits, decides. It does small edits inline (a few lines, docs, PROGRESS.md, wiring one import) instead of delegating.
+The main session is the **coordinator** (run it on Opus: `/model opus`): plans, delegates, integrates, commits, decides. It does small edits inline (a few lines, docs, PROGRESS.md, wiring one import) instead of delegating.
 - `explorer` (haiku, read-only): "where/how does X work" questions.
 - `scenario-author`: vuln templates and twin pairs; writes only `src/core/vuln/templates/**` and `tests/vuln-scenarios/**`.
 - `implementer`: one work package of engine/grader/schema/UI/tests; may edit docs only in `docs/vuln-mgmt/PROGRESS.md`.

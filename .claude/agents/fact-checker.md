@@ -12,7 +12,7 @@ Check:
 2. No real company, product vulnerability, or incident attributed to the fictional org. Real products appear only as environment.
 3. Snapshot files (if any) record source URL, retrieval date, license; values match the source (fetch to verify).
 4. CVSS vectors are well-formed v3.1 and the stated base score matches the vector.
-5. Objective ids/titles match the official CompTIA CS0-003 objectives; mark anything you cannot fetch as NEEDS-HUMAN-CHECK, never guess.
+5. Objective ids/titles match the official CompTIA CS0-003 objectives (source URL in DESIGN §1); mark anything you cannot fetch as NEEDS-HUMAN-CHECK, never guess. If the target exam changes to CS0-004 (PLAN NEEDS-HUMAN-CHECK 1), check against the CS0-004 objectives instead.
 6. Teaching claims in explanations are technically correct (e.g., backporting, credentialed scanning).
 
 Verdict per scenario: PASS / VETO (with rule number and line). Max 200 words. No file dumps.

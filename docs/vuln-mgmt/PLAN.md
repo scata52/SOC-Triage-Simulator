@@ -109,5 +109,10 @@ Resolved 2026-09-28 (sources in DESIGN):
 - **ADR-7 Profile stays v2; additive fields only.** Avoids a migration; coercion tests guard old data.
 - **ADR-8 Reorder by buttons/number input, not drag.** Keyboard and screen-reader first; drag may be added later as enhancement.
 - **ADR-9 Agent models:** haiku for explorer (cheap lookups), sonnet for author/implementer/fact-checker, opus for the gate reviewer (highest cost of a wrong PASS).
+  Checked 2026-09-28 against https://code.claude.com/docs/en/sub-agents and https://code.claude.com/docs/en/model-config: `haiku`, `sonnet`,
+  `opus` are valid `model:` aliases (as are `fable`, `inherit` and full model ids); on the Anthropic API `opus` → Opus 5.5, `sonnet` → Sonnet 5.5.
+  No agent file needed a fix. The coordinator (main session) runs on Opus 5.5 (`/model opus`): it plans, integrates and decides, where
+  mistakes cascade into every package. Frontmatter pins each subagent regardless of the main session's model; the three reviewers without
+  `model:` follow `CLAUDE_CODE_SUBAGENT_MODEL` if set, else the main session's model.
 - **ADR-10 Feed names Sim-KEV / Sim-EPSS (2026-09-28).** Replace invented "SKEV"/"XPS": learners must recognise the real KEV and EPSS names; the `Sim-` prefix, badge and explainer keep the fiction explicit (DESIGN §3.1).
 - **ADR-11 Add `avoid` decision (2026-09-28).** CS0-003 2.5 lists accept/transfer/avoid/mitigate; without `avoid` the mode could not teach removing an unused component. Near-miss is asymmetric (avoid→patch 0.5, patch→avoid 0); twin T11 in WP3.
