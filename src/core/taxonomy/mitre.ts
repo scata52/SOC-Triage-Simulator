@@ -18,6 +18,7 @@ const RAW: Raw[] = [
   // Initial access / phishing
   { id: 'T1566.001', name: 'Phishing: Spearphishing Attachment', tactics: ['initial-access'] },
   { id: 'T1566.002', name: 'Phishing: Spearphishing Link', tactics: ['initial-access'] },
+  { id: 'T1598.003', name: 'Phishing for Information: Spearphishing Link', tactics: ['reconnaissance'] },
   { id: 'T1190', name: 'Exploit Public-Facing Application', tactics: ['initial-access'] },
   { id: 'T1133', name: 'External Remote Services', tactics: ['initial-access', 'persistence'] },
   { id: 'T1078', name: 'Valid Accounts', tactics: ['initial-access', 'persistence', 'privilege-escalation', 'defense-evasion'] },
@@ -48,6 +49,8 @@ const RAW: Raw[] = [
   // Defense evasion
   { id: 'T1027', name: 'Obfuscated Files or Information', tactics: ['defense-evasion'] },
   { id: 'T1140', name: 'Deobfuscate/Decode Files or Information', tactics: ['defense-evasion'] },
+  { id: 'T1027.006', name: 'Obfuscated Files or Information: HTML Smuggling', tactics: ['defense-evasion'] },
+  { id: 'T1553.005', name: 'Subvert Trust Controls: Mark-of-the-Web Bypass', tactics: ['defense-evasion'] },
   { id: 'T1112', name: 'Modify Registry', tactics: ['defense-evasion'] },
   { id: 'T1070.001', name: 'Indicator Removal: Clear Windows Event Logs', tactics: ['defense-evasion'] },
   { id: 'T1562.001', name: 'Impair Defenses: Disable or Modify Tools', tactics: ['defense-evasion'] },

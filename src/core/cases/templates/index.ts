@@ -1,8 +1,10 @@
 import type { CaseTemplate } from '../model.ts';
 import type { Category } from '../../types.ts';
 import { identityTemplates } from './identity.ts';
+import { emailTemplates } from './email.ts';
+import { endpointTemplates } from './endpoint.ts';
 
-export const ALL_TEMPLATES: CaseTemplate[] = [...identityTemplates];
+export const ALL_TEMPLATES: CaseTemplate[] = [...identityTemplates, ...emailTemplates, ...endpointTemplates];
 
 const BY_ID = new Map(ALL_TEMPLATES.map((t) => [t.id, t]));
 
