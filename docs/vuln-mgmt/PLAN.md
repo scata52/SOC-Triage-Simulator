@@ -36,9 +36,9 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 - Tests: `tests/vuln-scenarios/slice.test.ts`.
 
 ## WP1e — UI slice + accessibility
-- Goal: routes `#/vuln` and `#/vuln/<slug>/<seed>` (§7), Home card, worklist with decision/schedule/reason controls, move up/down, console tab reuse, note tab, submit → debrief; record attempt (`mode: 'vuln'`, `category: 'vulnmgmt'`) with additive type widening.
-- Owner: implementer. Files: `src/ui/router.ts`, `src/ui/App.tsx`, `src/ui/screens/Vuln*.tsx`, `src/ui/components/Worklist.tsx`, `src/ui/styles/screens.css`, `src/state/profile.ts`, `src/core/types.ts`, `src/core/study/scheduler.ts` (AttemptMode), `src/core/cases/templates/index.ts` (label only), `e2e/vuln.spec.ts`. Deps: WP1d.
-- Acceptance: (1) solve a case end-to-end by keyboard only (e2e); (2) axe clean on library, case, debrief in both themes; (3) 360 px: no horizontal scroll, card layout; (4) reduced motion: no reorder animation; (5) reorder announced via live region; (6) old profile fixture still coerces; (7) XP added to the shared total; (8) no XP/rank gate: on a fresh profile the Home card and cases of every tier are reachable, and the vuln library has the SOC Library's tier filter (DESIGN §7).
+- Goal: routes `#/vuln` and `#/vuln/<slug>/<seed>` (§7), Home card, worklist with decision/schedule/reason controls, move up/down, console tab reuse, note tab, submit → debrief; record attempt (`mode: 'vuln'`, `category: 'vulnmgmt'`) with additive type widening. Also: SOC sessions stop listing the six vuln context tables, which WP1b added and which are empty there (schema browser, Help schema, editor autocomplete all read `TABLES`); deferred to here by the human 2026-09-28.
+- Owner: implementer. Files: `src/ui/router.ts`, `src/ui/App.tsx`, `src/ui/screens/Vuln*.tsx`, `src/ui/components/Worklist.tsx`, `src/ui/styles/screens.css`, `src/state/profile.ts`, `src/core/types.ts`, `src/core/study/scheduler.ts` (AttemptMode), `src/core/cases/templates/index.ts` (label only), `src/ui/components/Tools.tsx`, `src/ui/components/Editor.tsx`, `src/ui/screens/Help.tsx` (vuln tables per mode), `e2e/vuln.spec.ts`. Deps: WP1d.
+- Acceptance: (1) solve a case end-to-end by keyboard only (e2e); (2) axe clean on library, case, debrief in both themes; (3) 360 px: no horizontal scroll, card layout; (4) reduced motion: no reorder animation; (5) reorder announced via live region; (6) old profile fixture still coerces; (7) XP added to the shared total; (8) no XP/rank gate: on a fresh profile the Home card and cases of every tier are reachable, and the vuln library has the SOC Library's tier filter (DESIGN §7); (9) a SOC session's schema browser and autocomplete don't offer the six vuln tables, a vuln session's do, and Help marks them as vuln-mode tables. README's table count ("18 tables") is updated by the coordinator with this package.
 - Tests: `e2e/vuln.spec.ts`; `tests/profile.test.ts` new cases. CI: none (e2e job globs `e2e/`).
 - **Slice exit**: coordinator + reviewer confirm architecture; record ADR adjustments before content batches.
 
@@ -84,11 +84,12 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 ```
 
 ## NEEDS-HUMAN-CHECK
-Open:
-1. **Target exam version.** CS0-003 (English) retires 2026-12-22; CS0-004 launched 2026-06-23 (DESIGN §1). The whole app (SOC side
-   included) is mapped to CS0-003, so retargeting is an app-wide decision, not a vuln-mode one. Until decided, the mode maps to CS0-003.
-2. **CS0-004 objective numbering and CVSS version.** The official CS0-004 objectives PDF was not retrievable on 2026-09-28; CompTIA's V4 page
-   lists four unnumbered VM objectives and does not name a CVSS version. Needed only if item 1 goes to CS0-004.
+Open: none.
+
+Resolved 2026-09-28 by the human:
+1. **Target exam version: CS0-003, confirmed.** CS0-003 (English) retires 2026-12-22 and CS0-004 launched 2026-06-23 (DESIGN §1); the
+   whole app stays mapped to CS0-003. CS0-004 is not investigated further.
+2. **CS0-004 objective numbering and CVSS version**: moot, follows from item 1.
 
 Resolved 2026-09-28 (sources in DESIGN):
 - CS0-003 objective numbers/titles 2.1–2.5, 4.1 confirmed verbatim; domain 2.0 is **30%**, not 22% (DESIGN §1). Mapping errors fixed.
@@ -118,7 +119,7 @@ Resolved 2026-09-28 (sources in DESIGN):
 - **ADR-14 Continuity = one SOC alert, upgradeable (2026-09-28).** WP5 injects exactly one alert per qualifying ledger entry, with no campaign stages. The selection is one pure function feeding an optional `planShift` slot beside `campaign`, so attacker-driven behaviour can replace it later without changing the template or ledger (DESIGN §8). Reason: smallest change that proves the link; campaign coupling is riskier to existing shift scoring.
 - **ADR-15 No XP gating; difficulty tiers inside the mode (2026-09-28).** Same as the SOC side: all cases open, Tier 1–3 labels and filter (DESIGN §7). Reason: gating hides cases exam learners need; consistency with the existing Library.
 - **ADR-16 WP8 (real-data snapshot script) removed (2026-09-28).** Follows from ADR-13. It was the last package, so no other package is renumbered.
-- **ADR-17 Keep the CS0-003 mapping for now (2026-09-28, provisional).** CS0-003 (English) retires 2026-12-22, but the whole app maps to CS0-003 and retargeting is app-wide (NEEDS-HUMAN-CHECK 1). Objective tags are template data, so a later CS0-004 remap touches tags and labels only.
+- **ADR-17 Keep the CS0-003 mapping (2026-09-28; confirmed by the human the same day, no longer provisional).** CS0-003 (English) retires 2026-12-22, but the whole app maps to CS0-003 and retargeting is app-wide (NEEDS-HUMAN-CHECK 1, resolved). Objective tags are template data, so a later CS0-004 remap would touch tags and labels only.
 - **ADR-18 Subagents at max effort (2026-09-28, human decision).** Every agent file on a model with effort levels sets `effort: max`
   (overrides the session effort; https://code.claude.com/docs/en/sub-agents). `explorer` stays on haiku without `effort`: Haiku has no
   effort levels (https://code.claude.com/docs/en/model-config). The coordinator's own effort is set in the app, not in these files.

@@ -16,10 +16,9 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   Reviewer PASS (max effort): independent hash probe, 50 practice cases + 5 shifts identical vs HEAD; build ≈ 6 ms warm / 20 ms cold.
 
 ## In progress
-- (none) — session stopped after WP1b as instructed; WP1c is next.
+- WP1c — Grader.
 
 ## Next
-- WP1c — Grader
 - WP1d — Slice content: 4 templates incl. twin T3
 - WP1e — UI slice + accessibility (slice exit review)
 - WP2 — Content batch A (twins T1, T2, T4, T5)
@@ -61,10 +60,21 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
 - WP1b: `registry.ts` (`VULN_TEMPLATES`, empty) is where WP1d wires `templates/index.ts`; `buildVulnScenario` also takes a `template` object.
   `SessionInfo.vulnCase` carries a vuln session; `cases` is `[]` and `infra` `{}` for it.
 
+- 2026-09-28 (human): exam version is **CS0-003, confirmed**; CS0-004 is not investigated further. NEEDS-HUMAN-CHECK 1–2 closed in
+  PLAN.md; ADR-17 is no longer provisional.
+- 2026-09-28 (coordinator, left to it by the human): **`explorer` stays on haiku** without `effort`. Reason: it answers location lookups
+  whose output (paths, symbols) the coordinator checks before acting on it, so a wrong answer is caught cheaply and deeper reasoning buys
+  little; ADR-9's cost rationale still holds; no explorer error has been observed; agent models change only for a concrete reason.
+- 2026-09-28 (coordinator, left to it by the human): **WP1a's review is re-run at max effort**, read-only against commit fbed98e, in
+  parallel with WP1c. Reason: WP1a is what WP1c and WP1d build on (model types, CVSS calculator, catalogue: ≈ 780 source lines), it is
+  the only package reviewed before ADR-18, and the calculator is pinned by 18 oracle rows but untested outside them. Findings that don't
+  block WP1c go to Known issues for a separate fix, not into the WP1c commit.
+- 2026-09-28 (human): the six vuln tables that show up empty in SOC sessions stay as they are until WP1e, as recommended. PLAN.md's WP1e
+  entry did not say so; it now carries the goal, acceptance (9) and the three files (`Tools.tsx`, `Editor.tsx`, `Help.tsx`).
+
 ## Known issues
-- NEEDS-HUMAN-CHECK 1–2 still open (PLAN.md).
 - SOC sessions now list six empty vuln tables in the schema browser, Help schema and editor autocomplete (they come from `TABLES`).
-  Hiding empty context tables is a UI decision for WP1e; README.md ("18 tables", lines 46 and 156) needs the new count (coordinator).
+  Scheduled in WP1e (PLAN.md acceptance 9); README.md ("18 tables", lines 46 and 156) gets the new count with WP1e (coordinator).
 - `tests/helpers/vuln-scenario-check.ts` covers build, structure, corpus integrity, synthetic guardrails, determinism and solvability;
   the grading checks (perfect = 100, empty = 0) join it in WP1c/WP1d.
 - Parser bare-table `join` lacks tests for the error path and for a join with no `kind` (reviewer note, non-blocking).
