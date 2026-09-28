@@ -1,5 +1,5 @@
-# Logs
-logs
+# Logs (root only — src/core/logs is source code)
+/logs
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -27,3 +27,6 @@ dist-ssr
 test-results
 playwright-report
 coverage
+
+# Throwaway probe tests (reviewers and ad-hoc checks); never commit
+tests/_*.test.ts
