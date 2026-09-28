@@ -15,3 +15,11 @@ const root = document.getElementById('app');
 if (!root) throw new Error('#app root not found');
 render(<App />, root);
 
+// Offline support in production builds (the dev server is always online).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js?v=${__BUILD_ID__}`, { scope: import.meta.env.BASE_URL }).catch(() => {
+      /* offline support is best-effort */
+    });
+  });
+}
