@@ -1,6 +1,7 @@
-// Fictional threat actors. Names are invented for this simulator and chosen
-// to avoid the naming schemes of real threat-intelligence vendors; any
-// resemblance to a real group is coincidental.
+// Fictional threat actors. The names are coined words, chosen NOT to follow
+// any threat-intelligence vendor's naming scheme (animal suffixes, weather
+// words, metals and colours, APT/TA numbers) so they cannot be mistaken for
+// a real group. tests/campaign.test.ts enforces that.
 
 import type { CampaignStage } from '../cases/model.ts';
 import type { Department, Person } from '../world/world.ts';
@@ -27,8 +28,8 @@ export interface Actor {
 
 export const ACTORS: Actor[] = [
   {
-    id: 'linen-marlin',
-    name: 'LINEN MARLIN',
+    id: 'orrax',
+    name: 'Orrax',
     motivation: 'Financially motivated — data-encryption extortion',
     blurb: 'Buys or phishes its way into mid-sized firms, lives off the land for a few days, then encrypts file servers overnight.',
     tenacity: 2,
@@ -44,8 +45,8 @@ export const ACTORS: Actor[] = [
     ],
   },
   {
-    id: 'paper-heron',
-    name: 'PAPER HERON',
+    id: 'velmyr',
+    name: 'Velmyr',
     motivation: 'Espionage — theft of commercial data',
     blurb: 'Patient and quiet: takes over cloud identities, then moves to an endpoint and smuggles data out over DNS.',
     tenacity: 3,
@@ -64,6 +65,9 @@ export const ACTORS: Actor[] = [
 export function actorById(id: string): Actor | undefined {
   return ACTORS.find((a) => a.id === id);
 }
+
+// Words and patterns real vendors use in actor names. None may appear in ours.
+export const VENDOR_NAMING = /\b(apt|ta|unc|fin|temp|dev|storm|typhoon|blizzard|sleet|sandstorm|tempest|hail|rain|flood|tsunami|cyclone|dust|bear|panda|kitten|chollima|spider|jackal|tiger|buffalo|leopard|wolf|werewolf|marlin|heron|gold|iron|bronze|nickel|cobalt|tin|linen|paper|lazarus|sandworm|turla|cozy|fancy)\b|\d/i;
 
 // Some templates need a victim with specific properties to stay coherent.
 export function compatible(templateId: string, p: Person, os: string): boolean {

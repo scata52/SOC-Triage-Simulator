@@ -87,7 +87,8 @@ describe('synthetic domains and addresses', () => {
         const d = attackerDomain(rng, style, 'Contoso');
         expect(FICTITIOUS_DOMAINS.has(registeredDomain(d))).toBe(false);
         expect(d).toMatch(/^[a-z0-9.-]+$/);
-        if (style === 'lookalike' && /\.(com|net|co)$/.test(d)) expect(d).toMatch(/\d+\.(com|net|co)$/);
+        // Look-alikes and pronounceable/hex DGA names always carry a digit.
+        if (style === 'lookalike' || style === 'dga') expect(d).toMatch(/\d/);
       }
     }
   });

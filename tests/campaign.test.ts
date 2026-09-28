@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ACTORS, actorById } from '../src/core/campaign/actors.ts';
-import { campaignContext, campaignSlot, campaignSummary, recordShift, startCampaign, type CampaignState } from '../src/core/campaign/campaign.ts';
+import { ACTORS, actorById, VENDOR_NAMING } from '../src/core/campaign/actors.ts';
+import { campaignContext, campaignSlot, campaignSummary, nextCampaign, recordShift, startCampaign, type CampaignState } from '../src/core/campaign/campaign.ts';
+import { shiftDay } from '../src/core/shift/plan.ts';
 import { buildShift, planShift } from '../src/core/shift/plan.ts';
 import { scoreShift, type Submission } from '../src/core/shift/score.ts';
 import { perfectVerdict, type Verdict } from '../src/core/grading/grade.ts';
@@ -61,6 +62,15 @@ function scopeHas(c: ResolvedCase, upn: string, host: string): boolean {
 }
 
 describe('actors', () => {
+  it('have invented names that follow no vendor naming scheme', () => {
+    for (const a of ACTORS) {
+      expect(a.name, a.name).not.toMatch(VENDOR_NAMING);
+      expect(a.name.split(/\s+/), `${a.name}: one coined word`).toHaveLength(1);
+    }
+    for (const real of ['LINEN MARLIN', 'Linen Typhoon', 'Cozy Bear', 'APT29', 'Scattered Spider', 'GOLD SOUTHFIELD', 'Paper Werewolf', 'Storm-0558']) expect(real).toMatch(VENDOR_NAMING);
+  });
+
+
   it('only reference incident templates that exist and fit their stage', () => {
     for (const a of ACTORS) {
       for (const step of a.playbook) {
@@ -121,7 +131,7 @@ describe('campaign playthroughs', () => {
 
 describe('campaign consequences', () => {
   it('turns reported indicators into attributed ThreatIntel and verdicts into IncidentHistory', async () => {
-    const turns = await play('camp-intel', 'linen-marlin', catchAll, 1, false);
+    const turns = await play('camp-intel', 'orrax', catchAll, 1, false);
     const state = turns[0].after;
     expect(state.status).toBe('active');
     expect(state.history).toHaveLength(turns[0].scenario.cases.length);
@@ -133,7 +143,7 @@ describe('campaign consequences', () => {
     const col = (name: string) => ti.columns.indexOf(name);
     const ours = ti.rows.filter((r) => r[col('Source')] === 'SOC — analyst report');
     expect(ours.map((r) => r[col('Indicator')]).sort()).toEqual(state.intel.map((i) => i.indicator).sort());
-    for (const r of ours) expect(r[col('Actor')]).toBe('LINEN MARLIN');
+    for (const r of ours) expect(r[col('Actor')]).toBe('Orrax');
     const ih = s.corpus.tables.IncidentHistory;
     const mine = ih.rows.filter((r) => r[ih.columns.indexOf('Analyst')] === 'You');
     expect(mine).toHaveLength(state.history.length);
@@ -144,12 +154,12 @@ describe('campaign consequences', () => {
   it('keeps the infrastructure you did not block and rotates what you did', async () => {
     // Contain the stage but report only the affected user/host: nothing blocked.
     const scopeOnly: Policy = (c) => ({ ...perfectVerdict(c), indicators: c.indicators.scope.map((s) => ({ kind: s.kind, value: s.value })) });
-    const kept = (await play('camp-rotate', 'paper-heron', scopeOnly, 1, false))[0];
+    const kept = (await play('camp-rotate', 'velmyr', scopeOnly, 1, false))[0];
     const usedKept = kept.scenario.infra[kept.campaignCase!.alertId];
     expect(kept.after.infra.ips).toEqual(usedKept.ips);
     expect(kept.after.intel).toEqual([]);
 
-    const blocked = (await play('camp-rotate', 'paper-heron', catchAll, 1, false))[0];
+    const blocked = (await play('camp-rotate', 'velmyr', catchAll, 1, false))[0];
     const usedBlocked = blocked.scenario.infra[blocked.campaignCase!.alertId];
     const blockedValues = new Set(blocked.campaignCase!.indicators.block.map((b) => b.value));
     for (const v of Object.values(usedBlocked.ips)) {
@@ -158,9 +168,47 @@ describe('campaign consequences', () => {
     expect(blocked.after.intel.length).toBeGreaterThan(0);
   });
 
+  it('keeps ageing domains the actor carries between stages', async () => {
+    const turns = await play('camp-age', 'orrax', miss, 6, false);
+    const w = world('camp-age');
+    let checked = 0;
+    for (const t of turns.slice(1)) {
+      const before = t.before;
+      if (before.lastShift === null) continue;
+      const days = Math.round((shiftDay(t.shift, w.org.utcOffset) - shiftDay(before.lastShift, w.org.utcOffset)) / 86_400_000);
+      for (const [role, d] of Object.entries(before.infra.domains)) {
+        if (t.after.infra.domains[role as keyof typeof before.infra.domains] !== d) continue;
+        const a0 = before.infra.domainAgeDays![role as keyof typeof before.infra.domains]!;
+        const a1 = t.after.infra.domainAgeDays![role as keyof typeof before.infra.domains]!;
+        expect(a1, `${role} ${d}`).toBe(a0 + days);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('carries incident history and intel into the next campaign, keeping attribution', async () => {
+    const turns = await play('camp-next', 'orrax', catchAll, 10, false);
+    const ended = turns.at(-1)!.after;
+    expect(ended.status).toBe('evicted');
+    const w = world('camp-next');
+    const next = nextCampaign(ended, w, 'camp-next:c1', 'velmyr');
+    expect(next.status).toBe('active');
+    expect(next.history).toEqual(ended.history);
+    expect(next.intel.map((i) => i.indicator)).toEqual(ended.intel.map((i) => i.indicator));
+    expect(next.intel.every((i) => i.actor === 'Orrax')).toBe(true);
+    expect(next.log).toEqual([]);
+    const s = buildShift(w, planShift({ world: w, seed: 'camp-next', number: turns.length, campaign: campaignSlot(next, w, turns.length) }), campaignContext(next, w, turns.length));
+    const ti = s.corpus.tables.ThreatIntel;
+    const ours = ti.rows.filter((r) => r[ti.columns.indexOf('Source')] === 'SOC — analyst report');
+    expect(ours.length).toBe(ended.intel.length);
+    for (const r of ours) expect(r[ti.columns.indexOf('Actor')]).toBe('Orrax');
+    expect(nextCampaign(null, w, 'fresh').history).toEqual([]);
+  });
+
   it('treats a flagged-but-not-escalated stage as uncontained', async () => {
     const flag: Policy = (c) => ({ ...perfectVerdict(c), action: 'monitor' });
-    const t = (await play('camp-flag', 'linen-marlin', flag, 1, false))[0];
+    const t = (await play('camp-flag', 'orrax', flag, 1, false))[0];
     expect(t.after.log[0].outcome).toBe('flagged');
     expect(t.after.stage).toBe(1);
     expect(t.after.victimId).toBe(t.before.victimId);
@@ -168,8 +216,8 @@ describe('campaign consequences', () => {
   });
 
   it('is deterministic', async () => {
-    const a = await play('camp-det', 'paper-heron', miss, 2, false);
-    const b = await play('camp-det', 'paper-heron', miss, 2, false);
+    const a = await play('camp-det', 'velmyr', miss, 2, false);
+    const b = await play('camp-det', 'velmyr', miss, 2, false);
     expect(JSON.stringify(a.map((t) => t.after))).toBe(JSON.stringify(b.map((t) => t.after)));
   });
 });

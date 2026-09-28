@@ -44,6 +44,9 @@ export interface IntelRecord {
   threat: string;
   shift: number;
   note: string;
+  // Set when the record outlives its campaign: the attribution IR had made
+  // by then ('' if the actor was never identified).
+  actor?: string;
 }
 
 export interface HistoryRecord {
@@ -84,9 +87,9 @@ function emptyInfra(): InfraRecord {
 }
 
 export function actorOf(state: CampaignState): Actor {
-  const a = actorById(state.actorId);
-  if (!a) throw new Error(`Unknown actor ${state.actorId}`);
-  return a;
+  // A stored campaign from an older build may name an actor that no longer
+  // exists; carry on with the first one rather than failing to load.
+  return actorById(state.actorId) ?? ACTORS[0];
 }
 
 // People the actor could plausibly target: Windows laptop users in the
@@ -138,6 +141,19 @@ export function startCampaign(world: World, seed: string, actorId?: string): Cam
   };
 }
 
+// The actor's infrastructure as of a shift: domains age by the calendar
+// days since the stage that last used them.
+function agedInfra(state: CampaignState, world: World, shift: number): InfraRecord {
+  const infra: InfraRecord = JSON.parse(JSON.stringify(state.infra)) as InfraRecord;
+  if (state.lastShift !== null) {
+    const days = Math.round((shiftDay(shift, world.org.utcOffset) - shiftDay(state.lastShift, world.org.utcOffset)) / DAY);
+    for (const k of Object.keys(infra.domainAgeDays ?? {}) as (keyof NonNullable<InfraRecord['domainAgeDays']>)[]) {
+      infra.domainAgeDays![k] = (infra.domainAgeDays![k] ?? 0) + days;
+    }
+  }
+  return infra;
+}
+
 // The campaign's move for the given shift, or nothing once it has ended.
 export function campaignSlot(state: CampaignState, world: World, shift: number): CampaignSlot | undefined {
   if (state.status !== 'active') return undefined;
@@ -150,14 +166,7 @@ export function campaignSlot(state: CampaignState, world: World, shift: number):
   const rng = createRng(`campaign:${state.seed}:slot:${shift}`);
   const templateId = rng.pick(options.length ? options : step.templates);
 
-  // Infrastructure ages between shifts.
-  const infra: InfraRecord = JSON.parse(JSON.stringify(state.infra)) as InfraRecord;
-  if (state.lastShift !== null) {
-    const days = Math.round((shiftDay(shift, world.org.utcOffset) - shiftDay(state.lastShift, world.org.utcOffset)) / DAY);
-    for (const k of Object.keys(infra.domainAgeDays ?? {}) as (keyof NonNullable<InfraRecord['domainAgeDays']>)[]) {
-      infra.domainAgeDays![k] = (infra.domainAgeDays![k] ?? 0) + days;
-    }
-  }
+  const infra = agedInfra(state, world, shift);
   return {
     templateId,
     seed: `campaign:${state.seed}:${state.intrusions}:${state.stage}:${shift}`,
@@ -182,7 +191,7 @@ export function campaignContext(state: CampaignState, world: World, shift: numbe
         FirstSeen: b.now - ago(r.shift) - 3 * HOUR,
         LastSeen: b.now - ago(r.shift) - 2 * HOUR,
         Description: r.note,
-        Actor: state.identified ? actor.name : '',
+        Actor: r.actor ?? (state.identified ? actor.name : ''),
       });
     }
     for (const h of state.history) {
@@ -250,7 +259,9 @@ export function recordShift(state: CampaignState, world: World, shift: number, i
     next.intel.push({ indicator: s.value, type, threat: s.kind === 'sha256' ? 'Malware' : s.note?.toLowerCase().includes('phish') || s.note?.toLowerCase().includes('sender') ? 'Phishing' : 'C2', shift, note: `${s.note ?? 'Indicator'} — reported from ${r.alertId} (${r.case.alert.rule}).` });
   }
   // Infrastructure: keep what the actor used and you didn't block.
-  const merged: InfraRecord = JSON.parse(JSON.stringify(state.infra)) as InfraRecord;
+  // Start from the infrastructure as aged to this shift, so domains the actor
+  // carries but did not use keep getting older.
+  const merged: InfraRecord = agedInfra(state, world, shift);
   const keep = <K extends string>(into: Partial<Record<K, string>>, from: Partial<Record<K, string>>) => {
     for (const [k, v] of Object.entries(from) as [K, string][]) if (v) into[k] = v;
     for (const [k, v] of Object.entries(into) as [K, string][]) if (v && burned.has(v.toLowerCase())) delete into[k];
@@ -296,6 +307,20 @@ export function recordShift(state: CampaignState, world: World, shift: number, i
   }
   next.log.push({ shift, alertId: campaignAlertId, templateId: r.case.templateId, stage: step.stage, outcome, victim: victim.upn, host: state.host, blocked: reported.map((s) => s.value), narrative });
   return next;
+}
+
+// A new campaign after the last one ended. The organisation's memory — your
+// incident history and the intel you reported — carries over, with each
+// indicator keeping the attribution IR had made for it.
+export function nextCampaign(prev: CampaignState | null, world: World, seed: string, actorId?: string): CampaignState {
+  const fresh = startCampaign(world, seed, actorId);
+  if (!prev) return fresh;
+  const name = prev.identified ? actorOf(prev).name : '';
+  return {
+    ...fresh,
+    history: [...prev.history],
+    intel: prev.intel.map((r) => ({ ...r, actor: r.actor ?? name })),
+  };
 }
 
 // Short situational summary for the intel board.

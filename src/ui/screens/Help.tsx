@@ -304,7 +304,9 @@ function About() {
           compromise — do not block them anywhere real.
         </li>
         <li>
-          <strong>Threat actors</strong> are invented. Their behaviour is described at the level a defender sees in telemetry; tooling is summarised, never reproduced.
+          <strong>Threat actors</strong> are invented (coined names that follow no vendor's naming scheme). Their activity appears as a defender sees it in
+          telemetry — process command lines, connections, file writes — pointing only at documentation-range addresses and generated domains. Credential theft,
+          destructive steps and attacker tooling are summarised by the EDR; no exploit code or malware is included.
         </li>
         <li>
           <strong>Well-known services</strong> (Microsoft 365, a CDN, a code host) appear as the ordinary background they are in any company.

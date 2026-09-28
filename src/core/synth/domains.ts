@@ -121,21 +121,21 @@ export function attackerDomain(rng: Rng, style: AttackerDomainStyle, orgShort: s
   const org = orgShort.toLowerCase().replace(/[^a-z0-9]/g, '');
   switch (style) {
     case 'lookalike': {
-      // Look-alikes on common TLDs always carry a numeric token; bare
-      // typosquats only appear on the suspicious TLDs.
+      // Every look-alike carries a numeric token, so a generated name can
+      // never coincide with a real registration of a plain typosquat.
       const shape = rng.int(0, 2);
       if (shape === 0) {
         return `${org}-${rng.pick(LOOKALIKE_WORDS)}${rng.int(2, 99)}.${rng.pick(['com', 'net', 'co'])}`;
       }
-      if (shape === 1) return `${typo(org, rng)}.${rng.pick(SUSPICIOUS_TLDS)}`;
-      return `${rng.pick(LOOKALIKE_WORDS)}-${typo(org, rng)}.${rng.pick(SUSPICIOUS_TLDS)}`;
+      if (shape === 1) return `${typo(org, rng)}${rng.int(2, 99)}.${rng.pick(SUSPICIOUS_TLDS)}`;
+      return `${rng.pick(LOOKALIKE_WORDS)}-${typo(org, rng)}${rng.int(2, 99)}.${rng.pick(SUSPICIOUS_TLDS)}`;
     }
     case 'lure':
       return `${rng.pick(LURE_WORDS)}-${rng.pick(LURE_SUFFIX)}-${rng.alnum(3)}.${rng.pick(SUSPICIOUS_TLDS)}`;
     case 'dga':
       return rng.bool()
         ? `${rng.hex(rng.int(10, 16))}.${rng.pick(SUSPICIOUS_TLDS)}`
-        : `${pronounceable(rng, rng.int(9, 14))}.${rng.pick([...SUSPICIOUS_TLDS, 'com', 'net'])}`;
+        : `${pronounceable(rng, rng.int(9, 14))}${rng.int(2, 99)}.${rng.pick([...SUSPICIOUS_TLDS, 'com', 'net'])}`;
     case 'tech':
       return `${rng.pick(TECH_A)}-${rng.pick(TECH_B)}-${rng.alnum(3)}.${rng.pick(GENERIC_TLDS)}`;
   }

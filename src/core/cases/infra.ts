@@ -83,7 +83,9 @@ export class Infra {
     const domain = preset ?? attackerDomain(this.rng, opts.style ?? DEFAULT_STYLE[role], this.orgShort);
     const ipRole: IpRole = role === 'sender' ? 'sender' : role;
     const ip = this.ip(ipRole);
-    const age = opts.ageDays ?? this.preset?.domainAgeDays?.[role] ?? this.rng.int(2, 28);
+    // A campaign domain keeps its own (ageing) registration date.
+    const presetAge = preset ? this.preset?.domainAgeDays?.[role] : undefined;
+    const age = presetAge ?? opts.ageDays ?? this.rng.int(2, 28);
     this.log.registerDomain(domain, [ip], {
       ageDays: age,
       category: opts.category ?? (age < 30 ? 'Newly Registered Domain' : 'Uncategorized'),
