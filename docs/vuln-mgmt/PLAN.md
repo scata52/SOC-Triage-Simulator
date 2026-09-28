@@ -14,7 +14,7 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 ## WP1a — Core types, fictional catalogue, CVSS 3.1 calculator
 - Goal: `src/core/vuln/{model.ts,cvss31.ts,catalogue.ts,ids.ts}` per §2.2, §6.2; `SIMVULN-YYYY-NNNNN` id helper.
 - Owner: implementer. Deps: WP0.
-- Acceptance: (1) `VulnTemplate`, `VulnCaseSpec`, `FindingTruth`, `VulnDecision`, `ReasonCode` exported; (2) CVSS scores match every row of the oracle table in DESIGN §6.2 (verified 2026-09-28), Roundup uses the spec's Appendix A integer method; (3) catalogue deterministic by seed, ≥ 60 entries, ids match `/^SIMVULN-\d{4}-\d{5}$/`; (4) no real CVE strings in `src/core/vuln/**`.
+- Acceptance: (1) `VulnTemplate`, `VulnCaseSpec`, `FindingTruth`, `VulnDecision`, `ReasonCode` exported; (2) CVSS scores match every row of the oracle table in DESIGN §6.2 (verified 2026-09-28), Roundup uses the spec's Appendix A integer method; (3) catalogue deterministic by seed, ≥ 60 entries, ids match `/^SIMVULN-\d{4}-\d{5}$/`; (4) no real CVE strings in `src/core/vuln/**`; (5) catalogue follows the calibrated parameters in DESIGN §6.2 (CVSS mix within ±5 points per band, 6 Sim-KEV entries incl. ≥ 1 Medium and ≥ 1 old id, Sim-EPSS sampled from the two anchor tables, displayed percentile from the all-CVE table: 0.004 → 31st).
 - Tests: `tests/vuln-cvss.test.ts`, `tests/vuln-catalogue.test.ts`, guardrail `tests/vuln-guardrails.test.ts` (CVE regex over source + generated output).
 
 ## WP1b — Corpus tables and scan writer
@@ -116,3 +116,4 @@ Resolved 2026-09-28 (sources in DESIGN):
   `model:` follow `CLAUDE_CODE_SUBAGENT_MODEL` if set, else the main session's model.
 - **ADR-10 Feed names Sim-KEV / Sim-EPSS (2026-09-28).** Replace invented "SKEV"/"XPS": learners must recognise the real KEV and EPSS names; the `Sim-` prefix, badge and explainer keep the fiction explicit (DESIGN §3.1).
 - **ADR-11 Add `avoid` decision (2026-09-28).** CS0-003 2.5 lists accept/transfer/avoid/mitigate; without `avoid` the mode could not teach removing an unused component. Near-miss is asymmetric (avoid→patch 0.5, patch→avoid 0); twin T11 in WP3.
+- **ADR-12 Calibrated simulated feeds (2026-09-28).** One-time calibration against CISA KEV, FIRST EPSS and NVD (DESIGN §11) sets the catalogue CVSS mix, Sim-KEV count and Sim-EPSS anchor tables (§6.2). Aggregates only; no raw data or real CVE ids in the repo; no runtime or build-time fetch.

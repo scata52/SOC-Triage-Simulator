@@ -140,7 +140,7 @@ Each pair: same `title`, same headline finding and base score; one clue differs.
 |---|---|---|---|---|---|---|
 | T1 | `vm-backport-fp` / `vm-backport-real` | Critical 9.8 on Linux web server, unauthenticated scan | PatchHistory/SoftwareInventory show distro package with backported fix vs upstream vulnerable build compiled from source | false-positive | patch (emergency if exposed) | "Scanner said critical, so it is" |
 | T2 | `vm-stale-scan` / `vm-fresh-scan` | High finding on file server, 21 days old | PatchHistory: KB installed after ScanRun.started (A) vs installed-but-pending-reboot, service still loads old DLL (B) | false-positive (stale; request rescan) | patch (schedule reboot) | "Installed = fixed"; ignoring scan timestamps |
-| T3 | `vm-kev-internal` / `vm-nokev-internal` | CVSS 7.5 on internal app server | VulnIntel: on Sim-KEV + public exploit (A) vs Sim-EPSS 0.004 (≈ 32nd percentile), no public exploit (B) | patch, emergency | patch, standard-cycle | CVSS alone sets urgency |
+| T3 | `vm-kev-internal` / `vm-nokev-internal` | CVSS 7.5 on internal app server | VulnIntel: on Sim-KEV + public exploit (A) vs Sim-EPSS 0.004 (≈ 31st percentile), no public exploit (B) | patch, emergency | patch, standard-cycle | CVSS alone sets urgency |
 | T4 | `vm-exposed-edge` / `vm-segmented` | CVSS 9.8 RCE on management interface | DeviceInfo exposed + FirewallLogs show internet hits (A) vs ControlInventory: interface on isolated mgmt VLAN, ACL verified in FirewallLogs (B; environmental 8.8 with `MAV:A`) | patch, emergency | mitigate (already) → patch next-window | Base score = environmental score |
 | T5 | `vm-waf-covers` / `vm-waf-bypass` | SQL injection in public web app, fix needs code release after freeze | WAF rule covers the vulnerable parameter (A) vs WAF in detect-only mode / endpoint not routed through WAF (B) | mitigate (virtual patch) + patch next-window | emergency change (patch/disable feature) | "We have a WAF" ≠ covered |
 | T6 | `vm-legacy-accept` / `vm-legacy-isolate` | Unsupported OS on lab/OT controller, vendor won't patch | Tickets: approved, time-boxed risk exception with owner and isolation in place (A) vs no exception and host reachable from corp VLAN (B) | accept (verify expiry) | mitigate (segment) + raise exception | "Can't patch → nothing to do" |
@@ -269,6 +269,21 @@ Severity bands (spec Table 14): None 0.0 · Low 0.1–3.9 · Medium 4.0–6.9 ·
   credentialed/agent sees package versions).
 - Templates plant deciders (signal rows) via `ctx.log` and keep RowRefs.
 
+**Catalogue and feed parameters (calibrated 2026-09-28, numbers in §11).** Deterministic per seed; a template may override values for its deciders.
+- *CVSS mix* of the ≈ 60 catalogue entries: Critical 15% · High 40% · Medium 40% · Low 5% (NVD: 16/40/43/2% over all CVEs with a v3 score,
+  14/46/37/4% over the last 90 days). Vectors favour the shapes most common in NVD (base 7.5, 6.5, 8.8, 7.8, 9.8, 5.3). Reason: a
+  critical-heavy catalogue would teach that most findings are critical.
+- *Sim-KEV*: 6 of ≈ 60 catalogue entries (10%), a deliberate teaching over-sample (real: 0.45% of all CVEs, 1.6% of Critical ones).
+  Listed entries span severities as KEV does, so at least one is Medium; about a third carry an old id (SIMVULN year ≤ 2019) on a legacy
+  host. Background (non-decider) findings are never Sim-KEV-listed except the planted decoys.
+- *Sim-EPSS, not Sim-KEV-listed*: inverse-CDF sampling, log-linear between anchors (percentile → score): 0 → 0.0005, 0.10 → 0.0021,
+  0.25 → 0.0034, 0.50 → 0.0067, 0.75 → 0.016, 0.90 → 0.039, 0.95 → 0.088, 0.99 → 0.55, 1.0 → 0.98.
+- *Sim-EPSS, Sim-KEV-listed*: anchors 0 → 0.0023, 0.10 → 0.023, 0.25 → 0.090, 0.50 → 0.49, 0.75 → 0.92, 1.0 → 0.997. So about one
+  Sim-KEV entry in four shows Sim-EPSS < 0.1, and at least one tier-2+ case uses such an item: "known exploited" outranks a modest probability.
+- *Displayed percentile* always comes from the first (all-CVE) anchor table, so a score maps to one percentile everywhere (0.004 → 31st).
+- *Newly published* entries (< 30 days before the case date) draw Sim-EPSS from the lower half of the first table: recent CVEs have not
+  accrued exploitation evidence yet (recent Critical CVEs: median EPSS 0.0056). Supports the 2.3 "zero-day" discussion.
+
 ### 6.3 Noise budget (per case)
 - 60–80% of findings are background: informational/low (TLS ciphers, self-signed certs, SSH banners), duplicates, accepted-risk items with valid exceptions.
 - Every decider has a decoy: another Sim-KEV-listed item already patched; another WAF rule in detect mode on an unrelated app; another stale scan that is still valid.
@@ -337,7 +352,7 @@ templates (except adding one new continuity template).
 CVSS version (verified 2026-09-28): the CS0-003 objectives name no CVSS version, but objective 2.3 lists **Scope** among the metrics to
 interpret. Scope exists in v3.x only; v4.0 replaced it with separate vulnerable-system / subsequent-system impacts and added Attack
 Requirements (https://www.first.org/cvss/v4.0/specification-document, retrieved 2026-09-28). So v3.1 matches the exam; v4.0 stays
-future work (revisit if the CS0-004 objectives name it).
+future work (revisit if the CS0-004 objectives name it). NVD practice agrees (§11): 86% of recent CVEs carry a v3.1 score, 28% a v4.0 score.
 
 | Risk | Mitigation |
 |---|---|
@@ -347,3 +362,36 @@ future work (revisit if the CS0-004 objectives name it).
 | Worklist UI too heavy on mobile | card layout, no drag requirement, e2e at 360 px |
 | Ordering grade feels arbitrary | tier-based relevance, ties free, debrief shows ideal tiers with reasons |
 | Scope creep into CVSS v4 / real feeds | explicit non-goal; ADR-4 |
+| Simulated feeds drift from reality | one-time calibration (§11); re-run it by hand if the mode is revised, never at build or run time |
+
+## 11. Calibration (one-time, 2026-09-28)
+Purpose: keep the simulated feeds realistic (§6.2 parameters). Only aggregates are recorded; no raw dumps and no real CVE ids are committed,
+and nothing here enters scenario data. Sources, all retrieved 2026-09-28:
+- CISA KEV JSON feed, catalogVersion 2026.09.27: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+- FIRST EPSS daily file, model v2026.06.15, score date 2026-09-28: https://epss.empiricalsecurity.com/epss_scores-current.csv.gz
+  (spot-checked value-for-value against the FIRST API https://api.first.org/data/v1/epss)
+- NVD CVE API 2.0, https://services.nvd.nist.gov/rest/json/cves/2.0: count queries by `cvssV3Severity` with and without `hasKev`,
+  plus a sample of all 36,137 non-rejected CVEs published 2026-06-29 … 2026-09-26.
+
+| Measure | Value |
+|---|---|
+| KEV size | 1,728 entries ≈ 0.45% of the 380,224 EPSS-scored CVEs |
+| KEV additions per year | 2021: 311 · 2022: 555 (initial backfill) · 2023: 187 · 2024: 186 · 2025: 245 · 2026 to date: 244 |
+| KEV share within each NVD v3 severity | Critical 1.6% (492 / 30,686) · High 0.87% (665 / 76,796) · Medium 0.16% (137 / 83,601) · Low 0.09% (3 / 3,297) |
+| KEV entries by v3 severity | Critical 38% · High 51% · Medium 11% · Low < 1% of those with a v3 score; 25% have no v3 score (older CVEs) |
+| KEV entries with CVE year ≤ 2019 | 32%; "known ransomware campaign use": 21% |
+| EPSS, all CVEs | median 0.0067 · p75 0.016 · p90 0.039 · p95 0.088 · p99 0.55; share ≥ 0.1: 4.5%; ≥ 0.5: 1.1% |
+| EPSS percentile anchors | 0.004 ≈ 32nd (31.6) · 0.01 ≈ 61st · 0.1 ≈ 95.5th · 0.5 ≈ 98.9th |
+| EPSS of KEV entries | median 0.49; 26% below 0.1; 10% below 0.023 |
+| KEV share of the top EPSS scores | top 100: 94% · top 1,000: 52% · top 10,000: 11% |
+| NVD v3 severity mix, all CVEs with a v3 score (194,380) | Critical 15.8% · High 39.5% · Medium 43.0% · Low 1.7% |
+| NVD sample, last 90 days (36,137) | v3.1 present 85.8%, v4.0 present 27.6%, v4.0 only 7.5%, no CVSS 6.2%; v3 mix Critical 13.5% · High 45.8% · Medium 36.9% · Low 3.7%; median 7.4; most common scores 7.5, 6.5, 8.8, 7.8, 9.8 |
+| EPSS of recent CVEs by v3 band | Critical median 0.0056 (0.5% ≥ 0.1) · High 0.0039 · Medium 0.0031 · Low 0.0024; 66 of the 36,137 are already in KEV |
+
+What changed because of it:
+1. The draft had no numeric feed parameters; §6.2 now fixes the CVSS mix, the Sim-KEV count, and two Sim-EPSS anchor tables.
+2. "Severity ≠ exploitation" is quantified: only 1.6% of Critical CVEs are KEV-listed. T3/T9 debriefs may state this as a real-world figure
+   (source: this section), without naming any real CVE.
+3. KEV and EPSS disagree often (a quarter of KEV entries score < 0.1), so Sim-KEV items no longer imply a high Sim-EPSS.
+4. Twin T3's Sim-EPSS 0.004 is realistic as a low value (≈ 31st percentile); unchanged.
+5. The catalogue is not critical-heavy, and old ids stay exploited (a third of KEV is 2019 or older).
