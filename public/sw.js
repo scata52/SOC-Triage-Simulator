@@ -37,7 +37,7 @@ self.addEventListener('fetch', (event) => {
           cache.put('./', fresh.clone());
           return fresh;
         } catch {
-          return (await caches.match('./')) || Response.error();
+          return (await caches.match('./', { ignoreVary: true })) || Response.error();
         }
       })(),
     );
@@ -45,7 +45,9 @@ self.addEventListener('fetch', (event) => {
   }
   event.respondWith(
     (async () => {
-      const hit = await caches.match(req, { ignoreSearch: false });
+      // ignoreVary: the page's crossorigin module/style requests carry an Origin
+      // header the precache requests did not; assets are content-hashed anyway.
+      const hit = await caches.match(req, { ignoreVary: true });
       if (hit) return hit;
       const res = await fetch(req);
       if (res.ok && new URL(req.url).pathname.includes('/assets/')) (await caches.open(CACHE)).put(req, res.clone());

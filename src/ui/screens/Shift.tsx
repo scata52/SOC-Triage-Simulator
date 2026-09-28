@@ -27,30 +27,42 @@ function specFor(): OpenSpec | null {
 }
 
 const shiftSession = signal<SessionInfo | null>(null);
-let openFor: string | null = null;
+let sessionFor: string | null = null;
 
+// Always (re)open on mount: the worker holds one session at a time, and a
+// practice case opened mid-shift replaces it. Reopening an already-open
+// session is a no-op in the worker; the cached info avoids a loading flash.
 function useShiftSession(): { session: SessionInfo | null; error: string | null } {
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   const s = profile.value.activeShift;
   const key = s ? `${profile.value.worldSeed}:${s.number}` : null;
   useEffect(() => {
     if (!key) return;
-    if (openFor === key && shiftSession.value) return;
     const spec = specFor();
     if (!spec) return;
-    openFor = key;
-    shiftSession.value = null;
+    let live = true;
+    setReady(false);
+    if (sessionFor !== key) shiftSession.value = null;
     siem
       .open(spec)
       .then((info) => {
+        if (!live) return;
+        sessionFor = key;
         shiftSession.value = info;
+        setReady(true);
         if (info.plan?.campaignAlertId && !profile.peek().activeShift?.campaignAlertId) {
           update((p) => (p.activeShift ? { ...p, activeShift: { ...p.activeShift, campaignAlertId: info.plan!.campaignAlertId } } : p));
         }
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => live && setError(e.message));
+    return () => {
+      live = false;
+    };
   }, [key]);
-  return { session: openFor === key ? shiftSession.value : null, error };
+  // Show the cached queue immediately, but only let queries run once the
+  // worker has this session open again.
+  return { session: sessionFor === key && (ready || !!shiftSession.value) ? shiftSession.value : null, error };
 }
 
 // The shift clock runs only while a shift page is open and visible. It ticks

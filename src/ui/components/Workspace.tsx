@@ -274,6 +274,12 @@ export function Workspace({
                     {num(result.total)} rows{result.truncated ? ` (first ${num(result.rows.length)} shown)` : ''} · {result.ms} ms
                     {result.recordIdColumn < 0 && result.rows.length > 0 ? ' · aggregated rows cannot be pinned' : ''}
                   </p>
+                  {lang === 'kql' && (
+                    <details class="sql-details">
+                      <summary class="faint small">SQL generated from your KQL</summary>
+                      <pre class="code-block mono">{result.sql.trim()}</pre>
+                    </details>
+                  )}
                   <Results result={result} pins={pinSet} onTogglePin={togglePin} onAction={onCell} />
                 </>
               ) : (

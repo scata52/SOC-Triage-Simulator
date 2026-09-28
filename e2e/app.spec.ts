@@ -133,6 +133,26 @@ test.describe('investigation', () => {
     expect(errors).toEqual([]);
   });
 
+  test('results sort, and a runaway query is stopped without losing the case', async ({ page }) => {
+    await page.addInitScript(() => ((window as unknown as { __SOC_QUERY_TIMEOUT__: number }).__SOC_QUERY_TIMEOUT__ = 1500));
+    await withProfile(page);
+    await openCase(page);
+    await runQuery(page, 'SigninLogs\n| project TimeGenerated, UserPrincipalName, ResultType\n| take 40');
+    await page.getByRole('button', { name: 'ResultType: sort ascending' }).click();
+    await expect(page.locator('th[aria-sort="ascending"]')).toHaveCount(1);
+    const first = await page.locator('.results-table tbody tr').first().locator('td').last().innerText();
+    await page.getByRole('button', { name: 'ResultType: sort descending' }).click();
+    await expect(page.locator('th[aria-sort="descending"]')).toHaveCount(1);
+    expect(Number(await page.locator('.results-table tbody tr').first().locator('td').last().innerText())).toBeGreaterThanOrEqual(Number(first));
+    await expect(page.getByText('SQL generated from your KQL')).toBeVisible();
+
+    // Catastrophic backtracking: the worker is killed and respawned.
+    await runQuery(page, 'DeviceProcessEvents\n| extend s = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\n| where s matches regex "(a|aa)+b"').catch(() => {});
+    await expect(page.locator('.query-error')).toContainText('was stopped', { timeout: 15_000 });
+    await runQuery(page, 'SigninLogs\n| take 3');
+    await expect(page.locator('.results-table tbody tr')).toHaveCount(3);
+  });
+
   test('the editor never traps Tab, and the skip link works', async ({ page }) => {
     await withProfile(page);
     await page.goto('/#/');

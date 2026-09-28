@@ -1,7 +1,7 @@
 // Query results: a real <table> with a pin toggle per row, a row inspector
 // with value actions, paging, and a small chart when the query asks to render.
 
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import type { QueryResult } from '../../core/query/engine.ts';
 import type { Cell } from '../../core/logs/schema.ts';
 import { Icon } from './Icon.tsx';
@@ -121,16 +121,38 @@ export function Results({
 }) {
   const [limit, setLimit] = useState(PAGE);
   const [inspect, setInspect] = useState<number | null>(null);
+  const [sort, setSort] = useState<{ col: number; dir: 'asc' | 'desc' } | null>(null);
   useEffect(() => {
     setLimit(PAGE);
     setInspect(null);
+    setSort(null);
   }, [result]);
 
   const names = result.columns.map((c) => c.name);
   const visible = result.columns.map((c, i) => ({ c, i })).filter(({ c }) => !c.hidden);
   const rid = onTogglePin ? result.recordIdColumn : -1;
-  const rows = result.rows.slice(0, limit);
-  const inspected = inspect !== null ? result.rows[inspect] : null;
+  // Client-side sort of the rows returned (nulls last; numbers numerically).
+  const sorted = useMemo(() => {
+    if (!sort) return result.rows;
+    const k = sort.col;
+    const sign = sort.dir === 'asc' ? 1 : -1;
+    return [...result.rows].sort((a, b) => {
+      const x = a[k];
+      const y = b[k];
+      if (x === null || x === '') return y === null || y === '' ? 0 : 1;
+      if (y === null || y === '') return -1;
+      if (typeof x === 'number' && typeof y === 'number') return (x - y) * sign;
+      const xs = String(x);
+      const ys = String(y);
+      return (xs < ys ? -1 : xs > ys ? 1 : 0) * sign;
+    });
+  }, [result, sort]);
+  const rows = sorted.slice(0, limit);
+  const inspected = inspect !== null ? sorted[inspect] : null;
+  const toggleSort = (col: number) => {
+    setInspect(null);
+    setSort((cur) => (!cur || cur.col !== col ? { col, dir: 'asc' } : cur.dir === 'asc' ? { col, dir: 'desc' } : null));
+  };
 
   return (
     <div class="results">
@@ -154,9 +176,14 @@ export function Results({
                 <th scope="col" class="col-n">
                   #
                 </th>
-                {visible.map(({ c }) => (
-                  <th scope="col" title={c.type}>
-                    {c.name}
+                {visible.map(({ c, i }) => (
+                  <th scope="col" title={c.type} aria-sort={sort?.col === i ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+                    <button type="button" class="th-sort" onClick={() => toggleSort(i)} aria-label={`${c.name}: sort ${sort?.col === i && sort.dir === 'asc' ? 'descending' : sort?.col === i ? 'off' : 'ascending'}`}>
+                      {c.name}
+                      <span aria-hidden="true" class="th-sort-mark">
+                        {sort?.col === i ? (sort.dir === 'asc' ? '▲' : '▼') : ''}
+                      </span>
+                    </button>
                   </th>
                 ))}
               </tr>
