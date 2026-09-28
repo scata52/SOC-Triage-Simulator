@@ -30,3 +30,4 @@ coverage
 
 # Throwaway probe tests (reviewers and ad-hoc checks); never commit
 tests/_*.test.ts
+e2e/_*
