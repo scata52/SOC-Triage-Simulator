@@ -119,3 +119,6 @@ Resolved 2026-09-28 (sources in DESIGN):
 - **ADR-15 No XP gating; difficulty tiers inside the mode (2026-09-28).** Same as the SOC side: all cases open, Tier 1–3 labels and filter (DESIGN §7). Reason: gating hides cases exam learners need; consistency with the existing Library.
 - **ADR-16 WP8 (real-data snapshot script) removed (2026-09-28).** Follows from ADR-13. It was the last package, so no other package is renumbered.
 - **ADR-17 Keep the CS0-003 mapping for now (2026-09-28, provisional).** CS0-003 (English) retires 2026-12-22, but the whole app maps to CS0-003 and retargeting is app-wide (NEEDS-HUMAN-CHECK 1). Objective tags are template data, so a later CS0-004 remap touches tags and labels only.
+- **ADR-18 Subagents at max effort (2026-09-28, human decision).** Every agent file on a model with effort levels sets `effort: max`
+  (overrides the session effort; https://code.claude.com/docs/en/sub-agents). `explorer` stays on haiku without `effort`: Haiku has no
+  effort levels (https://code.claude.com/docs/en/model-config). The coordinator's own effort is set in the app, not in these files.

@@ -3,6 +3,7 @@ name: implementer
 description: Use to build exactly one work package from docs/vuln-mgmt/PLAN.md (engine, grader, schema, UI, tests). Not for scenario content or reviews.
 tools: Read, Grep, Glob, Write, Edit, Bash
 model: sonnet
+effort: max
 ---
 
 You implement one work package (WP) of the Vulnerability Management workstream.

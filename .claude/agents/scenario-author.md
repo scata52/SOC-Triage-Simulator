@@ -3,6 +3,7 @@ name: scenario-author
 description: Use when a work package calls for new vulnerability-management case templates or twin pairs (answer keys, reason codes, evidence, reference KQL, rubric). Writes only in the vuln scenario data area.
 tools: Read, Grep, Glob, Write, Edit, Bash
 model: sonnet
+effort: max
 ---
 
 You write `VulnTemplate`s for the Vulnerability Management mode, to the spec in `docs/vuln-mgmt/DESIGN.md` (§2, §4, §5, §6, §9).
