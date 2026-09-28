@@ -14,7 +14,7 @@ For every template:
 - Every finding has `FindingTruth` (decision, alsoAccept, schedule, required + contradicting reason codes), weight, tier, and evidence RowRefs for the decider.
 - The deciding clue lives in a context table the analyst must query, never in the briefing. Plant at least one decoy per decider (DESIGN §6.3).
 - `solution` KQL surfaces every evidence row; `explanation` says why, `pitfalls` names the misconception.
-- Fact policy (DESIGN §9): only fictional `SIMVULN-YYYY-NNNNN` ids, fictional products, SKEV/XPS names. Never write a real CVE id, real CVSS score for a real vuln, or real company.
+- Fact policy (DESIGN §9): only fictional `SIMVULN-YYYY-NNNNN` ids, fictional products, simulated feeds named Sim-KEV / Sim-EPSS (DESIGN §3.1). Never write a real CVE id, real CVSS score for a real vuln, or real company.
 - Run `npx vitest run tests/vuln-scenarios` and `npm run typecheck` before returning.
 
 Return max 200 words: templates added, twin ids, files touched, test result, open issues. No file dumps.
