@@ -57,6 +57,10 @@ export function kqlHas(haystack: string, needle: string, caseSensitive: boolean)
   }
 }
 
+function terms(s: string): string[] {
+  return s.toLowerCase().split(/[^a-z0-9_]+/).filter(Boolean);
+}
+
 export function registerUdfs(db: Database): void {
   db.create_function('kql_contains', (h: SqlVal, n: SqlVal, cs: SqlVal) => {
     const a = str(h);
@@ -74,6 +78,8 @@ export function registerUdfs(db: Database): void {
     const b = str(n);
     return (cs ? a.endsWith(b) : a.toLowerCase().endsWith(b.toLowerCase())) ? 1 : 0;
   });
+  db.create_function('kql_hasprefix', (h: SqlVal, n: SqlVal) => (terms(str(h)).some((t) => t.startsWith(str(n).toLowerCase())) ? 1 : 0));
+  db.create_function('kql_hassuffix', (h: SqlVal, n: SqlVal) => (terms(str(h)).some((t) => t.endsWith(str(n).toLowerCase())) ? 1 : 0));
   db.create_function('kql_regex', (s: SqlVal, p: SqlVal) => (regex(str(p)).test(str(s)) ? 1 : 0));
   db.create_function('kql_extract', (p: SqlVal, g: SqlVal, s: SqlVal) => {
     const m = regex(str(p)).exec(str(s));

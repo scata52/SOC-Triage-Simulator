@@ -46,7 +46,8 @@ const SQL_TYPE: Record<ColumnType, string> = {
 const KNOWN_TYPES = new Map<string, ColumnType>();
 for (const t of TABLES) for (const c of t.columns) if (!KNOWN_TYPES.has(c.name)) KNOWN_TYPES.set(c.name, c.type);
 
-const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+// determinism-exempt: measures query latency for display only.
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()); // determinism-exempt
 
 export class SiemDatabase {
   readonly corpus: Corpus;
@@ -72,6 +73,22 @@ export class SiemDatabase {
       stmt.free();
     }
     db.run('COMMIT');
+    // Defence in depth behind the SQL guard: SQLite itself refuses writes.
+    db.run('PRAGMA query_only = 1');
+  }
+
+  // Run exactly one statement (anything after the first is never compiled),
+  // returning column names and rows.
+  private query(sql: string): { columns: string[]; rows: Cell[][] } {
+    const stmt = this.db.prepare(sql);
+    try {
+      const columns = stmt.getColumnNames();
+      const rows: Cell[][] = [];
+      while (stmt.step()) rows.push(stmt.get() as Cell[]);
+      return { columns, rows };
+    } finally {
+      stmt.free();
+    }
   }
 
   run(text: string, lang: QueryLang, opts: { maxRows?: number } = {}): QueryResult {
@@ -89,31 +106,28 @@ export class SiemDatabase {
       sql = guardSql(text);
     }
 
-    let res;
+    let res: { columns: string[]; rows: Cell[][] };
     try {
-      res = this.db.exec(`SELECT * FROM (${sql}) LIMIT ${maxRows + 1}`);
+      // The newline keeps a trailing "-- comment" from swallowing the wrapper.
+      res = this.query(`SELECT * FROM (${sql}\n) LIMIT ${maxRows + 1}`);
     } catch (e) {
       throw new KqlError(cleanSqliteError((e as Error).message), 0, text.length);
     }
-    const first = res[0];
-    let names: string[] = first?.columns ?? columns?.map((c) => c.name) ?? [];
-    if (!first && !columns) {
-      // Empty result in SQL mode: recover column names from a zero-row probe.
-      const probe = this.db.prepare(`SELECT * FROM (${sql}) LIMIT 0`);
-      names = probe.getColumnNames();
-      probe.free();
-    }
-    let rows = (first?.values ?? []) as Cell[][];
+    let rows = res.rows;
     const truncated = rows.length > maxRows;
     if (truncated) rows = rows.slice(0, maxRows);
     let total = rows.length;
     if (truncated) {
-      const c = this.db.exec(`SELECT COUNT(*) FROM (${sql})`);
-      total = Number(c[0]?.values[0]?.[0] ?? rows.length);
+      const c = this.query(`SELECT COUNT(*) FROM (${sql}\n)`);
+      total = Number(c.rows[0]?.[0] ?? rows.length);
     }
-    const cols: ResultColumn[] =
-      columns ??
-      names.map((n) => ({ name: n, type: KNOWN_TYPES.get(n) ?? inferType(rows, names.indexOf(n)), hidden: false }));
+    // Label columns by what SQLite actually returned, taking types (and the
+    // hidden flag) from the transpiler where names match.
+    const byName = new Map((columns ?? []).map((c) => [c.name, c]));
+    const cols: ResultColumn[] = res.columns.map((n, i) => {
+      const known = byName.get(n);
+      return known ?? { name: n, type: KNOWN_TYPES.get(n) ?? inferType(rows, i), hidden: false };
+    });
     return {
       columns: cols,
       rows,

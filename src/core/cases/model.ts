@@ -65,6 +65,9 @@ export interface SolutionStep {
   title: string;
   kql: string;
   why: string;
+  // The step proves an absence (e.g. "the file never executed"): an empty
+  // result is the finding.
+  expectEmpty?: boolean;
 }
 
 export interface CaseSpec {

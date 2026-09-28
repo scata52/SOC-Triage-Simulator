@@ -66,7 +66,8 @@ export class CorpusBuilder {
   private namedRows = new Map<string, RowObject>();
   private domainRows = new Map<string, RowObject>();
   private finalized = false;
-  private ticketSeq: Record<string, number>;
+  private ticketRng: Rng;
+  private usedTickets = new Set<string>();
 
   constructor(opts: BuilderOptions) {
     this.world = opts.world;
@@ -78,15 +79,22 @@ export class CorpusBuilder {
     this.ext = new ExternalAllocator([...opts.world.reservedExternal, ...(opts.reservedExternal ?? [])]);
     this.geo = { ...opts.world.geo };
     for (const [domain, ips] of Object.entries(opts.world.serviceIps)) this.dnsMap.set(domain, ips);
-    const tr = opts.rng.fork('ticket-ids');
-    this.ticketSeq = { CHG: 10000 + tr.int(100, 900), REQ: 20000 + tr.int(100, 900), TRV: 30000 + tr.int(10, 90), HR: 40000 + tr.int(10, 90), INC: 50000 + tr.int(10, 90) };
+    this.ticketRng = opts.rng.fork('ticket-ids');
     this.initContextRows();
   }
 
-  // Unique, increasing ticket numbers shared by noise and case templates.
+  // Unique ticket numbers shared by noise and case templates. Drawn at
+  // random (not sequentially) so a case's ticket is never recognisable as
+  // "the newest one".
   nextTicketId(prefix: 'CHG' | 'REQ' | 'TRV' | 'HR' | 'INC'): string {
-    this.ticketSeq[prefix] += 1 + (this.ticketSeq[prefix] % 7);
-    return `${prefix}-${this.ticketSeq[prefix]}`;
+    const base = { CHG: 10000, REQ: 20000, TRV: 30000, HR: 40000, INC: 50000 }[prefix];
+    for (;;) {
+      const id = `${prefix}-${base + this.ticketRng.int(100, 9899)}`;
+      if (!this.usedTickets.has(id)) {
+        this.usedTickets.add(id);
+        return id;
+      }
+    }
   }
 
   // ---------------------------------------------------------------- writing
@@ -293,6 +301,20 @@ export class CorpusBuilder {
     for (const name of TABLE_NAMES) {
       const info = tableInfo(name);
       let rows = this.data[name];
+      // Context tables are ordered by their natural key, never by insertion,
+      // so rows added by a case do not cluster at the end.
+      const natural = CONTEXT_ORDER[name];
+      if (natural) {
+        rows = [...rows].sort((a, b) => {
+          for (const k of natural) {
+            const x = a[k] ?? '';
+            const y = b[k] ?? '';
+            const c = typeof x === 'number' && typeof y === 'number' ? x - y : cmp(String(x), String(y));
+            if (c !== 0) return c;
+          }
+          return 0;
+        });
+      }
       if ('TimeGenerated' in SCHEMA[name].columns) {
         // Logs only exist inside the window: nothing from the future, nothing
         // older than retention. A signal row dropped here never receives a
@@ -465,6 +487,13 @@ export class CorpusBuilder {
     this.data.DomainIntel.sort((a, b) => cmp(String(a.Domain), String(b.Domain)));
   }
 }
+
+const CONTEXT_ORDER: Partial<Record<TableName, string[]>> = {
+  Tickets: ['Created', 'TicketId'],
+  ThreatIntel: ['FirstSeen', 'Indicator'],
+  IncidentHistory: ['Opened', 'IncidentId'],
+  DomainIntel: ['Domain'],
+};
 
 // Code-unit comparison: locale-independent, so every machine builds the same corpus.
 export function cmp(a: string, b: string): number {

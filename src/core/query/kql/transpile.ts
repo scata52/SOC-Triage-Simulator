@@ -145,7 +145,7 @@ function source(ctx: Ctx, s: Source): Rel {
       .map((c) => `CASE WHEN ${q(c.name)} IS NOT NULL AND CAST(${q(c.name)} AS TEXT) <> '' THEN ${lit(c.name + '=')} || CAST(${q(c.name)} AS TEXT) || '  ' ELSE '' END`)
       .join(' || ');
     const time = t.columns.some((c) => c.name === 'TimeGenerated') ? q('TimeGenerated') : 'NULL';
-    return `SELECT ${lit(t.name)} AS "$table", ${time} AS "TimeGenerated", ${q('RecordId')} AS "RecordId", substr(${details}, 1, 600) AS "Details" FROM ${q(t.name)} WHERE instr(lower(${hay}), ${needle}) > 0`;
+    return `SELECT ${lit(t.name)} AS "$table", ${time} AS "TimeGenerated", substr(${details}, 1, 600) AS "Details", ${q('RecordId')} AS "RecordId" FROM ${q(t.name)} WHERE instr(lower(${hay}), ${needle}) > 0`;
   });
   return {
     sql: `SELECT * FROM (${parts.join(' UNION ALL ')})`,
@@ -268,6 +268,9 @@ function operator(ctx: Ctx, rel: Rel, op: Operator, onRender: (kind: string) => 
           const hint = suggest(it.from, cols.map((c) => c.name));
           throw new KqlError(`No column "${it.from}" to rename.${hint ? ` Did you mean ${hint}?` : ''}`, it.span.start, it.span.end);
         }
+        if (it.to !== it.from && cols.some((c) => c.name === it.to)) {
+          throw new KqlError(`Column "${it.to}" already exists — project it away first or pick another name`, it.span.start, it.span.end);
+        }
         parts.set(it.to, it.from);
         col.name = it.to;
       }
@@ -275,6 +278,8 @@ function operator(ctx: Ctx, rel: Rel, op: Operator, onRender: (kind: string) => 
       return { ...rel, sql: `SELECT ${list} FROM (${rel.sql})`, cols, sort: null };
     }
     case 'summarize': {
+      const argAgg = op.aggs.find((a) => a.expr.k === 'call' && ['arg_max', 'arg_min'].includes(a.expr.name.toLowerCase()));
+      if (argAgg) return argMinMax(ctx, rel, op, argAgg);
       const cols: RelColumn[] = [];
       const parts: string[] = [];
       const groups: string[] = [];
@@ -372,6 +377,51 @@ function operator(ctx: Ctx, rel: Rel, op: Operator, onRender: (kind: string) => 
       return { sql: `SELECT ${parts.join(', ')} FROM (${rel.sql}) AS l ${joinKw} (${right.sql}) AS r ON ${cond}`, cols, sort: null, rowPreserving: rel.rowPreserving };
     }
   }
+}
+
+// summarize arg_max(Expr, Col1, Col2 | *) by Keys — the whole row where Expr
+// is largest (smallest) per group. Returns real rows, so RecordId survives.
+function argMinMax(ctx: Ctx, rel: Rel, op: Operator & { op: 'summarize' }, agg: NamedExpr): Rel {
+  if (op.aggs.length > 1) throw new KqlError('arg_max/arg_min cannot be combined with other aggregations in one summarize — run them separately', agg.expr.start, agg.expr.end);
+  const call = agg.expr as Expr & { k: 'call' };
+  if (call.args.length < 1) throw new KqlError(`${call.name}() needs at least the expression to maximise`, call.start, call.end);
+  const isMax = call.name.toLowerCase() === 'arg_max';
+  const target = expr(ctx, rel, call.args[0]);
+  const byParts = op.by.map((b, i) => {
+    const e = expr(ctx, rel, b.expr);
+    return { name: b.name ?? byName(b) ?? `Column${i + 1}`, sql: e.sql, type: e.type };
+  });
+  const targetName = agg.name ?? (call.args[0].k === 'ident' ? call.args[0].name : `${isMax ? 'max' : 'min'}_value`);
+  const rest = call.args.slice(1);
+  let extra: RelColumn[];
+  if (rest.length === 0) extra = [];
+  else if (rest.length === 1 && rest[0].k === 'star') extra = rel.cols.filter((c) => !byParts.some((b) => b.name === c.name) && c.name !== targetName);
+  else {
+    extra = rest.map((r) => {
+      if (r.k !== 'ident') throw new KqlError('arg_max/arg_min extra arguments must be column names or *', r.start, r.end);
+      const col = rel.cols.find((c) => c.name === r.name);
+      if (!col) throw new KqlError(`Unknown column "${r.name}"`, r.start, r.end);
+      return col;
+    });
+  }
+  const partition = byParts.length ? `PARTITION BY ${byParts.map((b) => b.sql).join(', ')} ` : '';
+  const inner = `SELECT *, ${byParts.map((b) => `${b.sql} AS ${q(`__by_${b.name}`)}, `).join('')}${target.sql} AS ${q('__target')}, ROW_NUMBER() OVER (${partition}ORDER BY ${target.sql} ${isMax ? 'DESC' : 'ASC'}) AS ${q('__rn')} FROM (${rel.sql})`;
+  const outCols: RelColumn[] = [
+    ...byParts.map((b) => ({ name: b.name, type: b.type })),
+    { name: targetName, type: target.type },
+    ...extra.filter((c) => c.name !== 'RecordId').map((c) => ({ ...c })),
+  ];
+  const list = [
+    ...byParts.map((b) => `${q(`__by_${b.name}`)} AS ${q(b.name)}`),
+    `${q('__target')} AS ${q(targetName)}`,
+    ...extra.filter((c) => c.name !== 'RecordId').map((c) => q(c.name)),
+  ];
+  const hasRid = rel.rowPreserving && rel.cols.some((c) => c.name === 'RecordId');
+  if (hasRid) {
+    outCols.push({ name: 'RecordId', type: 'string', hidden: !extra.some((c) => c.name === 'RecordId') });
+    list.push(q('RecordId'));
+  }
+  return { sql: `SELECT ${list.join(', ')} FROM (${inner}) WHERE ${q('__rn')} = 1`, cols: outCols, sort: null, rowPreserving: hasRid };
 }
 
 function sortRef(ctx: Ctx, rel: Rel, k: SortKey): SortRef {
@@ -515,15 +565,19 @@ function expr(ctx: Ctx, rel: Rel, e: Expr, aggOk = false): ExprOut {
           sql = `kql_has(${L}, ${R}, 1)`;
           break;
         case 'startswith':
-        case 'hasprefix':
           sql = `kql_startswith(${L}, ${R}, 0)`;
+          break;
+        case 'hasprefix':
+          sql = `kql_hasprefix(${L}, ${R})`;
           break;
         case 'startswith_cs':
           sql = `kql_startswith(${L}, ${R}, 1)`;
           break;
         case 'endswith':
-        case 'hassuffix':
           sql = `kql_endswith(${L}, ${R}, 0)`;
+          break;
+        case 'hassuffix':
+          sql = `kql_hassuffix(${L}, ${R})`;
           break;
         case 'endswith_cs':
           sql = `kql_endswith(${L}, ${R}, 1)`;
@@ -552,7 +606,12 @@ function expr(ctx: Ctx, rel: Rel, e: Expr, aggOk = false): ExprOut {
     case 'between': {
       const v = x(e.e);
       const lo = x(e.lo);
-      const hi = x(e.hi);
+      let hi = x(e.hi);
+      // KQL: datetime between (start .. timespan) means start .. start + span.
+      if (lo.type === 'datetime' && hi.type === 'timespan') hi = { sql: fromEpoch(`${toEpoch(lo.sql)} + (${hi.sql})`), type: 'datetime', refs: [...lo.refs, ...hi.refs] };
+      if ((v.type === 'datetime') !== (hi.type === 'datetime') && v.type !== 'unknown' && hi.type !== 'unknown') {
+        throw new KqlError('between bounds must match the value type — e.g. datetime(...) .. datetime(...) or datetime(...) .. 1h', e.start, e.end);
+      }
       const sql = `(${v.sql} BETWEEN ${lo.sql} AND ${hi.sql})`;
       return { sql: e.negate ? `(NOT ${sql})` : sql, type: 'bool', refs: [...v.refs, ...lo.refs, ...hi.refs] };
     }
@@ -662,11 +721,12 @@ function call(ctx: Ctx, rel: Rel, e: Expr & { k: 'call' }, aggOk: boolean): Expr
         arity(e, 2);
         return { sql: `AVG(CASE WHEN ${inner(1).sql} THEN ${inner(0).sql} END)`, type: 'real', refs: allRefs() };
       case 'min':
-      case 'arg_min':
         return { sql: `MIN(${inner(0).sql})`, type: inner(0).type, refs: inner(0).refs };
       case 'max':
-      case 'arg_max':
         return { sql: `MAX(${inner(0).sql})`, type: inner(0).type, refs: inner(0).refs };
+      case 'arg_max':
+      case 'arg_min':
+        throw new KqlError(`${e.name}() must be the only aggregation in its summarize`, e.start, e.end);
       case 'take_any':
       case 'any':
         arity(e, 1);
@@ -716,8 +776,9 @@ function call(ctx: Ctx, rel: Rel, e: Expr & { k: 'call' }, aggOk: boolean): Expr
       arity(e, 1);
       return { sql: `CAST(strftime('%H', ${arg(0).sql}) AS INTEGER)`, type: 'int', refs: arg(0).refs };
     case 'dayofweek':
+      // KQL returns a timespan of whole days since Sunday (0d … 6d).
       arity(e, 1);
-      return { sql: `CAST(strftime('%w', ${arg(0).sql}) AS INTEGER)`, type: 'int', refs: arg(0).refs };
+      return { sql: `(CAST(strftime('%w', ${arg(0).sql}) AS INTEGER) * 86400)`, type: 'timespan', refs: arg(0).refs };
     case 'todatetime':
       arity(e, 1);
       return { sql: `strftime('%Y-%m-%dT%H:%M:%SZ', ${arg(0).sql})`, type: 'datetime', refs: arg(0).refs };
@@ -725,10 +786,15 @@ function call(ctx: Ctx, rel: Rel, e: Expr & { k: 'call' }, aggOk: boolean): Expr
       arity(e, 3);
       const unitExpr = e.args[0];
       if (unitExpr.k !== 'str' || !UNIT_SECONDS[unitExpr.v.toLowerCase()]) throw new KqlError(`datetime_diff unit must be one of ${Object.keys(UNIT_SECONDS).map((u) => `'${u}'`).join(', ')}`, unitExpr.start, unitExpr.end);
-      const u = UNIT_SECONDS[unitExpr.v.toLowerCase()];
+      const unit = unitExpr.v.toLowerCase();
+      const u = UNIT_SECONDS[unit];
       const a = arg(1);
       const b = arg(2);
-      return { sql: `((${toEpoch(a.sql)} - ${toEpoch(b.sql)}) / ${u})`, type: 'int', refs: [...a.refs, ...b.refs] };
+      // KQL counts unit boundaries crossed, not elapsed whole units. Weeks
+      // start on Sunday (the Unix epoch was a Thursday, hence +4 days).
+      const bucket = (sql: string) =>
+        unit === 'week' ? `((${toEpoch(sql)} / 86400 + 4) / 7)` : `(${toEpoch(sql)} / ${u})`;
+      return { sql: `(${bucket(a.sql)} - ${bucket(b.sql)})`, type: 'int', refs: [...a.refs, ...b.refs] };
     }
     case 'tolower':
     case 'toupper': {

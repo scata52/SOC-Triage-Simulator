@@ -12,7 +12,15 @@ function mask(sql: string): string {
   let i = 0;
   while (i < sql.length) {
     const c = sql[i];
-    if (c === "'" || c === '"') {
+    if (c === '[') {
+      // [bracketed identifier]
+      const end = sql.indexOf(']', i + 1);
+      const stop = end < 0 ? sql.length : end + 1;
+      out += ' '.repeat(stop - i);
+      i = stop;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
       const quote = c;
       out += ' ';
       i++;

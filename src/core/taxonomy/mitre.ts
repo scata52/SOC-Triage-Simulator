@@ -106,6 +106,7 @@ const RAW: Raw[] = [
   { id: 'T1105', name: 'Ingress Tool Transfer', tactics: ['command-and-control'] },
   { id: 'T1090', name: 'Proxy', tactics: ['command-and-control'] },
   { id: 'T1219', name: 'Remote Access Software', tactics: ['command-and-control'] },
+  { id: 'T1567.001', name: 'Exfiltration to Code Repository', tactics: ['exfiltration'] },
   { id: 'T1568', name: 'Dynamic Resolution', tactics: ['command-and-control'] },
   { id: 'T1568.002', name: 'Dynamic Resolution: Domain Generation Algorithms', tactics: ['command-and-control'] },
   { id: 'T1573', name: 'Encrypted Channel', tactics: ['command-and-control'] },
@@ -127,7 +128,7 @@ const RAW: Raw[] = [
 export const MITRE_TECHNIQUES: MitreTechnique[] = RAW.map((r) => ({
   ...r,
   url: url(r.id),
-})).sort((a, b) => a.id.localeCompare(b.id));
+})).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
 const BY_ID = new Map(MITRE_TECHNIQUES.map((t) => [t.id, t]));
 

@@ -222,3 +222,70 @@ describe('SQL mode', () => {
     expect(() => db.run('SELECT nope FROM SigninLogs', 'sql')).toThrow(/no such column/);
   });
 });
+
+// Regressions from the code review (each reproduced a real defect).
+describe('review regressions', () => {
+  it('bare search labels Details and RecordId correctly', () => {
+    const r = run('search "203.0.113.9"');
+    expect(r.columns.map((c) => c.name)).toEqual(['$table', 'TimeGenerated', 'Details', 'RecordId']);
+    const row = r.rows[0];
+    expect(String(row[r.recordIdColumn])).toMatch(/^[a-z0-9]{10}$/);
+    expect(String(row[2])).toContain('=');
+  });
+
+  it('SQL mode cannot write, even with quoting tricks', () => {
+    const before = db.run('SELECT COUNT(*) FROM SigninLogs', 'sql').rows[0][0];
+    const attempts = [
+      "SELECT 1 AS `'`) ; DELETE FROM SigninLogs ; SELECT * FROM (SELECT 1 AS `'`",
+      "SELECT 1 AS [']) ; DROP TABLE SigninLogs ; SELECT * FROM (SELECT 1 AS [']",
+      "SELECT 1 AS \"x\"); DELETE FROM SigninLogs; --",
+    ];
+    for (const a of attempts) {
+      try {
+        db.run(a, 'sql');
+      } catch {
+        // rejected — fine
+      }
+    }
+    expect(db.run('SELECT COUNT(*) FROM SigninLogs', 'sql').rows[0][0]).toBe(before);
+  });
+
+  it('SQL mode tolerates a trailing line comment', () => {
+    expect(db.run('SELECT COUNT(*) AS n FROM SigninLogs -- all', 'sql').rows[0][0]).toBe(7);
+  });
+
+  it('between (datetime .. timespan) means start .. start + span', () => {
+    const a = values('SigninLogs | where TimeGenerated between (datetime(2026-09-23T08:59:00Z) .. 4m) | count');
+    const b = values('SigninLogs | where TimeGenerated between (datetime(2026-09-23T08:59:00Z) .. datetime(2026-09-23T09:03:00Z)) | count');
+    expect(a).toEqual(b);
+    expect(a).toEqual([4]);
+  });
+
+  it('dayofweek returns a timespan (2026-09-23 is a Wednesday)', () => {
+    expect(values('SigninLogs | where dayofweek(TimeGenerated) == 3d | count')).toEqual([7]);
+    expect(values('SigninLogs | where dayofweek(TimeGenerated) in (0d, 6d) | count')).toEqual([0]);
+  });
+
+  it('datetime_diff counts boundaries crossed, as KQL documents', () => {
+    const one = (unit: string, a: string, b: string) => values(`SigninLogs | take 1 | project d = datetime_diff("${unit}", datetime(${a}), datetime(${b}))`)[0];
+    expect(one('hour', '2017-10-31T01:00:00Z', '2017-10-30T23:59:00Z')).toBe(2);
+    expect(one('minute', '2017-10-30T23:05:01Z', '2017-10-30T23:00:59Z')).toBe(5);
+    expect(one('day', '2017-10-31T00:00:01Z', '2017-10-30T23:59:59Z')).toBe(1);
+    expect(one('second', '2017-10-30T23:00:10Z', '2017-10-30T23:00:00Z')).toBe(10);
+  });
+
+  it('hasprefix / hassuffix match per term', () => {
+    expect(values('DeviceProcessEvents | where ProcessCommandLine hasprefix "hid" | count')).toEqual([1]); // "hidden"
+    expect(values('DeviceProcessEvents | where ProcessCommandLine hassuffix "profile" | count')).toEqual([1]); // "-NoProfile"
+  });
+
+  it('arg_max returns the whole row, keeps it pinnable, and rename collisions error', () => {
+    const r = run('SigninLogs | summarize arg_max(TimeGenerated, *) by UserPrincipalName');
+    expect(r.rows.length).toBe(2);
+    expect(r.columns.map((c) => c.name)).toContain('IPAddress');
+    expect(r.recordIdColumn).toBeGreaterThan(-1);
+    const latest = run('SigninLogs | summarize arg_max(TimeGenerated, IPAddress) by ResultType | sort by ResultType asc');
+    expect(latest.rows[0].slice(0, 3)).toEqual([0, '2026-09-23T11:00:00Z', '198.51.100.7']);
+    expect(() => run('SigninLogs | project-rename City = IPAddress')).toThrow(/already exists/);
+  });
+});

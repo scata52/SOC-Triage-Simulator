@@ -307,18 +307,28 @@ const c2Beacon: CaseTemplate = {
     const src = w.lanIp;
     const c2 = ctx.infra.domain('c2', { style: 'tech', ageDays: rng.int(1, 12) });
     const c2ip = ctx.infra.ip('c2');
-    const interval = rng.pick([30, 45, 60]);
+    const interval = rng.pick([45, 60, 90]);
     const bytes = rng.int(280, 460);
-    const t0 = at - rng.int(6, 20) * HOUR;
+    // Every beacon is logged, right up to now; the series starts inside the
+    // window and is capped so the table stays a reasonable size.
+    const maxBeacons = 420;
+    const wanted = rng.int(5, 12) * HOUR;
+    const span = Math.min(wanted, maxBeacons * interval * SEC, ctx.now - ctx.log.windowStart - 30 * MIN);
+    const t0 = ctx.now - span;
     const beacons: RowRef[] = [];
-    for (let t = t0; t < ctx.now - MIN; t += interval * SEC + rng.int(-interval * 100, interval * 100)) {
-      if (beacons.length < 80) {
-        beacons.push(log.proxy({ TimeGenerated: t, SourceIP: src, SourceUser: victim.sam, Method: 'GET', Url: `https://${c2}/api/v1/status`, DestinationHost: c2, DestinationIP: c2ip, DestinationPort: 443, StatusCode: 200, BytesSent: bytes + rng.int(-6, 6), BytesReceived: rng.int(120, 240), Category: 'Uncategorized', UserAgent: '' }));
+    const netRows: RowRef[] = [];
+    let lastDns = -Infinity;
+    for (let t = t0, i = 0; t < ctx.now - 20 * SEC; t += interval * SEC + rng.int(-interval * 100, interval * 100), i++) {
+      beacons.push(log.proxy({ TimeGenerated: t, SourceIP: src, SourceUser: victim.sam, Method: 'GET', Url: `https://${c2}/api/v1/status`, DestinationHost: c2, DestinationIP: c2ip, DestinationPort: 443, StatusCode: 200, BytesSent: bytes + rng.int(-6, 6), BytesReceived: rng.int(120, 240), Category: 'Uncategorized', UserAgent: '' }));
+      // The resolver answer is cached for five minutes.
+      if (t - lastDns > 5 * MIN) {
+        log.dns({ TimeGenerated: t - 1 * SEC, ClientIP: src, Computer: 'DC01', Name: c2 });
+        lastDns = t;
       }
-      log.dns({ TimeGenerated: t - 1 * SEC, ClientIP: src, Computer: 'DC01', Name: c2 });
+      // EDR aggregates repeated connections; roughly one event in five is kept.
+      if (i % 5 === 0) netRows.push(log.net({ TimeGenerated: t, DeviceName: dev.name, LocalIP: src, RemoteIP: c2ip, RemotePort: 443, RemoteUrl: c2, InitiatingProcessFileName: 'onedriveupdater.exe', InitiatingProcessAccountName: victim.sam }));
     }
-    const proc = log.proc({ TimeGenerated: t0 - 30 * SEC, DeviceName: dev.name, AccountName: victim.sam, FileName: 'onedriveupdater.exe', FolderPath: `C:\\Users\\${victim.sam}\\AppData\\Local\\Temp\\OneDriveUpdater.exe`, ProcessCommandLine: 'C:\\Users\\...\\Temp\\OneDriveUpdater.exe', SHA256: ctx.infra.hash('loader'), Signer: 'Unsigned', ProcessIntegrityLevel: 'Medium', InitiatingProcessFileName: 'explorer.exe', InitiatingProcessCommandLine: 'C:\\Windows\\Explorer.EXE' });
-    const netRows = beacons.slice(0, 20).map((_, i) => log.net({ TimeGenerated: t0 + i * interval * SEC, DeviceName: dev.name, LocalIP: src, RemoteIP: c2ip, RemotePort: 443, RemoteUrl: c2, InitiatingProcessFileName: 'onedriveupdater.exe', InitiatingProcessAccountName: victim.sam }));
+    const proc = log.proc({ TimeGenerated: t0 - 30 * SEC, DeviceName: dev.name, AccountName: victim.sam, FileName: 'onedriveupdater.exe', FolderPath: `C:\\Users\\${victim.sam}\\AppData\\Local\\Temp\\OneDriveUpdater.exe`, ProcessCommandLine: `C:\\Users\\${victim.sam}\\AppData\\Local\\Temp\\OneDriveUpdater.exe`, SHA256: ctx.infra.hash('loader'), Signer: 'Unsigned', ProcessIntegrityLevel: 'Medium', InitiatingProcessFileName: 'explorer.exe', InitiatingProcessCommandLine: 'C:\\Windows\\Explorer.EXE' });
     const intel = log.domainIntelRef(c2);
     const hours = Math.round((ctx.now - t0) / HOUR);
 

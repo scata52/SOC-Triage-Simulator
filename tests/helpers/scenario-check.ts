@@ -14,6 +14,7 @@ import { SiemDatabase } from '../../src/core/query/engine.ts';
 import { syntheticViolations } from './guardrails.ts';
 import { sqljs } from './sql.ts';
 
+const SWEEP = 30;
 const worlds = new Map<string, World>();
 export function world(seed: string): World {
   let w = worlds.get(seed);
@@ -28,7 +29,8 @@ export function checkStructure(c: ResolvedCase): void {
   const t = templateById(c.templateId)!;
   expect(c.alert.rule.trim()).not.toBe('');
   expect(c.alert.summary.trim()).not.toBe('');
-  expect(c.alert.entities.length).toBeGreaterThan(0);
+  // Hunts start from a hypothesis, not an alert, so they carry no entities.
+  if (c.alert.product !== 'Threat hunt') expect(c.alert.entities.length).toBeGreaterThan(0);
   expect(c.briefing.trim()).not.toBe('');
   expect(c.explanation.length).toBeGreaterThan(0);
   expect(c.pitfalls.length).toBeGreaterThan(0);
@@ -68,6 +70,10 @@ export async function checkSolvable(s: Scenario, c: ResolvedCase): Promise<void>
       } catch (e) {
         throw new Error(`${c.templateId}: solution "${step.title}" failed: ${(e as Error).message}\n${step.kql}`);
       }
+      if (step.expectEmpty) {
+        expect(r.rows.length, `${c.templateId}: solution "${step.title}" should prove an absence but returned rows`).toBe(0);
+        continue;
+      }
       expect(r.rows.length, `${c.templateId}: solution "${step.title}" returned no rows`).toBeGreaterThan(0);
       if (r.recordIdColumn >= 0) for (const row of r.rows) found.add(String(row[r.recordIdColumn]));
       for (const row of r.rows) texts.push(row.map((v) => String(v ?? '')).join(' '));
@@ -94,6 +100,12 @@ export async function checkTemplate(templateId: string, runs: { world: string; s
     checkStructure(c);
     expect(syntheticViolations(s.corpus, w), `${templateId} ${run.world}/${run.seed}`).toEqual([]);
     if (run.db) await checkSolvable(s, c);
+  }
+  // Crash sweep: many more seeds and worlds, structure only. Catches signal
+  // rows that fall outside the window on unlucky timings.
+  for (let i = 0; i < SWEEP; i++) {
+    const s = buildPracticeCase(world(`sweep-${i % 5}`), templateId, `sweep-${i}`);
+    checkStructure(s.cases[0]);
   }
   // Determinism: same inputs, same scenario.
   const first = runs[0];
