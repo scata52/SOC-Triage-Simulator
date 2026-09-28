@@ -1,0 +1,161 @@
+/* Design tokens. Dark console by default; light theme via the system
+   preference or [data-theme="light"]. */
+
+:root {
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  --radius-s: 4px;
+  --radius: 6px;
+  --radius-l: 10px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --shell-h: 52px;
+  --gutter: 16px;
+  --max-w: 1200px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur: 160ms;
+
+  /* dark (default) */
+  --bg: #0a0d12;
+  --bg-sunken: #07090d;
+  --surface: #11161e;
+  --surface-2: #171d27;
+  --surface-3: #1e2531;
+  --border: #252e3b;
+  --border-strong: #37424f;
+  --text: #e5e9f0;
+  --text-muted: #a1abb9;
+  --text-faint: #818b9c;
+  --accent: #5cc8ff;
+  --accent-strong: #9adcff;
+  --accent-ink: #04121c;
+  --accent-bg: rgba(92, 200, 255, 0.12);
+  --focus: #ffd166;
+  --ok: #3ddc97;
+  --ok-bg: rgba(61, 220, 151, 0.12);
+  --warn: #f5b041;
+  --warn-bg: rgba(245, 176, 65, 0.13);
+  --bad: #ff6b6b;
+  --bad-bg: rgba(255, 107, 107, 0.13);
+  --sev-informational: #8a97a8;
+  --sev-low: #4fb3ff;
+  --sev-medium: #f5b041;
+  --sev-high: #ff8a3d;
+  --sev-critical: #ff4d6d;
+  --pin: #c792ea;
+  --pin-bg: rgba(199, 146, 234, 0.14);
+  --row-hover: rgba(255, 255, 255, 0.035);
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  --scrim: rgba(3, 5, 8, 0.72);
+
+  --syn-keyword: #c792ea;
+  --syn-operator: #89ddff;
+  --syn-string: #c3e88d;
+  --syn-number: #f78c6c;
+  --syn-comment: #8a94a6;
+  --syn-function: #82aaff;
+  --syn-table: #ffcb6b;
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg: #f5f6f8;
+    --bg-sunken: #eceef2;
+    --surface: #ffffff;
+    --surface-2: #f7f8fa;
+    --surface-3: #eef0f4;
+    --border: #d8dce3;
+    --border-strong: #b8bfca;
+    --text: #111722;
+    --text-muted: #4a5465;
+    --text-faint: #5e6878;
+    --accent: #0a66c2;
+    --accent-strong: #084f96;
+    --accent-ink: #ffffff;
+    --accent-bg: rgba(10, 102, 194, 0.09);
+    --focus: #b45309;
+    --ok: #0f7b4f;
+    --ok-bg: rgba(15, 123, 79, 0.09);
+    --warn: #8a5100;
+    --warn-bg: rgba(138, 81, 0, 0.08);
+    --bad: #c42b2b;
+    --bad-bg: rgba(196, 43, 43, 0.08);
+    --sev-informational: #5b6778;
+    --sev-low: #0a66c2;
+    --sev-medium: #8a5100;
+    --sev-high: #c2410c;
+    --sev-critical: #be123c;
+    --pin: #7c3aed;
+    --pin-bg: rgba(124, 58, 237, 0.08);
+    --row-hover: rgba(0, 0, 0, 0.03);
+    --shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    --scrim: rgba(15, 23, 42, 0.45);
+    --syn-keyword: #6d28d9;
+    --syn-operator: #0b5f78;
+    --syn-string: #33640e;
+    --syn-number: #9a4508;
+    --syn-comment: #555c69;
+    --syn-function: #1d4ed8;
+    --syn-table: #7f4f06;
+    color-scheme: light;
+  }
+}
+
+:root[data-theme='light'] {
+  --bg: #f5f6f8;
+  --bg-sunken: #eceef2;
+  --surface: #ffffff;
+  --surface-2: #f7f8fa;
+  --surface-3: #eef0f4;
+  --border: #d8dce3;
+  --border-strong: #b8bfca;
+  --text: #111722;
+  --text-muted: #4a5465;
+  --text-faint: #5e6878;
+  --accent: #0a66c2;
+  --accent-strong: #084f96;
+  --accent-ink: #ffffff;
+  --accent-bg: rgba(10, 102, 194, 0.09);
+  --focus: #b45309;
+  --ok: #0f7b4f;
+  --ok-bg: rgba(15, 123, 79, 0.09);
+  --warn: #8a5100;
+  --warn-bg: rgba(138, 81, 0, 0.08);
+  --bad: #c42b2b;
+  --bad-bg: rgba(196, 43, 43, 0.08);
+  --sev-informational: #5b6778;
+  --sev-low: #0a66c2;
+  --sev-medium: #8a5100;
+  --sev-high: #c2410c;
+  --sev-critical: #be123c;
+  --pin: #7c3aed;
+  --pin-bg: rgba(124, 58, 237, 0.08);
+  --row-hover: rgba(0, 0, 0, 0.03);
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  --scrim: rgba(15, 23, 42, 0.45);
+  --syn-keyword: #6d28d9;
+  --syn-operator: #0b5f78;
+  --syn-string: #33640e;
+  --syn-number: #9a4508;
+  --syn-comment: #555c69;
+  --syn-function: #1d4ed8;
+  --syn-table: #7f4f06;
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion='full']) {
+    --dur: 0ms;
+  }
+}
+:root[data-motion='reduce'] {
+  --dur: 0ms;
+}
