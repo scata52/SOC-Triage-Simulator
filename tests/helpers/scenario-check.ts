@@ -11,6 +11,7 @@ import { templateById } from '../../src/core/cases/templates/index.ts';
 import { technique } from '../../src/core/taxonomy/mitre.ts';
 import { cysaDomain } from '../../src/core/taxonomy/cysa.ts';
 import { SiemDatabase } from '../../src/core/query/engine.ts';
+import { emptyVerdict, gradeCase, perfectVerdict } from '../../src/core/grading/grade.ts';
 import { syntheticViolations } from './guardrails.ts';
 import { sqljs } from './sql.ts';
 
@@ -58,6 +59,19 @@ export function checkStructure(c: ResolvedCase): void {
   expect(t.kind === 'incident').toBe(c.truth.disposition === 'true-positive' && c.truth.action === 'escalate' ? true : t.kind === 'incident');
 }
 
+// The grader must agree with the template: the reference answer scores 100,
+// an untouched alert scores 0, and every must-not indicator is caught as such
+// (not shadowed by a block/scope spec that happens to match it too).
+export function checkGrading(c: ResolvedCase): void {
+  const perfect = gradeCase(c, perfectVerdict(c));
+  expect(perfect.score, `${c.templateId}: perfect verdict ${JSON.stringify(perfect.components.filter((x) => !x.ok))}`).toBe(100);
+  expect(gradeCase(c, emptyVerdict()).score, `${c.templateId}: empty verdict`).toBe(0);
+  for (const m of c.indicators.mustNot) {
+    const g = gradeCase(c, { ...perfectVerdict(c), indicators: [{ kind: m.kind, value: m.value }] });
+    expect(g.indicators.results[0]?.verdict, `${c.templateId}: mustNot ${m.value}`).toBe('must-not');
+  }
+}
+
 export async function checkSolvable(s: Scenario, c: ResolvedCase): Promise<void> {
   const db = new SiemDatabase(await sqljs(), s.corpus);
   try {
@@ -98,6 +112,7 @@ export async function checkTemplate(templateId: string, runs: { world: string; s
     expect(s.cases).toHaveLength(1);
     const c = s.cases[0];
     checkStructure(c);
+    checkGrading(c);
     expect(syntheticViolations(s.corpus, w), `${templateId} ${run.world}/${run.seed}`).toEqual([]);
     if (run.db) await checkSolvable(s, c);
   }
@@ -106,6 +121,7 @@ export async function checkTemplate(templateId: string, runs: { world: string; s
   for (let i = 0; i < SWEEP; i++) {
     const s = buildPracticeCase(world(`sweep-${i % 5}`), templateId, `sweep-${i}`);
     checkStructure(s.cases[0]);
+    checkGrading(s.cases[0]);
   }
   // Determinism: same inputs, same scenario.
   const first = runs[0];
