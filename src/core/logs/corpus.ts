@@ -68,6 +68,7 @@ export class CorpusBuilder {
   private finalized = false;
   private ticketRng: Rng;
   private usedTickets = new Set<string>();
+  private deviceRng: Rng | undefined;
 
   constructor(opts: BuilderOptions) {
     this.world = opts.world;
@@ -185,6 +186,46 @@ export class CorpusBuilder {
 
   incident(r: RowInput<'IncidentHistory'>) {
     return this.add('IncidentHistory', r);
+  }
+
+  // Vulnerability management (context tables). Thin writers; core/vuln/scan-writer.ts
+  // composes them into scan runs and findings.
+  finding(r: RowInput<'VulnFindings'>) {
+    return this.add('VulnFindings', r);
+  }
+
+  scanRun(r: RowInput<'ScanRuns'>) {
+    return this.add('ScanRuns', r);
+  }
+
+  vulnIntel(r: RowInput<'VulnIntel'>) {
+    return this.add('VulnIntel', r);
+  }
+
+  software(r: RowInput<'SoftwareInventory'>) {
+    return this.add('SoftwareInventory', r);
+  }
+
+  patch(r: RowInput<'PatchHistory'>) {
+    return this.add('PatchHistory', r);
+  }
+
+  control(r: RowInput<'ControlInventory'>) {
+    return this.add('ControlInventory', r);
+  }
+
+  // A device that exists only in this case (e.g. a forgotten legacy server).
+  // It joins the CMDB at a seeded position, not at the end, so it is not
+  // recognisable by where it sits.
+  device(r: RowInput<'DeviceInfo'>): RowRef<'DeviceInfo'> {
+    if (this.finalized) throw new Error('CorpusBuilder already finalised');
+    if (!r.DeviceName) throw new Error('A device needs a DeviceName');
+    if (this.deviceRows.has(r.DeviceName.toUpperCase())) throw new Error(`Device ${r.DeviceName} already exists`);
+    const row: RowObject = { ...(r as RowObject) };
+    this.deviceRng ??= this.rng.fork('device-position');
+    this.data.DeviceInfo.splice(this.deviceRng.int(0, this.data.DeviceInfo.length), 0, row);
+    this.deviceRows.set(r.DeviceName.toUpperCase(), row);
+    return { table: 'DeviceInfo', row };
   }
 
   // Case-specific facts layered over the world's directory / CMDB rows.
@@ -500,6 +541,12 @@ const CONTEXT_ORDER: Partial<Record<TableName, string[]>> = {
   ThreatIntel: ['FirstSeen', 'Indicator'],
   IncidentHistory: ['Opened', 'IncidentId'],
   DomainIntel: ['Domain'],
+  VulnFindings: ['FindingId'],
+  ScanRuns: ['Started', 'ScanRunId'],
+  VulnIntel: ['VulnId'],
+  SoftwareInventory: ['DeviceName', 'Product', 'Version'],
+  PatchHistory: ['DeviceName', 'InstalledOn', 'PatchId'],
+  ControlInventory: ['ControlId'],
 };
 
 // Code-unit comparison: locale-independent, so every machine builds the same corpus.

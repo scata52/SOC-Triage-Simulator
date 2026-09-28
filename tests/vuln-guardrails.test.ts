@@ -1,33 +1,21 @@
 // DESIGN section 9, rules 2 and 4: scenario data is fully fictional. No string
 // shaped like a real CVE identifier may appear in it, and there is no
 // allowlist. "Scenario data" is everything under src/core/vuln/** (templates
-// included) plus everything a vuln case generates.
+// included) plus everything a vuln case generates: corpus rows, briefing,
+// hints, solution, explanation and debrief text.
 //
-// To extend (WP1b onward): return generated case output (briefing, hints,
-// solution, explanation, debrief text and corpus rows, serialised) from
-// generatedCaseSources(); every source is scanned by the same helper.
+// generatedCaseSources() serialises the output of every registered template
+// and of the engine fixture for several seeds; every source is scanned by the
+// same helper as the source files.
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateCatalogue } from '../src/core/vuln/catalogue.ts';
-
-// The pattern from DESIGN section 9 rule 4, verbatim.
-export const REAL_CVE_ID = /CVE-\d{4}-\d{4,}/i;
-
-interface Source {
-  label: string;
-  text: string;
-}
-
-// Lines of a source that match the pattern, as "label:line: excerpt".
-export function cveViolations(source: Source): string[] {
-  const out: string[] = [];
-  source.text.split('\n').forEach((line, i) => {
-    const m = REAL_CVE_ID.exec(line);
-    if (m) out.push(`${source.label}:${i + 1}: ${m[0]}`);
-  });
-  return out;
-}
+import { VULN_TEMPLATES } from '../src/core/vuln/registry.ts';
+import { buildVulnScenario } from '../src/core/vuln/scenario.ts';
+import { cveViolations, type Source } from './helpers/cve-guard.ts';
+import { fixtureTier3 } from './helpers/vuln-fixture.ts';
+import { world } from './helpers/scenario-check.ts';
 
 const VULN_DIR = 'src/core/vuln';
 
@@ -53,10 +41,22 @@ function catalogueSources(): Source[] {
   }));
 }
 
-// WP1b+: text of generated vuln cases (briefing, hints, solution KQL, explanation,
-// pitfalls, rubric, attachments, corpus rows) for a spread of templates and seeds.
+const GUARDRAIL_SEEDS = ['g0', 'g1', 'g2', 'g3', 'g4', 'g5'];
+
+// Text of generated vuln cases for a spread of seeds: the resolved case
+// (briefing, hints, solution KQL, explanation, pitfalls, rubric, attachments,
+// evidence labels, references) and the whole corpus, serialised one item per line.
 function generatedCaseSources(): Source[] {
-  return [];
+  const out: Source[] = [];
+  for (const template of [...VULN_TEMPLATES, fixtureTier3]) {
+    GUARDRAIL_SEEDS.forEach((seed, i) => {
+      const w = world(`guardrail-world-${i % 3}`);
+      const s = buildVulnScenario({ worldSeed: w.seed, templateId: template.id, seed, world: w, template });
+      out.push({ label: `case(${template.id}/${seed}).spec`, text: JSON.stringify(s.case, null, 1) });
+      out.push({ label: `case(${template.id}/${seed}).corpus`, text: JSON.stringify(s.corpus, null, 1) });
+    });
+  }
+  return out;
 }
 
 describe('no real CVE identifiers in scenario data (DESIGN section 9)', () => {
@@ -75,7 +75,7 @@ describe('no real CVE identifiers in scenario data (DESIGN section 9)', () => {
   it('scans every file under src/core/vuln/**', () => {
     const files = sourceFiles();
     const labels = files.map((f) => f.label);
-    for (const expected of ['model.ts', 'cvss31.ts', 'catalogue.ts', 'ids.ts']) expect(labels).toContain(`${VULN_DIR}/${expected}`);
+    for (const expected of ['model.ts', 'cvss31.ts', 'catalogue.ts', 'ids.ts', 'scan-writer.ts', 'scenario.ts', 'registry.ts']) expect(labels).toContain(`${VULN_DIR}/${expected}`);
     expect(files.flatMap(cveViolations)).toEqual([]);
   });
 
@@ -86,7 +86,12 @@ describe('no real CVE identifiers in scenario data (DESIGN section 9)', () => {
     expect(sources.flatMap(cveViolations)).toEqual([]);
   });
 
-  it('finds none in generated case output', () => {
-    expect(generatedCaseSources().flatMap(cveViolations)).toEqual([]);
+  it('finds none in generated case output (spec text and corpus rows)', () => {
+    const sources = generatedCaseSources();
+    // The fixture alone contributes a spec and a corpus per seed.
+    expect(sources.length).toBeGreaterThanOrEqual(GUARDRAIL_SEEDS.length * 2);
+    for (const s of sources) expect(s.text.length, s.label).toBeGreaterThan(1000);
+    expect(sources.some((s) => s.text.includes('SIMVULN-'))).toBe(true);
+    expect(sources.flatMap(cveViolations)).toEqual([]);
   });
 });

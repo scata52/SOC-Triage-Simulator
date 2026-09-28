@@ -19,7 +19,7 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 
 ## WP1b — Corpus tables and scan writer
 - Goal: add `VulnFindings`, `ScanRuns`, `VulnIntel`, `SoftwareInventory`, `PatchHistory`, `ControlInventory` to `logs/schema.ts` (§6.1); `src/core/vuln/scan-writer.ts`; `buildVulnScenario` in `src/core/vuln/scenario.ts`; worker accepts a vuln spec.
-- Owner: implementer. Files: `src/core/logs/schema.ts`, `src/core/logs/corpus.ts` (writers only), `src/core/vuln/*`, `src/ui/workers/siem.worker.ts`, `src/ui/lib/protocol.ts`. Deps: WP1a.
+- Owner: implementer. Files: `src/core/logs/schema.ts`, `src/core/logs/corpus.ts` (writers only), `src/core/vuln/*`, `src/ui/workers/siem.worker.ts`, `src/ui/lib/protocol.ts`; as built also `src/core/query/kql/parser.ts` (additive: bare table on the right of `join`, needed for acceptance 3). Deps: WP1a.
 - Acceptance: (1) existing SOC scenario suite unchanged and green; (2) vuln scenario builds deterministically (same seed → identical rows); (3) KQL `VulnFindings | join kind=inner VulnIntel on VulnId | where KnownExploited` runs; (4) addresses pass existing synthetic guardrails; (5) build < 1 s for tier-3 size in Node test.
 - Tests: `tests/vuln-corpus.test.ts`; extend `kql/reference.ts` with 2 join examples (executed by existing reference test).
 

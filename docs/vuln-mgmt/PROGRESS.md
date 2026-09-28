@@ -8,8 +8,15 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
 - **WP1a — Core types, fictional catalogue, CVSS 3.1 calculator** (2026-09-28). `src/core/vuln/{model,cvss31,ids,catalogue}.ts`;
   tests `vuln-cvss` (all 18 §6.2 oracle rows), `vuln-catalogue`, `vuln-guardrails`. 19 files / 298 tests green; reviewer PASS.
 
+- **WP1b — Corpus tables and scan writer** (2026-09-28). Six context tables in `logs/schema.ts` (appended after the existing 18) and thin
+  writers in `corpus.ts`; `src/core/vuln/{scan-writer,scenario,registry}.ts`; `vuln` OpenSpec variant in worker/protocol; two join examples
+  in `kql/reference.ts`; bare-table right side for `join` in the KQL parser. Tests `vuln-corpus` (+34), guardrail wired to generated
+  cases; helpers `cve-guard`, `vuln-fixture` (tier-3 fixture), `vuln-scenario-check`. 20 files / 334 tests, build ok, e2e 11/11
+  (system Chrome). SOC output verified byte-identical (25 templates + 3 shifts hashed before/after, ignoring the six new empty tables).
+  Reviewer PASS (max effort): independent hash probe, 50 practice cases + 5 shifts identical vs HEAD; build ≈ 6 ms warm / 20 ms cold.
+
 ## In progress
-- WP1b — Corpus tables and scan writer.
+- (none) — session stopped after WP1b as instructed; WP1c is next.
 
 ## Next
 - WP1c — Grader
@@ -34,8 +41,33 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
 - WP1a: environmental score uses exponent 13 (base uses 15) as FIRST v3.1 §7.3 specifies; an unmodified scope-changed vector can
   therefore score 0.1 above its base score. Intended, tested.
 - WP1a: fictional product "Juniperline" renamed "Kestrelmoor" (too close to a real vendor name).
+- 2026-09-28 (human): subagents run at `effort: max` (ADR-18). WP1a and its review ran at session effort; WP1b's review onward at max.
+
+- WP1b: the six tables are appended AFTER `IncidentHistory` in `SCHEMA`, so the RecordId sequence of every existing table is unchanged;
+  `Corpus.tables` gains six empty keys in SOC scenarios (unavoidable: `Record<TableName, …>`). A test pins the table order.
+- WP1b: columns added beyond §6.1 (which lists key columns): `VulnIntel.FixedVersion`, `PatchHistory.Description`. `VendorFix` is a bool.
+- WP1b: vuln corpus has no SOC log noise (hundreds of rows: CMDB/identity context from the world plus what the template plants);
+  `planSessions` still runs so `VulnContext extends CaseContext` is honest. Log window is 14 days (`VULN_WINDOW_DAYS`).
+- WP1b: case date and catalogue depend on `(worldSeed, seed)` only, not on the template id, so twin templates built with the same seed
+  share the date and the catalogue and can pair deciders. Template rng streams still depend on the template id.
+- WP1b: `ctx.vuln.scan` (ScanWriter) API: `run`, `finding`, `background` (mostly medium/low, never Sim-KEV, plus `hygiene` findings with
+  empty VulnId), `intel` (create/patch; pass a modified catalogue entry to override a decider), `software` (upsert), `scopeHost`
+  (scenario-only device, inserted at a seeded CMDB position). Method rules enforced: unauthenticated = banner version and needs a port;
+  credentialed/agent = package version; a failed login falls back to the banner for that device for the whole run and is counted in
+  `ScanRuns.AuthFailures`; external scans are unauthenticated and see only exposed devices; findings cannot span more devices than
+  `TargetsScanned`.
+- WP1b: KQL parser now accepts a bare table on the right of `join` (real KQL: `| join kind=inner VulnIntel on VulnId`), additive; the
+  parenthesised form is unchanged. Needed for the literal example in PLAN/DESIGN.
+- WP1b: `registry.ts` (`VULN_TEMPLATES`, empty) is where WP1d wires `templates/index.ts`; `buildVulnScenario` also takes a `template` object.
+  `SessionInfo.vulnCase` carries a vuln session; `cases` is `[]` and `infra` `{}` for it.
 
 ## Known issues
 - NEEDS-HUMAN-CHECK 1–2 still open (PLAN.md).
-- Guardrail `generatedCaseSources()` in `tests/vuln-guardrails.test.ts` returns `[]` until WP1b wires generated case output
-  (test passes vacuously until then); move `cveViolations` to `tests/helpers/` when a second test needs it.
+- SOC sessions now list six empty vuln tables in the schema browser, Help schema and editor autocomplete (they come from `TABLES`).
+  Hiding empty context tables is a UI decision for WP1e; README.md ("18 tables", lines 46 and 156) needs the new count (coordinator).
+- `tests/helpers/vuln-scenario-check.ts` covers build, structure, corpus integrity, synthetic guardrails, determinism and solvability;
+  the grading checks (perfect = 100, empty = 0) join it in WP1c/WP1d.
+- Parser bare-table `join` lacks tests for the error path and for a join with no `kind` (reviewer note, non-blocking).
+- `scan-writer.ts` hygiene findings report their basis without honouring a failed login (cosmetic).
+- `query/engine.ts` column-type map now also types new column names (`Port`, `Started`, …); only affects type labels on aliased SQL
+  result columns, no conflicts found.

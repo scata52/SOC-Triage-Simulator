@@ -8,6 +8,7 @@ import type { Attachment, CaseContext, EvidenceSpec, SolutionStep } from '../cas
 import type { RowRef } from '../logs/corpus.ts';
 import type { CaseReference, Difficulty, RubricItem } from '../types.ts';
 import type { VulnCatalogue } from './catalogue.ts';
+import type { ScanWriter } from './scan-writer.ts';
 
 // avoid = remove or disable the vulnerable component or service entirely;
 // mitigate = keep it, put a control in front of it.
@@ -100,10 +101,12 @@ export interface VulnCaseSpec {
   references: CaseReference[];
 }
 
-// What a vuln template receives beyond the SOC case context. The scan writer
-// (ScanRuns and finding rows) joins this in WP1b, additively.
+// What a vuln template receives beyond the SOC case context: the seeded
+// catalogue, and the scan writer that turns catalogue entries into ScanRuns,
+// findings, intel and inventory rows (DESIGN section 6.2).
 export interface VulnToolkit {
   catalogue: VulnCatalogue;
+  scan: ScanWriter;
 }
 
 export interface VulnContext extends CaseContext {
