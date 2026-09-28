@@ -89,6 +89,12 @@ describe('indicator normalisation and matching', () => {
     expect(matches({ kind: 'user', value: 'ana.lopes' }, spec)).toBe(false);
   });
 
+  it('matches an IP inside a URL or with a port', () => {
+    const spec = { kind: 'ip' as const, value: '192.0.2.145' };
+    for (const v of ['http://192.0.2.145/cdn/884143.txt', 'hxxp://192.0.2[.]145:8080/x', '192.0.2.145:443']) expect(matches({ kind: detectKind(v), value: v }, spec), v).toBe(true);
+    expect(matches({ kind: 'url', value: 'http://192.0.2.14/x' }, spec)).toBe(false);
+  });
+
   it('matches hosts by short name or FQDN, files by basename', () => {
     expect(matches({ kind: 'host', value: 'lt-fin-004.corp.contoso.com' }, { kind: 'host', value: 'LT-FIN-004' })).toBe(true);
     expect(matches({ kind: 'host', value: 'LT-FIN-005' }, { kind: 'host', value: 'LT-FIN-004' })).toBe(false);
@@ -133,7 +139,11 @@ describe('gradeCase', () => {
     const attack = (techniques: string[]) => gradeCase(c, verdict({ disposition: 'true-positive', techniques }));
     expect(component(attack(['T1110.003', 'T1078.004']), 'attack').earned).toBe(15);
     expect(component(attack(['T1110.003', 'T1078.004', 'T1078']), 'attack').earned).toBe(15);
-    expect(attack(['T1110.003', 'T1078']).techniques.accepted).toEqual(['T1078']);
+    expect(attack(['T1110.003', 'T1078.004', 'T1078']).techniques.accepted).toEqual(['T1078']);
+    // An accepted parent standing in for a missing sub-technique still earns
+    // the sibling half-credit — never less than a wrong sibling would.
+    expect(attack(['T1110.003', 'T1078']).techniques.partial).toEqual(['T1078']);
+    expect(component(attack(['T1110.003', 'T1078']), 'attack').earned).toBe(component(attack(['T1110.003', 'T1078.001']), 'attack').earned);
     // T1110.001 is a sibling of T1110.003: half credit for that half.
     expect(component(attack(['T1110.001', 'T1078.004']), 'attack').earned).toBe(Math.round(0.75 * 15));
     expect(component(attack(['T1110.003', 'T1078.004', 'T1486']), 'attack').earned).toBe(13);

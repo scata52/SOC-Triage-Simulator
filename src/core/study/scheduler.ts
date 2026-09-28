@@ -84,7 +84,8 @@ export function skills(attempts: readonly Attempt[]): Skill[] {
   for (const c of new Set(ALL_TEMPLATES.map((t) => t.category))) touch('category', c);
 
   // Newest attempts weigh most.
-  const ordered = [...attempts].sort((a, b) => b.day - a.day);
+  // Newest first: by day, then by position (later entries are newer).
+  const ordered = attempts.map((a, i) => ({ a, i })).sort((x, y) => y.a.day - x.a.day || y.i - x.i).map((x) => x.a);
   const seenPerSkill = new Map<string, number>();
   for (const at of ordered) {
     const t = templateById(at.templateId);

@@ -22,6 +22,17 @@ describe('SM-2', () => {
     expect(c.ef).toBeGreaterThan(2.5);
   });
 
+  it('does not stretch the interval for a pass before the card is due', () => {
+    let c = review(undefined, 't', 100, 10);
+    c = review(c, 't', 100, 10);
+    c = review(c, 't', 100, 10);
+    expect([c.reps, c.interval, c.due]).toEqual([1, 1, 11]);
+    expect(c.lastPercent).toBe(100);
+    // An early fail still counts.
+    c = review(c, 't', 10, 10);
+    expect([c.reps, c.lapses, c.due]).toEqual([0, 1, 11]);
+  });
+
   it('lapses on a fail and never drops EF below 1.3', () => {
     let c: Card = review(undefined, 't', 100, 0);
     c = review(c, 't', 100, 1);
@@ -48,6 +59,13 @@ describe('skills and weakness', () => {
     // The newer 100% counts more than the older 20%.
     expect(cred.mastery).toBeGreaterThan((0.4 + 0.2 + 1) / 3);
     expect(weakest(after, 'tactic', 1)[0].key).not.toBe('credential-access');
+  });
+
+  it('weighs the newest of several same-day attempts most', () => {
+    const t = 'identity-password-spray';
+    const sameDay = skills([attempt(t, 0, 5), attempt(t, 100, 5)]).find((s) => s.key === 'identity')!;
+    const nextDay = skills([attempt(t, 0, 5), attempt(t, 100, 6)]).find((s) => s.key === 'identity')!;
+    expect(sameDay.mastery).toBeCloseTo(nextDay.mastery, 10);
   });
 
   it('counts a streak of consecutive days', () => {

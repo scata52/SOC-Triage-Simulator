@@ -73,6 +73,14 @@ describe('storage', () => {
     expect(again.profile).toEqual(migrated.profile);
   });
 
+  it('survives a malformed v1 profile', () => {
+    const kv = new MemoryKV();
+    kv.setItem(V1_KEY, JSON.stringify({ version: 1, records: [null, 5, 'x', { templateId: 'identity-password-spray', percent: 70 }] }));
+    const r = loadProfile(kv, ctx);
+    expect(r.source).toBe('v1-migrated');
+    expect(r.profile.attempts).toHaveLength(1);
+  });
+
   it('backs up an unreadable v2 blob instead of overwriting it', () => {
     const kv = new MemoryKV();
     kv.setItem(V2_KEY, '{not json');

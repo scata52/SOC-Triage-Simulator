@@ -51,9 +51,17 @@ export function loadProfile(kv: KeyValueStore | null, ctx: LoadContext): { profi
     }
   };
   const coerceCtx = { now: ctx.now, tzOffsetMinutes: ctx.tzOffsetMinutes, newWorldSeed: ctx.newWorldSeed() };
+  // A blob that makes migration throw is treated as unreadable, never fatal.
+  const coerce = (raw: unknown) => {
+    try {
+      return coerceProfile(raw, coerceCtx);
+    } catch {
+      return null;
+    }
+  };
   const v2 = read(V2_KEY);
   if (v2 !== undefined) {
-    const p = v2 === null ? null : coerceProfile(v2, coerceCtx);
+    const p = v2 === null ? null : coerce(v2);
     if (p) return { profile: p, source: 'v2' };
     // Keep the unreadable blob rather than overwrite it on the next save.
     try {
@@ -65,7 +73,7 @@ export function loadProfile(kv: KeyValueStore | null, ctx: LoadContext): { profi
   }
   const v1 = read(V1_KEY);
   if (v1) {
-    const p = coerceProfile(v1, coerceCtx);
+    const p = coerce(v1);
     if (p) return { profile: p, source: 'v1-migrated' };
   }
   return { profile: fresh(), source: 'new' };
@@ -91,4 +99,10 @@ export function importProfile(json: string, ctx: LoadContext): Profile | null {
   } catch {
     return null;
   }
+}
+
+// Another tab saved: adopt its copy (null if it cannot be read).
+export function parseStored(raw: string | null, ctx: LoadContext): Profile | null {
+  if (!raw) return null;
+  return importProfile(raw, ctx);
 }

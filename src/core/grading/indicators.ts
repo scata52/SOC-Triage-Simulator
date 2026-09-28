@@ -59,7 +59,11 @@ export function matches(given: GivenIndicator, spec: IndicatorSpec): boolean {
   const g = normalise(given.value);
   const values = [spec.value, ...(spec.aliases ?? [])].map(normalise);
   switch (spec.kind) {
-    case 'ip':
+    case 'ip': {
+      const host = /^[a-z]+:\/\//.test(g) ? hostOf(g) : g;
+      const bare = /^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(host) ? host.split(':')[0] : host;
+      return values.includes(g) || values.includes(bare);
+    }
     case 'sha256':
     case 'email':
     case 'file':

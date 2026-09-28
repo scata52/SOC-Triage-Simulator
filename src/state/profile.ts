@@ -330,6 +330,7 @@ export function migrateV1(raw: unknown, now: number, worldSeed: string, tzOffset
   const records = (Array.isArray(v1.records) ? v1.records : []) as V1Record[];
   const migrated: AttemptRecord[] = [];
   for (const r of records) {
+    if (!r || typeof r !== 'object') continue;
     const templateId = str(r.templateId);
     const t = templateById(templateId);
     if (!t) continue;

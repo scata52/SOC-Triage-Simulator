@@ -27,6 +27,14 @@ export function quality(percent: number): number {
 export function review(card: Card | undefined, templateId: string, percent: number, today: number): Card {
   const c: Card = card ? { ...card } : { templateId, ef: 2.5, interval: 0, reps: 0, lapses: 0, due: today, last: today, lastPercent: 0 };
   const q = quality(percent);
+  // A pass before the card is due ("work it again", an early pick) is just
+  // practice: it must not stretch the interval, or three quick repeats would
+  // schedule the next review weeks out. A fail always counts as a lapse.
+  if (card && today < card.due && q >= 3) {
+    c.last = today;
+    c.lastPercent = percent;
+    return c;
+  }
   if (q >= 3) {
     c.interval = c.reps === 0 ? 1 : c.reps === 1 ? 6 : Math.max(1, Math.round(c.interval * c.ef));
     c.reps += 1;

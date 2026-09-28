@@ -138,17 +138,17 @@ export function gradeCase(c: ResolvedCase, v: Verdict): CaseGrade {
       covered.add(id);
     }
   }
+  // Then related tags: a sibling or parent of an uncovered required technique
+  // earns half credit even when it is also on the accepted list (otherwise
+  // "also defensible" would score worse than a wrong sub-technique).
   for (const id of chosen) {
     if (required.includes(id)) continue;
-    if (accept.has(id)) {
-      accepted.push(id);
-      continue;
-    }
     const sibling = required.find((r) => parentOf(r) === parentOf(id) && !covered.has(r));
     if (sibling) {
       partial.push(id);
       covered.add(sibling);
-    } else extra.push(id);
+    } else if (accept.has(id)) accepted.push(id);
+    else extra.push(id);
   }
   credit = matched.length + partial.length * 0.5;
   const missed = required.filter((r) => !covered.has(r));
