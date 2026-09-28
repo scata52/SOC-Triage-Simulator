@@ -17,6 +17,7 @@ export interface ExternalService {
   weight: number; // relative popularity in noise
   depts?: readonly string[]; // restrict to departments (undefined = everyone)
   process?: string; // typical initiating process on endpoints
+  blocked?: boolean; // proxy policy blocks the category
 }
 
 export function benignServices(tenant: string): ExternalService[] {
@@ -53,6 +54,9 @@ export function benignServices(tenant: string): ExternalService[] {
     { domain: 'www.dropbox.com', category: 'Personal Storage', kind: 'personal-storage', weight: 1, depts: ['Marketing', 'Sales'], process: 'chrome.exe' },
     { domain: 'wetransfer.com', category: 'Personal Storage', kind: 'personal-storage', weight: 1, depts: ['Marketing', 'Engineering'], process: 'chrome.exe' },
     { domain: 'drive.google.com', category: 'Personal Storage', kind: 'personal-storage', weight: 1, process: 'chrome.exe' },
+    { domain: 'www.twitch.tv', category: 'Streaming Media', kind: 'web', weight: 0.3, process: 'chrome.exe', blocked: true },
+    { domain: 'store.steampowered.com', category: 'Games', kind: 'web', weight: 0.3, process: 'chrome.exe', blocked: true },
+    { domain: 'd1x7k2m9q3v5.cloudfront.net', category: 'Content Delivery', kind: 'cdn', weight: 1.5, process: 'msedge.exe' },
   ];
 }
 

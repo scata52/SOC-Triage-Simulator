@@ -113,7 +113,7 @@ export interface Partner {
 export interface World {
   version: number;
   seed: string;
-  org: FictitiousOrg & { netbios: string; tenant: string; utcOffset: number };
+  org: FictitiousOrg & { netbios: string; tenant: string; adFqdn: string; utcOffset: number };
   sites: Site[];
   vpn: { egress: VpnEgress[]; poolCidr: string };
   people: Person[];
@@ -123,6 +123,7 @@ export interface World {
   serviceIps: Record<string, string[]>;
   bulkSenderIps: Record<string, string>;
   partners: Partner[];
+  publicIps: { web: string; vpn: string };
   internet: {
     scanners: string[];
     tor: string[];
@@ -202,6 +203,7 @@ export function generateWorld(seed: string): World {
     ...base,
     netbios: base.short.toUpperCase().slice(0, 15),
     tenant: base.short.toLowerCase(),
+    adFqdn: `corp.${base.domain}`,
     utcOffset: hqCity.utcOffset,
   };
 
@@ -411,6 +413,7 @@ export function generateWorld(seed: string): World {
     mailIp: allocExt(nr, nr.pick(europe), 'corporate'),
   }));
 
+  const publicIps = { web: allocExt(nr, hqCity, 'corporate', orgNet, orgAsn), vpn: vpn.egress[0].ip };
   const anyCity = () => nr.pick(CITIES);
   const internet = {
     scanners: Array.from({ length: 24 }, () => allocExt(nr, anyCity(), 'hosting')),
@@ -433,6 +436,7 @@ export function generateWorld(seed: string): World {
     serviceIps,
     bulkSenderIps,
     partners,
+    publicIps,
     internet,
     geo,
     reservedExternal: ext.reserved(),
