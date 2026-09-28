@@ -1,0 +1,11 @@
+{
+  "name": "SOC Triage Simulator",
+  "short_name": "SOC Triage",
+  "description": "Investigate synthetic alerts with real KQL, work timed shifts against a fictional threat actor, and study with spaced repetition.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a0d12",
+  "theme_color": "#0a0d12",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

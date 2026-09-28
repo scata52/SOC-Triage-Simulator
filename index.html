@@ -3,17 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#0d0d0d" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0a0d12" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)" />
     <meta
       name="description"
-      content="SOC Triage Simulator — practice alert triage on realistic synthetic cases with MITRE ATT&CK tagging, rubric grading and progress tracking. Built for CySA+ and SOC analyst study."
+      content="SOC Triage Simulator — investigate synthetic alerts with real KQL over a day of logs, work timed shifts against a fictional threat actor, and study with spaced repetition. Built for CySA+ and SOC analyst practice."
     />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0d0d'/%3E%3Cpath d='M16 5l10 5.5v7.5c0 5.2-4.3 8.6-10 9.5-5.7-.9-10-4.3-10-9.5v-7.5L16 5z' fill='none' stroke='%233987e5' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M11 16.5l3.2 3.2L21 13' fill='none' stroke='%233987e5' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>SOC Triage Simulator</title>
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="app"><noscript>SOC Triage Simulator needs JavaScript: it generates its logs and runs its SIEM in your browser.</noscript></div>
+    <script type="module" src="/src/ui/main.tsx"></script>
   </body>
 </html>
