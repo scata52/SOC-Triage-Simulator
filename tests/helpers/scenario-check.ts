@@ -73,8 +73,8 @@ export function checkGrading(c: ResolvedCase): void {
   }
 }
 
-export async function checkSolvable(s: Scenario, c: ResolvedCase): Promise<void> {
-  const db = new SiemDatabase(await sqljs(), s.corpus);
+export async function checkSolvable(s: Scenario, c: ResolvedCase, shared?: SiemDatabase): Promise<void> {
+  const db = shared ?? new SiemDatabase(await sqljs(), s.corpus);
   try {
     const found = new Set<string>();
     const texts: string[] = [c.alert.summary, ...c.alert.entities.map((e) => e.value)];
@@ -102,7 +102,7 @@ export async function checkSolvable(s: Scenario, c: ResolvedCase): Promise<void>
       expect(variants.some((v) => hay.includes(v)), `${c.templateId}: indicator ${i.value} never visible in the investigation`).toBe(true);
     }
   } finally {
-    db.close();
+    if (!shared) db.close();
   }
 }
 
