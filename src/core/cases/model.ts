@@ -107,7 +107,8 @@ export interface CaseTemplate {
   id: string;
   category: Category;
   difficulty: Difficulty;
-  title: string; // scenario name (stats, study plan)
+  title: string; // neutral name, safe to show before the case is solved
+  lesson: string; // what it turned out to be — shown only in the debrief and stats
   cysaDomains: string[];
   kind: CaseKind;
   twin?: string;

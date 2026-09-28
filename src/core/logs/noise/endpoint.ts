@@ -61,6 +61,7 @@ export function endpointNoise(n: NoiseCtx): void {
   const w = b.world;
   const ad = w.org.netbios;
   const fileServerFor = (p: Person) => (p.siteId === 'branch' ? 'FS02' : 'FS01');
+  let certutilSeen = false;
 
   for (const s of n.sessions) {
     const p = s.person;
@@ -154,13 +155,23 @@ export function endpointNoise(n: NoiseCtx): void {
       for (let i = 0; i < ps; i++) {
         emitProc(b, { t: within(rng, s), device: dev, account: user, bin: BIN.powershell, cmd: `powershell.exe -NoExit -Command "${rng.pick(cmds)}"`, parent: BIN.explorer });
       }
-      if (rng.bool(0.6)) emitProc(b, { t: within(rng, s), device: dev, account: user, bin: BIN.mstsc, cmd: 'mstsc.exe /v:JUMP01', parent: BIN.explorer });
-      if (rng.bool(0.3)) emitProc(b, { t: within(rng, s), device: dev, account: user, bin: BIN.certutil, cmd: `certutil.exe -hashfile "C:\\Users\\${user}\\Downloads\\${rng.pick(['vendor-agent-2.8.1.msi', 'firmware_fw01_9.4.bin', 'PowerShell-7.4.6-win-x64.msi'])}" SHA256`, parent: BIN.powershell, parentCmd: 'powershell.exe -NoExit' });
+      if (rng.bool(0.6)) {
+        // Admins reach servers through the jump host with their -adm account.
+        const t = within(rng, s);
+        emitProc(b, { t, device: dev, account: user, bin: BIN.mstsc, cmd: 'mstsc.exe /v:JUMP01', parent: BIN.explorer });
+        const acct = p.adminAccount ?? sam;
+        if (rng.bool(0.15)) b.sec({ TimeGenerated: t + 5 * SEC, Computer: 'JUMP01', EventID: 4625, Account: '-', TargetAccount: `${ad}\\${acct}`, LogonType: 10, IpAddress: s.lanIp, WorkstationName: dev, AuthenticationPackage: 'Negotiate', Status: '0xC000006D', SubStatus: '0xC000006A' });
+        b.sec({ TimeGenerated: t + 20 * SEC, Computer: 'JUMP01', EventID: 4624, Account: '-', TargetAccount: `${ad}\\${acct}`, LogonType: 10, IpAddress: s.lanIp, WorkstationName: dev, AuthenticationPackage: 'Kerberos', ElevatedToken: 'Yes' });
+      }
+      if (rng.bool(0.6) || !certutilSeen) {
+        certutilSeen = true;
+        emitProc(b, { t: within(rng, s), device: dev, account: user, bin: BIN.certutil, cmd: `certutil.exe -hashfile "C:\\Users\\${user}\\Downloads\\${rng.pick(['vendor-agent-2.8.1.msi', 'firmware_fw01_9.4.bin', 'PowerShell-7.4.6-win-x64.msi'])}" SHA256`, parent: BIN.powershell, parentCmd: 'powershell.exe -NoExit' });
+      }
     }
 
     // Everyone: management agents as SYSTEM.
     if (rng.bool(0.45)) {
-      emitProc(b, { t: within(rng, s, 30), device: dev, account: 'SYSTEM', bin: BIN.powershell, cmd: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${SCCM_INVENTORY_B64}`, parent: BIN.ccmexec, parentCmd: 'C:\\Windows\\CCM\\CcmExec.exe', integrity: 'System' });
+      emitProc(b, { t: within(rng, s, 30), device: dev, account: 'SYSTEM', bin: BIN.powershell, cmd: `powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${SCCM_INVENTORY_B64}`, parent: BIN.ccmexec, parentCmd: 'C:\\Windows\\CCM\\CcmExec.exe', integrity: 'System' });
     }
     if (rng.bool(0.5)) emitProc(b, { t: within(rng, s), device: dev, account: 'SYSTEM', bin: BIN.mpcmdrun, cmd: '"C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.24090.11-0\\MpCmdRun.exe" SignatureUpdate -ScheduleJob -RestrictPrivileges', parent: BIN.svchost, parentCmd: 'C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule', integrity: 'System' });
     if (rng.bool(0.3)) emitProc(b, { t: within(rng, s), device: dev, account: 'SYSTEM', bin: BIN.googleupdater, cmd: `${q(BIN.googleupdater.path)} --wake --system`, parent: BIN.svchost, parentCmd: 'C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule', integrity: 'System' });

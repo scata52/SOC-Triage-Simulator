@@ -88,6 +88,8 @@ const RAW: Raw[] = [
   { id: 'T1021.002', name: 'Remote Services: SMB/Windows Admin Shares', tactics: ['lateral-movement'] },
   { id: 'T1021.006', name: 'Remote Services: Windows Remote Management', tactics: ['lateral-movement'] },
   { id: 'T1550.002', name: 'Use Alternate Authentication Material: Pass the Hash', tactics: ['lateral-movement', 'defense-evasion'] },
+  { id: 'T1550.004', name: 'Use Alternate Authentication Material: Web Session Cookie', tactics: ['lateral-movement', 'defense-evasion'] },
+  { id: 'T1080', name: 'Taint Shared Content', tactics: ['lateral-movement'] },
   { id: 'T1570', name: 'Lateral Tool Transfer', tactics: ['lateral-movement'] },
 
   // Collection
@@ -105,6 +107,7 @@ const RAW: Raw[] = [
   { id: 'T1071.004', name: 'Application Layer Protocol: DNS', tactics: ['command-and-control'] },
   { id: 'T1105', name: 'Ingress Tool Transfer', tactics: ['command-and-control'] },
   { id: 'T1090', name: 'Proxy', tactics: ['command-and-control'] },
+  { id: 'T1572', name: 'Protocol Tunneling', tactics: ['command-and-control'] },
   { id: 'T1219', name: 'Remote Access Software', tactics: ['command-and-control'] },
   { id: 'T1567.001', name: 'Exfiltration to Code Repository', tactics: ['exfiltration'] },
   { id: 'T1568', name: 'Dynamic Resolution', tactics: ['command-and-control'] },

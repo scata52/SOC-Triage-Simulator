@@ -23,6 +23,7 @@ export interface Session {
   userAgent: string;
   browser: 'Edge' | 'Chrome';
   travelCity?: string;
+  hotelIp?: string;
 }
 
 const EDGE_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.2903.70';
@@ -71,6 +72,7 @@ export function planSessions(b: CorpusBuilder, rng: Rng): Session[] {
       let lanIp = device.ip;
       let onVpn = false;
       let travelCity: string | undefined;
+      let hotelIp: string | undefined;
       if (location === 'home') {
         onVpn = rng.bool(0.8);
         // Always-on VPN: cloud traffic mostly still egresses via the VPN.
@@ -79,6 +81,7 @@ export function planSessions(b: CorpusBuilder, rng: Rng): Session[] {
       } else if (location === 'travel') {
         onVpn = true;
         const hotel = rng.pick(w.internet.hotels);
+        hotelIp = hotel;
         travelCity = b.geo[hotel]?.city;
         // Field staff hit either the hotel network or the cloud VPN gateway.
         cloudIp = rng.bool(0.5) ? hotel : rng.pick(w.vpn.egress).ip;
@@ -96,6 +99,7 @@ export function planSessions(b: CorpusBuilder, rng: Rng): Session[] {
         userAgent: userAgentOf(p),
         browser: browserOf(p),
         travelCity,
+        hotelIp,
       });
     }
   }

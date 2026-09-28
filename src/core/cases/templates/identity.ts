@@ -7,7 +7,7 @@ import { DAY, HOUR, MIN, SEC, atLocalHour, localWeekday } from '../../logs/time.
 import { haversineKm } from '../../synth/geo.ts';
 import { userAgentOf } from '../../logs/noise/presence.ts';
 import { mfaDetail } from '../../logs/noise/identity.ts';
-import { documentName } from '../../synth/software.ts';
+import { BIN, binaryHash, documentName } from '../../synth/software.ts';
 import { host, hm, ip, kdt, km, rubric, technique, user } from './util.ts';
 
 const ATTACKER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -19,7 +19,8 @@ const impossibleTravel: CaseTemplate = {
   id: 'identity-impossible-travel',
   category: 'identity',
   difficulty: 'tier2',
-  title: 'Atypical travel sign-in to Microsoft Entra ID',
+  title: 'Atypical travel sign-in',
+  lesson: 'Account takeover with a replayed session token',
   cysaDomains: ['1.0', '3.0'],
   kind: 'incident',
   twin: 'identity-benign-vpn-travel',
@@ -31,10 +32,12 @@ const impossibleTravel: CaseTemplate = {
     const site = idx.siteOf(victim);
     const device = pick.device(victim);
     const tBad = at - rng.int(4, 11) * MIN;
-    const gap = rng.int(12, 35);
+    const gap = rng.int(12, 45);
     const tGood = tBad - gap * MIN;
     const here = pick.where(victim, tGood);
-    const foreign = pick.city({ farFrom: site.city, minKm: 3500 });
+    const hereGeo = log.geo[here.cloudIp];
+    const hereCity = { city: hereGeo?.city ?? site.city.city, cc: hereGeo?.cc ?? site.city.cc, country: hereGeo?.country ?? site.city.country };
+    const foreign = pick.city({ farFrom: site.city, minKm: 700 });
     const attacker = ctx.infra.ip('login', foreign);
     const distance = haversineKm(site.city, foreign);
     const speed = Math.round(distance / (gap / 60));
@@ -67,19 +70,19 @@ const impossibleTravel: CaseTemplate = {
         product: 'Microsoft Entra ID Protection',
         severity: 'medium',
         time: at,
-        summary: `Sign-ins for ${victim.upn} from ${site.city.city} (${site.city.cc}) and ${foreign.city} (${foreign.cc}) ${gap} minutes apart.`,
+        summary: `Sign-ins for ${victim.upn} from ${hereCity.city} (${hereCity.cc}) and ${foreign.city} (${foreign.cc}) ${gap} minutes apart.`,
         entities: [
           { kind: 'user', value: victim.upn, label: victim.display },
-          { kind: 'ip', value: here.cloudIp, label: site.city.city },
+          { kind: 'ip', value: here.cloudIp, label: hereCity.city },
           { kind: 'ip', value: attacker, label: foreign.city },
         ],
-        fields: [['Risk detection', 'Atypical travel (offline)'], ['Risk level', 'Medium'], ['First location', `${site.city.city}, ${site.city.country}`], ['Second location', `${foreign.city}, ${foreign.country}`]],
+        fields: [['Risk detection', 'Atypical travel (offline)'], ['Risk level', 'Medium'], ['First location', `${hereCity.city}, ${hereCity.country}`], ['Second location', `${foreign.city}, ${foreign.country}`]],
       },
       briefing: `${world.org.name} is a cloud-first Microsoft 365 tenant; Conditional Access requires MFA for every user. ${victim.display} is ${victim.title} in ${victim.department}.`,
       truth: {
         disposition: 'true-positive', severity: 'high', action: 'escalate',
         techniques: ['T1078.004', 'T1564.008'], tactics: ['initial-access', 'defense-evasion'],
-        alsoAccept: ['T1114.002', 'T1114.003', 'T1539', 'T1528', 'T1078'],
+        alsoAccept: ['T1114.002', 'T1114.003', 'T1539', 'T1528', 'T1550.004', 'T1078'],
       },
       evidence: [
         { id: 'token', label: `The ${foreign.city} sign-in used no registered or compliant device and rode an existing token`, why: 'Legitimate sessions for this user come from a compliant, registered laptop. A token replayed from an unmanaged machine satisfies MFA without anyone approving anything.', rows: [bad, bad2] },
@@ -109,7 +112,7 @@ const impossibleTravel: CaseTemplate = {
         ['contain', 'Revoke sessions and refresh tokens, reset the password, remove the rule, and scope what was accessed.', ['revoke', 'reset', 'remove', 'contain', 'session']],
       ]),
       explanation: [
-        `Two successful sign-ins for ${victim.upn}, ${gap} minutes apart, from ${site.city.city} and ${foreign.city} — about ${km(distance)} km, an implied ${km(speed)} km/h. The ${site.city.city} session is ${victim.first}'s normal pattern: their registered, compliant laptop ${device.name}. The ${foreign.city} session has no device ID at all and arrived with a refresh token rather than a fresh login, and ${attacker} is not one of the organisation's named locations.`,
+        `Two successful sign-ins for ${victim.upn}, ${gap} minutes apart, from ${hereCity.city} and ${foreign.city} — about ${km(distance)} km, an implied ${km(speed)} km/h. The ${hereCity.city} session is ${victim.first}'s normal pattern: their registered, compliant laptop ${device.name}. The ${foreign.city} session has no device ID at all and arrived with a refresh token rather than a fresh login, and ${attacker} is not one of the organisation's named locations.`,
         `The confirmer is what that session did: it read mail, downloaded finance spreadsheets, and created an inbox rule named ".." that moves anything mentioning invoices, payments or wires into RSS Subscriptions and marks it read. That is the textbook opening of business email compromise — hide the finance conversation from the real user while the attacker takes it over.`,
         `MFA shows as satisfied, but only "by claim in the token": the attacker replayed a session stolen earlier (commonly via an adversary-in-the-middle phishing kit), so no prompt ever fired. Escalate as a confirmed account takeover: revoke sessions and refresh tokens, reset the password, remove the rule, and work out what was read or sent.`,
       ],
@@ -130,7 +133,8 @@ const passwordSpray: CaseTemplate = {
   id: 'identity-password-spray',
   category: 'identity',
   difficulty: 'tier2',
-  title: 'Distributed failed sign-ins across many users',
+  title: 'Failed sign-ins across many accounts',
+  lesson: 'Password spray with one success over legacy IMAP',
   cysaDomains: ['1.0', '3.0'],
   kind: 'incident',
   stages: ['initial-access'],
@@ -155,12 +159,11 @@ const passwordSpray: CaseTemplate = {
     const successAt = start + Math.floor(span * rng.float(0.45, 0.8));
     for (let i = 0; i < order.length; i++) {
       const p = order[i];
-      const tries = p === compromised ? 1 : rng.int(1, 3);
+      const tries = p === compromised ? 1 : rng.int(1, 2);
       for (let k = 0; k < tries; k++) {
         const t = start + Math.floor((span * (i + k * 0.5)) / order.length) + rng.int(0, 40) * SEC;
         if (p === compromised) continue;
-        const locked = k === 2 && rng.bool(0.3);
-        failures.push(log.signin({ ...base, TimeGenerated: t, UserPrincipalName: p.upn, IPAddress: rng.bool() ? ip1 : ip2, ClientAppUsed: rng.bool(0.8) ? 'IMAP4' : 'Authenticated SMTP', ResultType: locked ? 50053 : 50126, RiskLevelDuringSignIn: rng.pick(['none', 'low']) }));
+        failures.push(log.signin({ ...base, TimeGenerated: t, UserPrincipalName: p.upn, IPAddress: rng.bool() ? ip1 : ip2, ClientAppUsed: rng.bool(0.8) ? 'IMAP4' : 'Authenticated SMTP', ResultType: 50126, RiskLevelDuringSignIn: rng.pick(['none', 'low']) }));
       }
     }
     const success = log.signin({ ...base, TimeGenerated: successAt, UserPrincipalName: compromised.upn, IPAddress: ip1, ClientAppUsed: 'IMAP4', ResultType: 0 });
@@ -230,7 +233,8 @@ const rdpBruteForce: CaseTemplate = {
   id: 'identity-rdp-bruteforce',
   category: 'identity',
   difficulty: 'tier1',
-  title: 'Repeated RDP logon failures on the jump host',
+  title: 'Failed RDP logons on the jump host',
+  lesson: 'RDP brute force through a forgotten firewall exception',
   cysaDomains: ['1.0', '3.0'],
   kind: 'incident',
   stages: ['initial-access'],
@@ -270,8 +274,9 @@ const rdpBruteForce: CaseTemplate = {
     const success = log.sec({ TimeGenerated: tSuccess, Computer: 'JUMP01', EventID: 4624, Account: '-', TargetAccount: 'JUMP01\\Administrator', LogonType: 10, IpAddress: attacker, WorkstationName: 'WIN-7N3KQ0', AuthenticationPackage: 'Negotiate', ElevatedToken: 'Yes' });
     const session = log.fw({ TimeGenerated: tSuccess - 2 * SEC, Direction: 'Inbound', Action: 'Allow', SourceIP: attacker, SourcePort: rng.int(40000, 65000), DestinationIP: nat, DestinationPort: 3389, RuleName: 'tmp-rdp-jump01', BytesSent: rng.int(8_000_000, 30_000_000), BytesReceived: rng.int(40_000_000, 90_000_000), SessionDurationSec: rng.int(2200, 2700) });
     const acct = 'administrator';
+    const paths: Record<string, string> = { 'powershell.exe': BIN.powershell.path, 'cmd.exe': BIN.cmd.path, 'whoami.exe': BIN.whoami.path, 'net.exe': BIN.net.path, 'nltest.exe': 'C:\\Windows\\System32\\nltest.exe' };
     const cmd = (t: number, file: string, line: string, parent = 'cmd.exe') =>
-      log.proc({ TimeGenerated: t, DeviceName: 'JUMP01', AccountName: acct, FileName: file, FolderPath: `C:\\Windows\\System32\\${file}`, ProcessCommandLine: line, SHA256: rng.hex(64), Signer: 'Microsoft Windows', ProcessIntegrityLevel: 'High', InitiatingProcessFileName: parent, InitiatingProcessCommandLine: parent === 'cmd.exe' ? '"C:\\Windows\\system32\\cmd.exe"' : parent });
+      log.proc({ TimeGenerated: t, DeviceName: 'JUMP01', AccountName: acct, FileName: file, FolderPath: paths[file], ProcessCommandLine: line, SHA256: binaryHash(file), Signer: 'Microsoft Windows', ProcessIntegrityLevel: 'High', InitiatingProcessFileName: parent, InitiatingProcessCommandLine: parent === 'cmd.exe' ? '"C:\\Windows\\system32\\cmd.exe"' : parent });
     const hands = [
       cmd(tSuccess + 70 * SEC, 'cmd.exe', '"C:\\Windows\\system32\\cmd.exe"', 'explorer.exe'),
       cmd(tSuccess + 95 * SEC, 'whoami.exe', 'whoami /all'),
@@ -340,7 +345,8 @@ const mfaFatigue: CaseTemplate = {
   id: 'identity-mfa-fatigue',
   category: 'identity',
   difficulty: 'tier3',
-  title: 'Burst of MFA push notifications for one user',
+  title: 'Burst of MFA push notifications',
+  lesson: 'MFA fatigue ending in an approval and a new attacker authenticator',
   cysaDomains: ['1.0', '3.0'],
   kind: 'incident',
   stages: ['initial-access'],
@@ -431,37 +437,39 @@ const benignTravel: CaseTemplate = {
   id: 'identity-benign-vpn-travel',
   category: 'identity',
   difficulty: 'tier2',
-  title: 'Atypical travel alert on a field-sales user',
+  title: 'Atypical travel sign-in',
+  lesson: 'Corporate VPN cloud gateway in another city',
   cysaDomains: ['1.0', '4.0'],
   kind: 'benign',
   twin: 'identity-impossible-travel',
   when: 'business',
   build(ctx) {
     const { rng, log, pick, idx, at, world } = ctx;
-    const victim = pick.person({ fieldSales: true });
-    const device = pick.device(victim);
     const vpn = world.vpn.egress[1];
+    // Someone genuinely away from the office right now: on the road, or at
+    // home over VPN. Their day in the logs then agrees with the story.
+    const away = ctx.sessions.filter((x) => x.start <= at && x.end >= at && (x.location === 'travel' || (x.location === 'home' && x.onVpn)));
+    const session = away.length ? rng.pick(away) : undefined;
+    const victim = session?.person ?? pick.person({ fieldSales: true });
+    const device = pick.device(victim);
+    const firstIp = session?.location === 'travel' && session.hotelIp ? session.hotelIp : victim.homeIp;
+    const firstGeo = log.geo[firstIp];
+    const firstCity = { city: firstGeo?.city ?? idx.siteOf(victim).city.city, cc: firstGeo?.cc ?? idx.siteOf(victim).city.cc, country: firstGeo?.country ?? idx.siteOf(victim).city.country };
     const tVpn = at - rng.int(6, 14) * MIN;
-    const tEarlier = tVpn - rng.int(150, 260) * MIN;
-    const home = victim.homeIp;
-    const homeCity = idx.siteOf(victim).city;
-    const tripCity = pick.city({ farFrom: homeCity, minKm: 400, europe: true });
-    // The earlier sign-in from home, same managed laptop.
+    const tEarlier = tVpn - rng.int(15, 45) * MIN;
     const base = {
       UserPrincipalName: victim.upn, ClientAppUsed: 'Browser', ResultType: 0, AuthenticationRequirement: 'multiFactorAuthentication', ConditionalAccessStatus: 'success',
       DeviceId: device.deviceId, DeviceName: device.name, IsCompliant: true, IsManaged: true, OperatingSystem: 'Windows 11', Browser: 'Edge 131.0.2903', UserAgent: userAgentOf(victim), RiskLevelDuringSignIn: 'none',
     } as const;
-    const early = log.signin({ ...base, TimeGenerated: tEarlier, AppDisplayName: 'Office 365 Exchange Online', IPAddress: home, MfaDetail: mfaDetail(victim.mfaMethod), MfaResult: 'MFA completed in Azure AD', IncomingTokenType: 'none' });
-    const flagged = log.signin({ ...base, TimeGenerated: tVpn, AppDisplayName: 'Salesforce', IPAddress: vpn.ip, MfaDetail: '', MfaResult: 'MFA requirement satisfied by claim in the token', IncomingTokenType: 'primaryRefreshToken', RiskLevelDuringSignIn: 'low' });
+    const early = log.signin({ ...base, TimeGenerated: tEarlier, AppDisplayName: 'Office 365 Exchange Online', IPAddress: firstIp, MfaDetail: mfaDetail(victim.mfaMethod), MfaResult: 'MFA completed in Azure AD', IncomingTokenType: 'none' });
+    const flagged = log.signin({ ...base, TimeGenerated: tVpn, AppDisplayName: rng.pick(['Salesforce', 'Office 365 SharePoint Online', 'Microsoft Teams']), IPAddress: vpn.ip, MfaDetail: '', MfaResult: 'MFA requirement satisfied by claim in the token', IncomingTokenType: 'primaryRefreshToken', RiskLevelDuringSignIn: 'low' });
     for (let i = 0; i < rng.int(2, 3); i++) {
-      log.audit({ TimeGenerated: tVpn + (i + 1) * rng.int(60, 180) * SEC, Workload: 'SharePoint', OperationName: 'FileAccessed', Category: 'File', InitiatedBy: victim.upn, TargetResource: `https://${world.org.tenant}.sharepoint.com/sites/Sales/Shared Documents/${documentName(rng, 'Sales', 'pptx')}`, ClientIP: vpn.ip, Details: 'UserAgent: Edge; Site: Sales' });
+      log.audit({ TimeGenerated: tVpn + (i + 1) * rng.int(60, 180) * SEC, Workload: 'SharePoint', OperationName: 'FileAccessed', Category: 'File', InitiatedBy: victim.upn, TargetResource: `https://${world.org.tenant}.sharepoint.com/sites/${victim.department}/Shared Documents/${documentName(rng, victim.department, 'pptx')}`, ClientIP: vpn.ip, Details: `UserAgent: Edge; Site: ${victim.department}` });
     }
-    const trip = log.ticket({
-      TicketId: log.nextTicketId('TRV'), Type: 'Travel', Title: `Client visits — ${tripCity.city}`, Requester: victim.upn, AssignedTo: 'Travel desk', Status: 'Approved',
-      Created: at - rng.int(8, 20) * DAY, WindowStart: at - rng.int(0, 1) * DAY - 6 * HOUR, WindowEnd: at + rng.int(1, 3) * DAY, Scope: victim.sam, Details: 'Flights and hotel booked. Laptop on always-on VPN (cloud gateway).',
-    });
+    // Cite the travel request the service desk already has, if any.
+    const trip = log.find('Tickets', (r) => r.Type === 'Travel' && r.Requester === victim.upn);
     const named = log.namedLocationRef(vpn.ip);
-    const hours = Math.round((tVpn - tEarlier) / HOUR);
+    const minutes = Math.round((tVpn - tEarlier) / MIN);
 
     return {
       alert: {
@@ -469,22 +477,22 @@ const benignTravel: CaseTemplate = {
         product: 'Microsoft Entra ID Protection',
         severity: 'medium',
         time: at,
-        summary: `Sign-ins for ${victim.upn} from ${homeCity.city} (${homeCity.cc}) and ${vpn.city.city} (${vpn.city.cc}) ${hours} hours apart.`,
+        summary: `Sign-ins for ${victim.upn} from ${firstCity.city} (${firstCity.cc}) and ${vpn.city.city} (${vpn.city.cc}) ${minutes} minutes apart.`,
         entities: [
           { kind: 'user', value: victim.upn, label: victim.display },
-          { kind: 'ip', value: home, label: homeCity.city },
+          { kind: 'ip', value: firstIp, label: firstCity.city },
           { kind: 'ip', value: vpn.ip, label: vpn.city.city },
         ],
-        fields: [['Risk detection', 'Atypical travel (offline)'], ['Risk level', 'Medium'], ['First location', `${homeCity.city}, ${homeCity.country}`], ['Second location', `${vpn.city.city}, ${vpn.city.country}`]],
+        fields: [['Risk detection', 'Atypical travel (offline)'], ['Risk level', 'Medium'], ['First location', `${firstCity.city}, ${firstCity.country}`], ['Second location', `${vpn.city.city}, ${vpn.city.country}`]],
       },
-      briefing: `${world.org.name} — ${victim.display} is ${victim.title} on the field-sales team.`,
+      briefing: `${world.org.name} is a cloud-first Microsoft 365 tenant; Conditional Access requires MFA for every user. ${victim.display} is ${victim.title} in ${victim.department}.`,
       truth: { disposition: 'benign', severity: 'informational', action: 'close', techniques: [], tactics: [] },
       evidence: [
         { id: 'vpn', label: `${vpn.ip} is the organisation's own VPN cloud gateway in ${vpn.city.city}`, why: 'Geolocation shows where the VPN gateway is, not where the user is. The "second city" is infrastructure you own.', rows: [named] },
         { id: 'device', label: 'Both sign-ins come from the same registered, compliant laptop with a normal primary refresh token', why: 'Continuity of device and token is what the account-takeover twin lacks.', rows: [flagged, early] },
-        { id: 'travel', label: 'An approved travel request covers today', why: 'Corroboration: the user is on the road and connecting via always-on VPN.', rows: [trip] },
+        ...(trip ? [{ id: 'travel', label: 'An approved travel request covers today', why: 'Corroboration: the user is on the road and connecting via always-on VPN.', rows: [trip] }] : []),
       ],
-      indicators: { block: [], scope: [], mustNot: [ip(vpn.ip, 'Corporate VPN egress — blocking it cuts off every remote worker'), ip(home, "User's home connection")] },
+      indicators: { block: [], scope: [], mustNot: [ip(vpn.ip, 'Corporate VPN egress — blocking it cuts off every remote worker'), ip(firstIp, "The user's own connection")] },
       hints: [
         `Before deciding this is a takeover: is ${vpn.ip} someone else's, or yours? And is the device behind both sign-ins the same one?`,
         `NamedLocations | where IPAddress == "${vpn.ip}"`,
@@ -493,7 +501,7 @@ const benignTravel: CaseTemplate = {
       solution: [
         { title: 'Is the "foreign" IP ours?', kql: `NamedLocations\n| where IPAddress == "${vpn.ip}"`, why: `It is the corporate VPN cloud gateway in ${vpn.city.city}.` },
         { title: 'Same device on both sides?', kql: `SigninLogs\n| where UserPrincipalName == "${victim.upn}"\n| project TimeGenerated, IPAddress, City, DeviceName, IsCompliant, IncomingTokenType\n| sort by TimeGenerated asc`, why: `${device.name}, compliant, with a primary refresh token — the same laptop throughout.` },
-        { title: 'Any corroboration?', kql: `Tickets\n| where Requester == "${victim.upn}"`, why: 'Approved travel covering today.' },
+        ...(trip ? [{ title: 'Any corroboration?', kql: `Tickets\n| where Requester == "${victim.upn}"`, why: 'Approved travel covering today.' }] : []),
       ],
       rubric: rubric([
         ['vpn', `The "foreign" IP is the company's VPN egress in ${vpn.city.city} (NamedLocations).`, ['vpn', 'egress', 'gateway', 'named location', 'corporate']],
@@ -503,7 +511,7 @@ const benignTravel: CaseTemplate = {
       ]),
       explanation: [
         `This fires the same rule as a real takeover, so you have to check rather than pattern-match on the alert name. ${vpn.ip} is the organisation's own VPN cloud gateway in ${vpn.city.city} — it is in NamedLocations. GeoIP reports where the gateway sits, not where the user is.`,
-        `Device continuity seals it: both sign-ins come from ${device.name}, registered and compliant, with a primary refresh token — exactly the signals the account-takeover twin lacks. There is an approved travel request for today, and the follow-on activity is ordinary SharePoint use. No inbox rules, no new devices, no new MFA methods.`,
+        `Device continuity seals it: both sign-ins come from ${device.name}, registered and compliant, with a primary refresh token — exactly the signals the account-takeover twin lacks. ${trip ? 'There is an approved travel request for today, and the' : 'The'} follow-on activity is ordinary SharePoint use. No inbox rules, no new devices, no new MFA methods.`,
         `Disposition benign. Close with a note on the VPN explanation, and recommend tuning: sign-ins from trusted named locations should not feed atypical-travel. That recommendation is the Domain 4 part of the job.`,
       ],
       pitfalls: [
@@ -522,10 +530,10 @@ const benignLockout: CaseTemplate = {
   id: 'identity-benign-lockout',
   category: 'identity',
   difficulty: 'tier1',
-  title: 'Repeated lockouts on a returning employee',
+  title: 'Repeated account lockouts',
+  lesson: 'A phone mail app with a stale password after leave',
   cysaDomains: ['1.0'],
   kind: 'benign',
-  twin: 'identity-password-spray',
   when: 'business',
   build(ctx) {
     const { rng, log, pick, idx, at, world } = ctx;

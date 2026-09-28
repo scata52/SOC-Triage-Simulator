@@ -84,7 +84,8 @@ export function signinNoise(n: NoiseCtx): void {
     const activeSync = hashPick(p.sam, 7) === 0;
     const count = rng.int(1, 3);
     for (let i = 0; i < count; i++) {
-      const t = Math.min(b.windowEnd - MIN, Math.max(b.windowStart, s.start + rng.float(-1.5, 12) * HOUR));
+      const t = s.start + rng.float(-1.5, 12) * HOUR;
+      if (t < b.windowStart || t > b.windowEnd - MIN) continue;
       const home = rng.bool(0.4);
       b.signin({
         TimeGenerated: Math.floor(t),

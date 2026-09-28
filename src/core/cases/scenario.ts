@@ -46,6 +46,7 @@ export interface ResolvedCase {
   category: Category;
   difficulty: Difficulty;
   title: string;
+  lesson: string;
   cysaDomains: string[];
   kind: CaseKind;
   twin?: string;
@@ -123,6 +124,7 @@ export function buildScenario(opts: ScenarioOptions): Scenario {
     category: template.category,
     difficulty: template.difficulty,
     title: template.title,
+    lesson: template.lesson,
     cysaDomains: template.cysaDomains,
     kind: template.kind,
     twin: template.twin,

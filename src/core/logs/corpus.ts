@@ -230,6 +230,13 @@ export class CorpusBuilder {
     return { table: 'DomainIntel', row };
   }
 
+  // A handle on an existing row (e.g. a ticket the noise already created),
+  // so a case can cite it rather than inventing a duplicate.
+  find<T extends TableName>(table: T, predicate: (row: RowObject) => boolean): RowRef<T> | undefined {
+    const row = this.data[table].find(predicate);
+    return row ? { table, row } : undefined;
+  }
+
   // Remove noise rows that would contradict a case (e.g. a phone that must
   // not be syncing successfully). Only for use before any RowRef to them.
   drop<T extends TableName>(table: T, predicate: (row: RowObject) => boolean): number {

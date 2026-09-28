@@ -4,12 +4,17 @@
 // The benign PsExec deployment is the twin of the malicious DC lateral move.
 import type { CaseTemplate } from '../model.ts';
 import type { RowRef } from '../../logs/corpus.ts';
-import { HOUR, MIN, SEC } from '../../logs/time.ts';
+import { HOUR, MIN, SEC, localHour } from '../../logs/time.ts';
 import { BIN, binaryHash } from '../../synth/software.ts';
 import { utf16leBase64 } from '../../synth/encoding.ts';
 import { domain, host, ip, kdt, rubric, sha, technique, user } from './util.ts';
 
 const PS_UA = 'Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.1882';
+
+function localClock(ms: number, offset: number): string {
+  const h = localHour(ms, offset);
+  return `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}`;
+}
 
 // ---------------------------------------------------------------------------
 // Word macro spawns encoded PowerShell (TRUE POSITIVE)
@@ -18,7 +23,8 @@ const encodedPowerShell: CaseTemplate = {
   id: 'endpoint-encoded-powershell',
   category: 'malware',
   difficulty: 'tier2',
-  title: 'Encoded PowerShell on a user laptop',
+  title: 'Encoded PowerShell on a laptop',
+  lesson: 'Macro document spawning a download cradle and a beacon',
   cysaDomains: ['1.0', '3.0'],
   kind: 'incident',
   stages: ['execution'],
@@ -72,7 +78,7 @@ const encodedPowerShell: CaseTemplate = {
         fields: [['Command line', `powershell.exe -nop -w hidden -enc ${enc.slice(0, 44)}…`], ['Integrity', 'Medium']],
       },
       briefing: `${world.org.name} blocks macros in documents from the internet, but not in documents opened from internal file shares. Endpoint management (SCCM) also runs encoded PowerShell on every device.`,
-      truth: { disposition: 'true-positive', severity: 'high', action: 'escalate', techniques: ['T1059.001', 'T1204.002', 'T1027'], tactics: ['execution', 'defense-evasion'], alsoAccept: ['T1566.001', 'T1105', 'T1071.001', 'T1140', 'T1039'] },
+      truth: { disposition: 'true-positive', severity: 'high', action: 'escalate', techniques: ['T1059.001', 'T1204.002', 'T1027'], tactics: ['execution', 'defense-evasion'], alsoAccept: ['T1566.001', 'T1105', 'T1071.001', 'T1140', 'T1039', 'T1080'] },
       evidence: [
         { id: 'chain', label: `WINWORD.EXE opened a macro document from ${share} and spawned the hidden, encoded PowerShell as ${victim.sam}`, why: 'Documents do not launch PowerShell; macros do. SCCM’s encoded PowerShell runs as SYSTEM under CcmExec — this one runs as the user under Word.', rows: [ps, word] },
         { id: 'cradle', label: `The decoded command downloads and executes a second stage from ${c2} — and it did`, why: 'IEX(DownloadString) is an in-memory download cradle. The proxy shows it succeeding.', rows: stage1 },
@@ -123,7 +129,8 @@ const certutilDownload: CaseTemplate = {
   id: 'endpoint-certutil-download',
   category: 'malware',
   difficulty: 'tier2',
-  title: 'certutil used to download a payload',
+  title: 'certutil file download',
+  lesson: 'LOLBin payload launched over WMI with a stolen service account',
   cysaDomains: ['1.0', '3.0'],
   kind: 'incident',
   stages: ['execution', 'lateral'],
@@ -200,7 +207,7 @@ const certutilDownload: CaseTemplate = {
         { title: 'The full chain on the host', kql: `DeviceProcessEvents\n| where DeviceName == "${target.name}" and TimeGenerated > ${kdt(t0 - 2 * MIN)}\n| project TimeGenerated, AccountName, FileName, ProcessCommandLine, InitiatingProcessFileName`, why: 'WmiPrvSE → cmd → certutil ×2 → the dropped exe.' },
         { title: 'Files written', kql: `DeviceFileEvents\n| where DeviceName == "${target.name}" and FolderPath startswith "C:\\\\ProgramData\\\\${stem}"`, why: 'Encoded .txt, then the decoded executable.' },
         { title: 'Network activity', kql: `DeviceNetworkEvents\n| where DeviceName == "${target.name}" and InitiatingProcessAccountName == "${acct}"\n| project TimeGenerated, InitiatingProcessFileName, RemoteIP, RemotePort, RemoteUrl`, why: 'Download from a bare IP, then steady C2.' },
-        { title: 'How did svc-backup get there?', kql: `SecurityEvent\n| where TargetAccount has "${acct}" and EventID == 4624\n| project TimeGenerated, Computer, LogonType, IpAddress, WorkstationName, AuthenticationPackage`, why: `Normally Kerberos from BKP01 at night. Today: NTLM from ${source.name} in the middle of the day.` },
+        { title: 'How did svc-backup get there?', kql: `SecurityEvent\n| where TargetAccount has "${acct}" and EventID == 4624\n| project TimeGenerated, Computer, LogonType, IpAddress, WorkstationName, AuthenticationPackage`, why: `Normally Kerberos from BKP01 at night. Here: NTLM from ${source.name}, a workstation.` },
         { title: 'What is svc-backup supposed to be?', kql: `IdentityInfo\n| where AccountName == "${acct}"`, why: 'A privileged backup account — high-value credentials.' },
       ],
       rubric: rubric([
@@ -212,7 +219,7 @@ const certutilDownload: CaseTemplate = {
       ]),
       explanation: [
         `certutil is a signed Microsoft utility, and IT here uses it every week to hash installers. That is -hashfile. This is -urlcache -split -f against a bare IP, pulling a .txt that -decode then turns into an .exe in ProgramData — the classic living-off-the-land download, with base64 wrapping to slip past content inspection. The dropped binary ran and is beaconing to ${c2}.`,
-        `The more important finding is how it started. The parent is WmiPrvSE: the command was executed remotely over WMI. The matching 4624 is a network logon for svc-backup over NTLM from ${source.name} — a workstation. svc-backup normally logs on only from BKP01, at night, with Kerberos. Someone holds that service account's credentials and is using them to move between machines.`,
+        `The more important finding is how it started. The parent is WmiPrvSE: the command was executed remotely over WMI. The matching 4624 is a network logon for svc-backup over NTLM from ${source.name} — a workstation — at ${localClock(t0, world.org.utcOffset)} local time. svc-backup normally logs on only from BKP01, at night, with Kerberos. Someone holds that service account's credentials and is using them to move between machines.`,
         `Escalate: isolate ${target.name} and ${source.name}, reset svc-backup (and review where else it logged on), block ${payloadIp}, ${c2} and the executable hash, and treat ${source.name} as the earlier point of compromise.`,
       ],
       pitfalls: [
@@ -231,7 +238,8 @@ const scheduledTask: CaseTemplate = {
   id: 'endpoint-scheduled-task',
   category: 'persistence',
   difficulty: 'tier2',
-  title: 'New scheduled task running a hidden script',
+  title: 'New scheduled task running PowerShell',
+  lesson: 'Masquerading scheduled task used as an hourly C2 beacon',
   cysaDomains: ['1.0', '3.0'],
   kind: 'incident',
   stages: ['persistence'],
@@ -254,6 +262,7 @@ const scheduledTask: CaseTemplate = {
     const file = log.file({ TimeGenerated: tCreate - 20 * SEC, DeviceName: dev.name, ActionType: 'FileCreated', FileName: 'svc.ps1', FolderPath: scriptPath, FileSize: rng.int(700, 1400), SHA256: rng.hex(64), InitiatingProcessFileName: 'powershell.exe', InitiatingProcessAccountName: victim.sam });
     const schtasks = log.proc({ TimeGenerated: tCreate, DeviceName: dev.name, AccountName: victim.sam, FileName: 'schtasks.exe', FolderPath: BIN.schtasks.path, ProcessCommandLine: `schtasks.exe /create /tn "${taskName}" /tr "${action}" /sc hourly /rl highest /f`, SHA256: binaryHash('schtasks.exe'), Signer: BIN.schtasks.signer, ProcessIntegrityLevel: 'High', InitiatingProcessFileName: 'powershell.exe', InitiatingProcessCommandLine: 'powershell.exe -nop -w hidden' });
     const created = log.sec({ TimeGenerated: tCreate + 1 * SEC, Computer: dev.name, EventID: 4698, Account: `${ad}\\${victim.sam}`, TaskName: taskName, TaskAction: `${action} (Hourly, indefinitely; Run level: Highest; Hidden: True)` });
+    const itTask = log.find('SecurityEvent', (r) => r.EventID === 4698 && r.TaskName === '\\IT\\WeeklyTempCleanup');
     const runs: RowRef[] = [];
     const calls: RowRef[] = [];
     for (let t = tCreate + HOUR; t < ctx.now - MIN; t += HOUR + rng.int(-20, 20) * SEC) {
@@ -283,11 +292,11 @@ const scheduledTask: CaseTemplate = {
           body: [
             ['Path', scriptPath],
             ['Size', '1.1 KB, PowerShell'],
-            ['Behaviour', `Requests http://${c2.replace(/\./g, '[.]')}/c and executes any response in memory`],
-            ['Obfuscation', 'None'],
             ['Signature', 'Unsigned'],
+            ['Capabilities', 'Network access (HTTP), dynamic code execution'],
+            ['Prevalence', 'Seen on 1 device in the organisation'],
           ],
-          caption: 'Static analysis by the EDR sandbox. Domain defanged.',
+          caption: 'Static analysis by the EDR sandbox. What it talks to is in the network logs.',
         },
       ],
       truth: { disposition: 'true-positive', severity: 'high', action: 'escalate', techniques: ['T1053.005'], tactics: ['persistence', 'execution'], alsoAccept: ['T1036.004', 'T1036.005', 'T1059.001', 'T1071.001', 'T1105'] },
@@ -296,7 +305,11 @@ const scheduledTask: CaseTemplate = {
         { id: 'runs', label: 'It has run every hour since, as SYSTEM', why: 'Persistence that survives reboots and runs with the highest privileges.', rows: runs },
         { id: 'c2', label: `Each run polls ${c2} for commands`, why: 'An hourly beacon executing whatever the server returns.', rows: calls },
       ],
-      indicators: { block: [domain(c2, 'C2'), ip(c2ip, 'C2')], scope: [host(dev.name), user(victim)], mustNot: [host('SCCM01')] },
+      indicators: {
+        block: [domain(c2, 'C2'), ip(c2ip, 'C2')],
+        scope: [host(dev.name), user(victim)],
+        mustNot: itTask ? [{ kind: 'host', value: String(itTask.row.Computer), note: "IT's own cleanup task, under change control" }] : [],
+      },
       hints: [
         'Plenty of tasks get created here. Who created this one, how, and what does it actually run?',
         `SecurityEvent | where EventID == 4698 | project TimeGenerated, Computer, Account, TaskName, TaskAction`,
@@ -336,8 +349,9 @@ const scheduledTask: CaseTemplate = {
 const benignAdminTool: CaseTemplate = {
   id: 'endpoint-benign-admin-psexec',
   category: 'lateral',
-  difficulty: 'tier2',
-  title: 'PsExec service installed on several workstations',
+  difficulty: 'tier3',
+  title: 'PsExec service installed remotely',
+  lesson: 'Sanctioned deployment from the management server',
   cysaDomains: ['1.0'],
   kind: 'benign',
   twin: 'impact-lateral-psexec',
