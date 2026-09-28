@@ -19,7 +19,12 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      for (const key of await caches.keys()) if (key.startsWith('soc-triage-') && key !== CACHE) await caches.delete(key);
+      // Keep the previous version's cache too: a tab still running the old
+      // build may yet load its lazy chunks (editor, worker, WebAssembly).
+      // Versions are base-36 timestamps, so names sort by age.
+      const ours = (await caches.keys()).filter((k) => k.startsWith('soc-triage-')).sort();
+      const keep = new Set([CACHE, ...ours.filter((k) => k !== CACHE).slice(-1)]);
+      for (const key of ours) if (!keep.has(key)) await caches.delete(key);
       await self.clients.claim();
     })(),
   );
@@ -33,8 +38,8 @@ self.addEventListener('fetch', (event) => {
       (async () => {
         try {
           const fresh = await fetch(req);
-          const cache = await caches.open(CACHE);
-          cache.put('./', fresh.clone());
+          // Only a real page may replace the offline shell (not a 404).
+          if (fresh.ok) (await caches.open(CACHE)).put('./', fresh.clone());
           return fresh;
         } catch {
           return (await caches.match('./', { ignoreVary: true })) || Response.error();

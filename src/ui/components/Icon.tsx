@@ -5,6 +5,7 @@ const PATHS = {
   shield: 'M12 3l8 3.5V12c0 4.4-3.4 7.6-8 9-4.6-1.4-8-4.6-8-9V6.5L12 3z M8.5 12.2l2.4 2.4 4.6-4.8',
   play: 'M8 5.5v13l10.5-6.5z',
   pin: 'M12 16.5V21 M8.5 3.5h7l-1 5.5 3 3H6.5l3-3z',
+  pinned: 'M12 16.5V21 M8.5 3.5h7l-1 5.5 3 3H6.5l3-3z',
   search: 'M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13z M15.5 15.5L20 20',
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 7.5V12l3 2',
   check: 'M5 12.5l4.5 4.5L19 7.5',
@@ -47,13 +48,13 @@ const PATHS = {
 export type IconName = keyof typeof PATHS;
 
 export function Icon({ name, label, class: cls }: { name: IconName; label?: string; class?: string }) {
-  const filled = name === 'play';
+  const filled = name === 'play' || name === 'pinned';
   return (
     <svg
       class={`icon${cls ? ` ${cls}` : ''}`}
       viewBox="0 0 24 24"
       fill={filled ? 'currentColor' : 'none'}
-      stroke={filled ? 'none' : 'currentColor'}
+      stroke={filled && name === 'play' ? 'none' : 'currentColor'}
       stroke-width="1.8"
       stroke-linecap="round"
       stroke-linejoin="round"

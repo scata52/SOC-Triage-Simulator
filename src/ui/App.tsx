@@ -97,11 +97,13 @@ export function App() {
       return;
     }
     requestAnimationFrame(() => {
+      // Pages that load first (a case, a shift) have no heading yet: focus
+      // <main>, and they move focus to their heading when it appears.
       const h = mainRef.current?.querySelector<HTMLElement>('h1');
       if (h) {
         if (!h.hasAttribute('tabindex')) h.setAttribute('tabindex', '-1');
         h.focus({ preventScroll: true });
-      }
+      } else mainRef.current?.focus({ preventScroll: true });
       window.scrollTo({ top: 0 });
     });
   }, [r]);
@@ -131,8 +133,9 @@ export function App() {
               <Icon name={n.icon} />
               {n.label}
               {n.to.name === 'shift' && activeShift && (
-                <span class="badge badge-warn" aria-label="(in progress)">
-                  live
+                <span class="badge badge-warn">
+                  <span aria-hidden="true">live</span>
+                  <span class="visually-hidden">(shift in progress)</span>
                 </span>
               )}
             </a>

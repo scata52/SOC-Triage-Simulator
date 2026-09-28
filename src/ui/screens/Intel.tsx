@@ -177,6 +177,7 @@ function CampaignBoard() {
           return (
             <li class={contained ? 'is-contained' : reached ? 'is-done' : !ended && i === c.stage && c.identified ? 'is-current' : ''} aria-label={`${STAGE_LABEL[st]}: ${contained ? 'contained' : reached ? 'actor succeeded' : 'no known activity'}`}>
               {STAGE_LABEL[st]}
+              {(contained || reached) && <span class="killchain-status">{contained ? '✓ contained' : '✗ succeeded'}</span>}
             </li>
           );
         })}

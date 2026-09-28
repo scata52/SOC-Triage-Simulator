@@ -363,6 +363,7 @@
 }
 .results-table tr.is-pinned {
   background: var(--pin-bg);
+  box-shadow: inset 3px 0 0 var(--pin); /* a shape cue, not just a tint */
 }
 .results-table tr.is-inspected {
   outline: 1px solid var(--accent);
@@ -960,6 +961,11 @@
   background: var(--ok-bg);
   border-color: color-mix(in srgb, var(--ok) 40%, var(--border));
   color: var(--ok);
+}
+.killchain-status {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.68rem;
 }
 .killchain li.is-current {
   outline: 2px dashed var(--warn);

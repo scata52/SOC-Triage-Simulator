@@ -18,7 +18,8 @@ function precacheList(): Plugin {
         if (/\.(woff2?|ttf)$/.test(f)) return f.endsWith('.woff2') && /-latin(-ext)?-/.test(f);
         return true;
       });
-      this.emitFile({ type: 'asset', fileName: 'precache.json', source: JSON.stringify({ version: buildId, files: ['./', ...files.filter((f) => f !== 'index.html')] }) });
+      const shell = ['./', 'icon.svg', 'manifest.webmanifest'];
+      this.emitFile({ type: 'asset', fileName: 'precache.json', source: JSON.stringify({ version: buildId, files: [...shell, ...files.filter((f) => f !== 'index.html')] }) });
     },
   };
 }

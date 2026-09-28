@@ -14,6 +14,7 @@ import { Workspace } from '../components/Workspace.tsx';
 import { Debrief } from '../components/Debrief.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { Loading, Notice } from '../components/ui.tsx';
+import { focusHeading } from '../lib/focus.ts';
 
 type Mode = 'practice' | 'study' | 'daily';
 
@@ -78,6 +79,10 @@ export function CaseScreen({ slug, seed, mode }: { slug: string; seed: string; m
       live = false;
     };
   }, [key]);
+
+  useEffect(() => {
+    if (session) focusHeading();
+  }, [session, done]);
 
   if (!template || !type) {
     return (

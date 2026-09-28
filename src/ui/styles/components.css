@@ -428,6 +428,7 @@
 
 /* ---------------------------------------------------------------- tables */
 .table-wrap {
+  position: relative; /* contain visually-hidden children, or they widen the page */
   overflow: auto;
   max-width: 100%;
 }
@@ -654,7 +655,7 @@ dialog.dialog::backdrop {
 .ring .value {
   stroke: var(--ring-color, var(--accent));
   stroke-linecap: round;
-  transition: stroke-dashoffset 600ms var(--ease);
+  transition: stroke-dashoffset calc(var(--dur) * 4) var(--ease);
 }
 .ring-label {
   position: absolute;

@@ -5,7 +5,7 @@ import { computed, effect, signal } from '@preact/signals';
 import { generateWorld } from '../../core/world/world.ts';
 import { WorldIndex } from '../../core/world/index.ts';
 import { dayNumber, type Profile } from '../../state/profile.ts';
-import { browserStorage, loadProfile, newWorldSeed, saveProfile, type LoadSource } from '../../state/storage.ts';
+import { browserStorage, loadProfile, newWorldSeed, parseStored, saveProfile, V2_KEY, type LoadSource } from '../../state/storage.ts';
 
 const kv = browserStorage();
 const loaded = loadProfile(kv, { now: Date.now(), tzOffsetMinutes: new Date().getTimezoneOffset(), newWorldSeed });
@@ -16,16 +16,36 @@ export const persistent = kv !== null;
 export const saveFailed = signal(false);
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let adopted: Profile | null = null; // a copy just taken from another tab
 function flush(): void {
   saveTimer = null;
   const ok = saveProfile(kv, profile.peek());
   if (persistent) saveFailed.value = !ok;
 }
 effect(() => {
-  void profile.value;
+  const p = profile.value;
+  if (p === adopted) return; // came from storage: nothing new to write
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(flush, 300);
 });
+
+// Another tab (the help page opened alongside a case, say) saved: adopt its
+// copy, so this tab's next save does not overwrite that progress with a
+// stale snapshot. The other tab's write is the latest, so a save of ours
+// still pending is dropped.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== V2_KEY || e.newValue === null) return;
+    const next = parseStored(e.newValue, { now: Date.now(), tzOffsetMinutes: new Date().getTimezoneOffset(), newWorldSeed });
+    if (!next) return;
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    adopted = next;
+    profile.value = next;
+  });
+}
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => {
     if (saveTimer) {

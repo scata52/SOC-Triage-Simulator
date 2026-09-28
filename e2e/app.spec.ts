@@ -205,6 +205,19 @@ test.describe('shift', () => {
     await page.goto('/#/intel');
     await expect(page.getByRole('heading', { name: 'Your incident history' })).toBeVisible();
     await expect(page.locator('section[aria-labelledby="ih-h"] tbody tr')).toHaveCount(n);
+
+    // The next shift; coming back to the old handover must not wipe it.
+    await page.goto('/#/handover');
+    await page.getByRole('button', { name: 'Next shift' }).click();
+    await expect(page.getByRole('heading', { name: 'Alert queue' })).toBeVisible({ timeout: 30_000 });
+    await items.first().click();
+    await page.getByRole('radio', { name: 'Benign / expected' }).check();
+    await page.getByRole('radio', { name: 'Low' }).check();
+    await page.getByRole('radio', { name: 'Close' }).check();
+    await page.getByRole('button', { name: 'Submit & back to queue' }).click();
+    await page.goto('/#/handover');
+    await page.getByRole('link', { name: 'Resume shift 2' }).click();
+    await expect(items.first().locator('.badge')).toHaveText('Benign / expected');
     expect(errors).toEqual([]);
   });
 });
@@ -231,6 +244,21 @@ test.describe('platform', () => {
     await page.getByRole('button', { name: 'Menu' }).click();
     await page.getByRole('link', { name: 'Help' }).click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('How it works');
+
+    // Data-heavy pages: a handed-over shift, the intel board and stats.
+    await page.goto('/#/');
+    await page.getByRole('radio', { name: 'Untimed' }).check();
+    await page.getByRole('button', { name: 'Start shift' }).click();
+    await expect(page.getByRole('heading', { name: 'Alert queue' })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Hand over' }).click();
+    await page.getByRole('button', { name: 'Hand over now' }).click();
+    await expect(page.getByText('Shift 1 handover')).toBeVisible();
+    for (const hash of ['#/handover', '#/intel', '#/stats', '#/shift']) {
+      await page.goto(`/${hash}`);
+      await page.waitForTimeout(300);
+      const o = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(o, hash).toBeLessThanOrEqual(0);
+    }
   });
 
   test('reduced motion is respected', async ({ page }) => {

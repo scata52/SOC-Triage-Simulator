@@ -5,7 +5,7 @@ import { Bar } from '../components/ui.tsx';
 import { rankFor, nextShiftNumber, startShift, asStudyAttempts } from '../../state/profile.ts';
 import { BUDGETS, type Budget } from '../../core/shift/plan.ts';
 import { studyPlan } from '../../core/study/scheduler.ts';
-import { campaignSummary, startCampaign } from '../../core/campaign/campaign.ts';
+import { campaignSummary, nextCampaign } from '../../core/campaign/campaign.ts';
 import { ago, clock, dailySeed, plural, randomSeed } from '../lib/format.ts';
 import { ALERT_TYPES, dailyCase } from '../lib/cases.ts';
 import { useState } from 'preact/hooks';
@@ -31,8 +31,11 @@ export function BudgetPicker({ value, onChange }: { value: Budget; onChange: (b:
 
 export function beginShift(budget: Budget): void {
   update((p) => {
+    // Never replace a shift in progress (e.g. "Next shift" on a stale
+    // handover page reached with Back): just return to it.
+    if (p.activeShift) return p;
     // A campaign runs across shifts; a new one starts when the last has ended.
-    const campaign = p.campaign && p.campaign.status === 'active' ? p.campaign : startCampaign(world.peek(), `${p.worldSeed}:c${p.campaignsFinished.length}`);
+    const campaign = p.campaign && p.campaign.status === 'active' ? p.campaign : nextCampaign(p.campaign, world.peek(), `${p.worldSeed}:c${p.campaignsFinished.length}`);
     return startShift({ ...p, campaign, settings: { ...p.settings, defaultBudget: budget } }, nextShiftNumber(p), budget, Date.now());
   });
   navigate({ name: 'shift' });
@@ -212,7 +215,7 @@ export function Home() {
             <ul class="recent-list">
               {recent.map((a) => (
                 <li>
-                  <span class={`dot ${a.dispositionCorrect ? 'dot-ok' : 'dot-bad'}`} aria-label={a.dispositionCorrect ? 'Correct call' : 'Wrong call'} role="img" />
+                  <Icon name={a.dispositionCorrect ? 'check' : 'x'} class={a.dispositionCorrect ? 'text-ok' : 'text-bad'} label={a.dispositionCorrect ? 'Right call' : 'Wrong call'} />
                   <span class="recent-title">{ALERT_TYPES.find((t) => t.templates.some((x) => x.id === a.templateId))?.title ?? a.templateId}</span>
                   <span class="mono faint">{a.percent}%</span>
                   <span class="faint small">{ago(a.completedAt)}</span>

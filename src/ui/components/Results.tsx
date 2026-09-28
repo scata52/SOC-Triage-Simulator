@@ -1,7 +1,8 @@
 // Query results: a real <table> with a pin toggle per row, a row inspector
 // with value actions, paging, and a small chart when the query asks to render.
 
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { uniqueId } from '../lib/focus.ts';
 import type { QueryResult } from '../../core/query/engine.ts';
 import type { Cell } from '../../core/logs/schema.ts';
 import { Icon } from './Icon.tsx';
@@ -122,6 +123,14 @@ export function Results({
   const [limit, setLimit] = useState(PAGE);
   const [inspect, setInspect] = useState<number | null>(null);
   const [sort, setSort] = useState<{ col: number; dir: 'asc' | 'desc' } | null>(null);
+  const [inspectorId] = useState(() => uniqueId('row-inspector'));
+  const root = useRef<HTMLDivElement>(null);
+  // Closing the inspector returns focus to the row button that opened it.
+  const closeInspector = () => {
+    const r = inspect;
+    setInspect(null);
+    if (r !== null) requestAnimationFrame(() => root.current?.querySelector<HTMLElement>(`button[data-inspect="${r}"]`)?.focus());
+  };
   useEffect(() => {
     setLimit(PAGE);
     setInspect(null);
@@ -155,12 +164,12 @@ export function Results({
   };
 
   return (
-    <div class="results">
+    <div class="results" ref={root}>
       {result.render && <Chart result={result} />}
       {result.rows.length === 0 ? (
         <p class="results-empty muted">No rows matched. An empty result can be a finding too.</p>
       ) : (
-        <div class="table-wrap results-scroll" tabIndex={0} aria-label="Query results (scrollable)">
+        <div class="table-wrap results-scroll" tabIndex={0} role="region" aria-label="Query results (scrollable)">
           <table class="table results-table">
             <caption class="visually-hidden">
               Query results: {result.total} rows{result.truncated ? `, first ${result.rows.length} shown` : ''}.
@@ -204,12 +213,12 @@ export function Results({
                           title={pinned ? 'Unpin evidence' : 'Pin as evidence'}
                           onClick={() => onTogglePin(summarise(names, row))}
                         >
-                          <Icon name="pin" />
+                          <Icon name={pinned ? 'pinned' : 'pin'} />
                         </button>
                       ) : null}
                     </td>}
                     <td class="col-n">
-                      <button type="button" class="link-btn mono" onClick={() => setInspect(inspect === r ? null : r)} aria-expanded={inspect === r} aria-controls="row-inspector" aria-label={`Inspect row ${r + 1}`}>
+                      <button type="button" class="link-btn mono" data-inspect={r} onClick={() => (inspect === r ? closeInspector() : setInspect(r))} aria-expanded={inspect === r} aria-controls={inspectorId} aria-label={`Inspect row ${r + 1}`}>
                         {r + 1}
                       </button>
                     </td>
@@ -237,7 +246,7 @@ export function Results({
         </div>
       )}
       {inspected && (
-        <section id="row-inspector" class="inspector" aria-label={`Row ${inspect! + 1} details`}>
+        <section id={inspectorId} class="inspector" aria-label={`Row ${inspect! + 1} details`}>
           <div class="inspector-head">
             <h3>Row {inspect! + 1}</h3>
             <span class="spacer" />
@@ -246,7 +255,7 @@ export function Results({
                 <Icon name="pin" /> {pins.has(String(inspected[rid])) ? 'Unpin' : 'Pin as evidence'}
               </button>
             )}
-            <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Close row details" onClick={() => setInspect(null)}>
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Close row details" onClick={closeInspector}>
               <Icon name="x" />
             </button>
           </div>

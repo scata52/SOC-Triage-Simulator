@@ -1,7 +1,8 @@
 // ATT&CK technique picker: an ARIA 1.2 combobox over the catalogue, with the
 // chosen techniques as removable chips.
 
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { announce } from '../store/app.ts';
 import { MITRE_TECHNIQUES, TACTIC_LABELS, technique } from '../../core/taxonomy/mitre.ts';
 import { Icon } from './Icon.tsx';
 
@@ -10,6 +11,8 @@ export function TechniquePicker({ value, onChange, idPrefix }: { value: string[]
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const listId = `${idPrefix}-tech-list`;
+  const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase();
     const pool = MITRE_TECHNIQUES.filter((t) => !value.includes(t.id));
@@ -25,6 +28,16 @@ export function TechniquePicker({ value, onChange, idPrefix }: { value: string[]
       .sort((a, b) => a.score - b.score || (a.t.id < b.t.id ? -1 : 1));
     return scored.slice(0, 40).map((x) => x.t);
   }, [q, value]);
+
+  // Keep the highlighted option in view as the arrow keys move it.
+  useEffect(() => {
+    if (open) list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [active, open]);
+
+  const remove = (id: string) => {
+    onChange(value.filter((x) => x !== id));
+    announce(`Removed ${id} ${technique(id)?.name ?? ''}.`);
+  };
 
   const choose = (id: string) => {
     if (!value.includes(id)) onChange([...value, id]);
@@ -52,7 +65,7 @@ export function TechniquePicker({ value, onChange, idPrefix }: { value: string[]
         setOpen(false);
       }
     } else if (e.key === 'Backspace' && !q && value.length) {
-      onChange(value.slice(0, -1));
+      remove(value[value.length - 1]);
     }
   };
 
@@ -65,7 +78,15 @@ export function TechniquePicker({ value, onChange, idPrefix }: { value: string[]
               <span>
                 {id} <span class="faint">{technique(id)?.name ?? ''}</span>
               </span>
-              <button type="button" class="chip-x" aria-label={`Remove ${id} ${technique(id)?.name ?? ''}`} onClick={() => onChange(value.filter((x) => x !== id))}>
+              <button
+                type="button"
+                class="chip-x"
+                aria-label={`Remove ${id} ${technique(id)?.name ?? ''}`}
+                onClick={() => {
+                  remove(id);
+                  input.current?.focus();
+                }}
+              >
                 <Icon name="x" />
               </button>
             </li>
@@ -74,6 +95,7 @@ export function TechniquePicker({ value, onChange, idPrefix }: { value: string[]
       )}
       <div class="combo">
         <input
+          ref={input}
           id={`${idPrefix}-tech`}
           class="input"
           role="combobox"
@@ -94,7 +116,7 @@ export function TechniquePicker({ value, onChange, idPrefix }: { value: string[]
           onKeyDown={onKey}
         />
         {open && matches.length > 0 && (
-          <ul id={listId} role="listbox" class="combo-list" aria-label="ATT&CK techniques">
+          <ul id={listId} ref={list} role="listbox" class="combo-list" aria-label="ATT&CK techniques">
             {matches.map((t, i) => (
               <li
                 id={`${idPrefix}-opt-${t.id}`}

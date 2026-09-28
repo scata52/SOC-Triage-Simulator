@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { signal } from '@preact/signals';
-import { profile, update, world, today, toast, announce } from '../store/app.ts';
+import { profile, update, world, today, toast } from '../store/app.ts';
 import { navigate } from '../router.ts';
 import { siem } from '../lib/siem.ts';
 import type { OpenSpec, SessionInfo } from '../lib/protocol.ts';
@@ -15,6 +15,7 @@ import { Debrief } from '../components/Debrief.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { Loading, Notice, Ring, Sev, Dialog } from '../components/ui.tsx';
 import { BudgetPicker, beginShift } from './Home.tsx';
+import { focusHeading, focusWhenReady } from '../lib/focus.ts';
 import type { Budget } from '../../core/shift/plan.ts';
 
 // The open spec is fixed at shift start so the same scenario can be rebuilt
@@ -69,17 +70,23 @@ function useShiftSession(): { session: SessionInfo | null; error: string | null 
 // in its own signal (only the readout re-renders) and is persisted to the
 // profile every 15 s, on submit and when the page is hidden.
 const elapsed = signal(0);
-let clockNumber: number | null = null;
+// Which shift the in-memory clock belongs to: number and start time, so a
+// new shift that reuses a number (after a reset or import) starts fresh.
+let clockKey: string | null = null;
+const keyOf = (s: { number: number; startedAt: number }) => `${s.number}:${s.startedAt}`;
 
 function persistClock(): void {
-  if (profile.peek().activeShift && clockNumber === profile.peek().activeShift!.number) update((p) => updateShift(p, { elapsedSec: elapsed.peek() }));
+  const s = profile.peek().activeShift;
+  if (s && clockKey === keyOf(s)) update((p) => updateShift(p, { elapsedSec: elapsed.peek() }));
 }
 
-function useClock(onExpire: () => void): void {
+// onExpire returns whether it handed over; until it does (e.g. the queue is
+// still loading) expiry is retried every tick.
+function useClock(onExpire: () => boolean): void {
   const s = profile.value.activeShift;
   const expired = useRef(false);
-  if (s && clockNumber !== s.number) {
-    clockNumber = s.number;
+  if (s && clockKey !== keyOf(s)) {
+    clockKey = keyOf(s);
     elapsed.value = s.elapsedSec;
   }
   useEffect(() => {
@@ -94,13 +101,9 @@ function useClock(onExpire: () => void): void {
         const left = cur.budget * 60 - elapsed.value;
         if (left === 60) {
           play('alert');
-          announce('One minute left on the shift clock.');
-          toast('One minute left.');
+          toast('One minute left on the shift clock.'); // the toast log announces it
         }
-        if (left <= 0 && !expired.current) {
-          expired.current = true;
-          onExpire();
-        }
+        if (left <= 0 && !expired.current && onExpire()) expired.current = true;
       }
     }, 1000);
     return () => {
@@ -194,6 +197,7 @@ function handOver(session: SessionInfo, timeUp = false): void {
     timeUp,
   };
   update(() => next);
+  clockKey = null;
   lastHandover.value = h;
   saveHandover(h);
   play(result.clean ? 'good' : 'alert');
@@ -247,11 +251,14 @@ export function ShiftScreen({ alertId }: { alertId?: string }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const sessionRef = useRef(session);
   sessionRef.current = session;
+  useEffect(() => {
+    if (session) focusHeading();
+  }, [session, alertId]);
   useClock(() => {
-    if (sessionRef.current) {
-      toast("Time's up — handing over.");
-      handOver(sessionRef.current, true);
-    }
+    if (!sessionRef.current) return false;
+    toast("Time's up — handing over.");
+    handOver(sessionRef.current, true);
+    return true;
   });
 
   if (!s) return <NoShift />;
@@ -385,6 +392,11 @@ export function HandoverScreen() {
   const [review, setReview] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const p = profile.value;
+  const lastReviewed = useRef<string | null>(null);
+  useEffect(() => {
+    if (review) focusHeading();
+    else if (lastReviewed.current) focusWhenReady(`button[aria-label="Review ${lastReviewed.current}"]`);
+  }, [review, ready]);
 
   useEffect(() => {
     if (!h) return;
@@ -451,9 +463,15 @@ export function HandoverScreen() {
               {h.timeUp ? ' (clock ran out)' : ''} · +{r.xp} XP{r.clean ? ' incl. clean-shift bonus' : ''}
             </p>
             <div class="btn-row">
-              <button type="button" class="btn btn-primary" onClick={() => beginShift(p.settings.defaultBudget)}>
-                Next shift <Icon name="right" />
-              </button>
+              {p.activeShift ? (
+                <a class="btn btn-primary" href="#/shift">
+                  Resume shift {p.activeShift.number + 1} <Icon name="right" />
+                </a>
+              ) : (
+                <button type="button" class="btn btn-primary" onClick={() => beginShift(p.settings.defaultBudget)}>
+                  Next shift <Icon name="right" />
+                </button>
+              )}
               <a class="btn" href="#/intel">
                 <Icon name="globe" /> Threat intel
               </a>
@@ -518,7 +536,15 @@ export function HandoverScreen() {
                         {order.get(x.alertId) ?? '—'} ({ideal.get(x.alertId)})
                       </td>
                       <td>
-                        <button type="button" class="btn btn-sm btn-ghost" onClick={() => setReview(x.alertId)} aria-label={`Review ${x.alertId}`}>
+                        <button
+                          type="button"
+                          class="btn btn-sm btn-ghost"
+                          onClick={() => {
+                            lastReviewed.current = x.alertId;
+                            setReview(x.alertId);
+                          }}
+                          aria-label={`Review ${x.alertId}`}
+                        >
                           Review
                         </button>
                       </td>
