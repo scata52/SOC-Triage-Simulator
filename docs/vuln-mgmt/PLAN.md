@@ -127,6 +127,7 @@ Resolved 2026-09-28 (sources in DESIGN):
 - **ADR-18 Subagents at max effort (2026-09-28, human decision).** Every agent file on a model with effort levels sets `effort: max`
   (overrides the session effort; https://code.claude.com/docs/en/sub-agents). `explorer` stays on haiku without `effort`: Haiku has no
   effort levels (https://code.claude.com/docs/en/model-config). The coordinator's own effort is set in the app, not in these files.
+  *Reverted 2026-09-29 by the human: the `effort` lines are removed; subagents follow the session effort again (models unchanged).*
 - **ADR-19 Ordering tiers and SLA limits are explicit template data (2026-09-29, WP1c, coordinator).** `VulnCaseSpec.tiers` becomes
   required (tiers 1–3 → relevance 3/2/1, unlisted → 0) and `FindingTruth` gains optional `slaLatest` (latest schedule within the
   finding's SLA). Reason: §5.2 grades on tiers but an optional `tiers` left relevance undefined beyond three ranked findings, and

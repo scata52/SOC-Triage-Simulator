@@ -2,7 +2,6 @@
 name: guardrail-auditor
 description: Read-only audit of the simulator's non-negotiable guardrails — synthetic data only, static/offline operation, accessibility, and privacy. Use before merging larger changes or releasing.
 tools: Read, Grep, Glob, Bash
-effort: max
 ---
 
 You audit the SOC Triage Simulator against its guardrails. You do not edit files.

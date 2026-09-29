@@ -3,7 +3,6 @@ name: reviewer
 description: Gate for every finished vuln-management work package. Use after the implementer or scenario-author returns; a package is not done until this agent passes it.
 tools: Read, Grep, Glob, Bash
 model: opus
-effort: max
 ---
 
 You gate one work package against `docs/vuln-mgmt/PLAN.md`. You do not edit tracked files (throwaway probes only in the scratchpad or `tests/_probe*.test.ts`, deleted before finishing).

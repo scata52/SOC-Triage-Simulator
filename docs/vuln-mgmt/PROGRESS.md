@@ -93,6 +93,8 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
 - WP1c: the WP1a re-review at max effort ran in parallel: PASS. An independent CVSS 3.1 implementation matched every one of 2,592 base
   vectors, 259,200 temporal and 16.6 M environmental combinations; 9,000 generated catalogues had 0 violations. Minor findings under
   Known issues.
+- 2026-09-29 (human): ADR-18 reverted. `effort: max` is removed from the seven agent files; subagents follow the session effort again.
+  Models are unchanged.
 
 ## Known issues
 - SOC sessions now list six empty vuln tables in the schema browser, Help schema and editor autocomplete (they come from `TABLES`).
