@@ -399,20 +399,35 @@ describe('false positive on a must-not-miss finding (DESIGN 5.1)', () => {
 // ---- schedule (DESIGN 5.3) --------------------------------------------------------
 
 describe('schedule', () => {
-  const grade = (truth: VulnSchedule, given: VulnSchedule | null, slaLatest?: VulnSchedule) => gradeOne({ schedule: truth, slaLatest }, { schedule: given }).f.schedule;
+  // The truth decision is explicit because rule d asks whether the finding is real. `grade` is a real
+  // finding that needs a fix (patch); `gradeAs` names another decision.
+  const gradeAs = (decision: VulnDecision, truth: VulnSchedule, given: VulnSchedule | null, slaLatest?: VulnSchedule) =>
+    gradeOne({ decision, schedule: truth, slaLatest }, { schedule: given }).f.schedule;
+  const grade = (truth: VulnSchedule, given: VulnSchedule | null, slaLatest?: VulnSchedule) => gradeAs('patch', truth, given, slaLatest);
 
-  // truth (row) x given (column), no SLA limit: exact 1; an emergency change
-  // that was not needed 0.5 whatever the truth; otherwise one step 0.5.
-  const MATRIX: Record<VulnSchedule, Record<VulnSchedule, [number, string]>> = {
-    emergency: { emergency: [1, 'exact'], 'next-window': [0.5, 'one-step'], 'standard-cycle': [0, 'wrong'], none: [0, 'wrong'] },
-    'next-window': { emergency: [0.5, 'emergency-unjustified'], 'next-window': [1, 'exact'], 'standard-cycle': [0.5, 'one-step'], none: [0, 'wrong'] },
-    'standard-cycle': { emergency: [0.5, 'emergency-unjustified'], 'next-window': [0.5, 'one-step'], 'standard-cycle': [1, 'exact'], none: [0.5, 'one-step'] },
-    none: { emergency: [0.5, 'emergency-unjustified'], 'next-window': [0, 'wrong'], 'standard-cycle': [0.5, 'one-step'], none: [1, 'exact'] },
-  };
-  const pairs = VULN_SCHEDULES.flatMap((truth) => VULN_SCHEDULES.map((given): [VulnSchedule, VulnSchedule, number, string] => [truth, given, ...MATRIX[truth][given]]));
+  // truth (row: decision and schedule) x given schedule (column), no SLA limit: exact 1; one step off 0.5; an
+  // emergency change that was not needed 0.5 on a real finding, whatever its truth; anything else 0. The
+  // decision is part of the truth: patch is a real finding that needs a fix, accept and transfer are real
+  // ones that need none, and a false positive is not real, so an emergency change for it is graded by
+  // distance like any other choice.
+  type Cells = Record<VulnSchedule, [number, string]>;
+  const realNone: Cells = { emergency: [0.5, 'emergency-unjustified'], 'next-window': [0, 'wrong'], 'standard-cycle': [0.5, 'one-step'], none: [1, 'exact'] };
+  const MATRIX: [VulnDecision, VulnSchedule, Cells][] = [
+    ['patch', 'emergency', { emergency: [1, 'exact'], 'next-window': [0.5, 'one-step'], 'standard-cycle': [0, 'wrong'], none: [0, 'wrong'] }],
+    ['patch', 'next-window', { emergency: [0.5, 'emergency-unjustified'], 'next-window': [1, 'exact'], 'standard-cycle': [0.5, 'one-step'], none: [0, 'wrong'] }],
+    ['patch', 'standard-cycle', { emergency: [0.5, 'emergency-unjustified'], 'next-window': [0.5, 'one-step'], 'standard-cycle': [1, 'exact'], none: [0.5, 'one-step'] }],
+    ['accept', 'none', realNone],
+    ['transfer', 'none', realNone],
+    ['false-positive', 'none', { emergency: [0, 'wrong'], 'next-window': [0, 'wrong'], 'standard-cycle': [0.5, 'one-step'], none: [1, 'exact'] }],
+  ];
+  const pairs = MATRIX.flatMap(([decision, truth, cells]) => VULN_SCHEDULES.map((given): [VulnDecision, VulnSchedule, VulnSchedule, number, string] => [decision, truth, given, ...cells[given]]));
 
-  it.each(pairs)('truth %s, given %s: credit %s (%s)', (truth, given, credit, verdict) => {
-    expect(grade(truth, given)).toEqual({ given, truth, credit, verdict });
+  it('has one cell per truth x given pair', () => {
+    expect(pairs).toHaveLength(24);
+  });
+
+  it.each(pairs)('truth %s / %s, given %s: credit %s (%s)', (decision, truth, given, credit, verdict) => {
+    expect(gradeAs(decision, truth, given)).toEqual({ given, truth, credit, verdict });
   });
 
   it('rule a: not set is 0', () => {
@@ -445,12 +460,35 @@ describe('schedule', () => {
     for (const truth of VULN_SCHEDULES) for (const given of VULN_SCHEDULES) expect(gradeNull(truth, given), `${truth} / ${given}`).toEqual(grade(truth, given));
   });
 
-  it('rule d: an emergency change nobody needed is half credit, two and three steps early included', () => {
+  it('rule d: on a real finding an emergency change nobody needed is half credit, two and three steps early included', () => {
     expect(grade('standard-cycle', 'emergency')).toMatchObject({ credit: 0.5, verdict: 'emergency-unjustified' });
-    expect(grade('none', 'emergency')).toMatchObject({ credit: 0.5, verdict: 'emergency-unjustified' });
+    // Three steps early: the truth is `none`, which is what accepting or transferring a finding schedules.
+    for (const decision of ['accept', 'transfer'] as const) {
+      expect(gradeAs(decision, 'none', 'emergency'), decision).toEqual({ given: 'emergency', truth: 'none', credit: 0.5, verdict: 'emergency-unjustified' });
+    }
   });
 
-  it('rule e: anything but an emergency is graded by distance; next-window on a false positive is 0', () => {
+  it('rule d: a false positive gets no half credit, its emergency change is graded by distance (rule e)', () => {
+    // A false positive needs no change at all: an emergency change is three steps off, where a real finding
+    // with the same truth schedule `none` (accept, transfer) has half credit. The rest of its row is in the matrix.
+    expect(gradeAs('false-positive', 'none', 'emergency')).toEqual({ given: 'emergency', truth: 'none', credit: 0, verdict: 'wrong' });
+  });
+
+  it('rule d turns on the truth decision alone: every decision but false-positive is real, whatever its schedule', () => {
+    // An emergency change against every truth (decision x schedule). The truth schedule is not what decides:
+    // a real finding gets half credit unless the emergency is what it needs (exact); a false positive gets the
+    // ordinal, so half only one step off and nothing further away.
+    const real: Record<VulnSchedule, [number, string]> = { emergency: [1, 'exact'], 'next-window': [0.5, 'emergency-unjustified'], 'standard-cycle': [0.5, 'emergency-unjustified'], none: [0.5, 'emergency-unjustified'] };
+    const falsePositive: Record<VulnSchedule, [number, string]> = { emergency: [1, 'exact'], 'next-window': [0.5, 'one-step'], 'standard-cycle': [0, 'wrong'], none: [0, 'wrong'] };
+    for (const decision of VULN_DECISIONS) {
+      for (const truth of VULN_SCHEDULES) {
+        const [credit, verdict] = (decision === 'false-positive' ? falsePositive : real)[truth];
+        expect(gradeAs(decision, truth, 'emergency'), `${decision} / ${truth}`).toEqual({ given: 'emergency', truth, credit, verdict });
+      }
+    }
+  });
+
+  it('rule e: anything but an emergency on a real finding is graded by distance; next-window on a false positive is 0', () => {
     const { f } = gradeOne({ decision: 'false-positive', schedule: 'none' }, { decision: 'false-positive', schedule: 'next-window' });
     expect(f.schedule).toEqual({ given: 'next-window', truth: 'none', credit: 0, verdict: 'wrong' });
     expect(grade('none', 'standard-cycle')).toMatchObject({ credit: 0.5, verdict: 'one-step' });

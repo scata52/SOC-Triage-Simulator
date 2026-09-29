@@ -84,6 +84,9 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   inside the 40 points, restraint rule for an untiered case and for findings without required codes, 3-code cap, capacity ties.
   §5.3 "emergency when not justified = half" is implemented as written, including truth `none`: on an FP, emergency then scores
   0.5 while next-window scores 0. Flagged for the human; a one-line DESIGN change would limit it to findings that need a fix.
+  **Resolved 2026-09-29 (human): half credit only on real findings** (truth not FP, as for the must-not-miss penalty); an emergency
+  on a false positive now follows the ordinal: 0 against its usual truth `none`. DESIGN §5.3 updated. Reviewer PASS (differential vs
+  the previous grader: only FP + emergency findings changed, 0.5 → 0; 468 tests).
 - WP1c: grade details WP1e's debrief relies on: `mustNotMiss.decisionPenalty` / `orderingPenalty` give the nominal charge (5 per
   dismissal, cap 10; 4 per miss) before the floor at 0; a finding zeroed by capacity keeps its own zero-credit verdict (`sla-breach`,
   `wrong`) and is listed in `overflow`, so the debrief must read that list; `slaLatest: null` counts as not set; out-of-enum
@@ -106,7 +109,8 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
 - The builder accepts templates whose perfect answer scores below 100: must-not-miss outside the top k of `idealOrder`; ideal
   emergency + next-window over capacity; truth schedule later than `slaLatest`; more than 3 distinct required codes; mitigate
   without a `mitigation` list; no evidence point. `checkVulnGrading` catches each of these for every template (WP1d); build-time
-  checks are optional.
+  checks are optional. It also accepts a false positive whose truth schedule is not `none` (an emergency on it would then score
+  0.5 one-step against next-window); WP1d's structure check should require FP ⇒ schedule `none`.
 - WP1a re-review (minor, non-blocking): CVSS tests check little beyond the 18 oracle rows (15/15 environmental, temporal and parser
   mutants survive; add about 40 golden vectors); catalogue tests don't pin the Sim-EPSS anchor tables or `KEV_LEGACY`; `toMetrics`
   doesn't validate metric objects (NaN → "critical"); `fixedVersion` is set when `vendorFix` is false (the scan writer blanks it).

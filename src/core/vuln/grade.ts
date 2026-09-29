@@ -147,8 +147,11 @@ function scheduleCall(t: FindingTruth, given: VulnSchedule | null): Call<VulnSch
   // A stored case can carry null for "no limit"; it is not set, like undefined.
   if (t.slaLatest != null && VULN_SCHEDULES.indexOf(given) > VULN_SCHEDULES.indexOf(t.slaLatest)) return { credit: 0, verdict: 'sla-breach' };
   if (given === t.schedule) return { credit: 1, verdict: 'exact' };
-  // Change fatigue is real: an emergency change nobody needed is half right, however late the truth is.
-  if (given === 'emergency') return { credit: 0.5, verdict: 'emergency-unjustified' };
+  // Change fatigue is real: on a real finding (the truth is not a false positive, the test the must-not-miss
+  // penalty uses) an emergency change nobody needed is half right, however late the truth is, `none`
+  // (accept, transfer) included. A false positive needs no change at all, so an emergency change for one gets
+  // no such credit: it falls through to the ordinal below, which is 0 against its usual truth `none`.
+  if (given === 'emergency' && t.decision !== 'false-positive') return { credit: 0.5, verdict: 'emergency-unjustified' };
   return ordinalCredit(VULN_SCHEDULES, given, t.schedule) === 0.5 ? { credit: 0.5, verdict: 'one-step' } : { credit: 0, verdict: 'wrong' };
 }
 

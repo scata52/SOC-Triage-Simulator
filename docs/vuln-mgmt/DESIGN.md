@@ -198,11 +198,12 @@ is gameable; judgment is graded through structured choices + evidence.
 
 ### 5.3 Schedule (10)
 - Choices: emergency change / next window / standard cycle / none. Ordinal with half credit one step off, but
-  **later than SLA allows = 0** regardless of step distance; emergency when not justified = half (change fatigue is real).
+  **later than SLA allows = 0** regardless of step distance; emergency when not justified = half on a real finding (change fatigue
+  is real; human decision 2026-09-29: an emergency change for a false positive follows the ordinal, i.e. 0 against its truth `none`).
 - Capacity: if emergency+next-window assignments exceed `capacityPerWindow`, lowest-relevance overflow items score 0.
 - Clarified (WP1c): unweighted mean over all findings (§5.6 divides by 4). Rules per finding, first match wins: not set 0; later
-  than `slaLatest` (when the template gives it) 0; exact 1; emergency when the truth is not emergency 0.5 (as written, also when
-  the truth is `none`); otherwise ordinal. Then capacity: among equal relevance the learner's lower-ranked assignment overflows
+  than `slaLatest` (when the template gives it) 0; exact 1; emergency on a real finding (truth not FP) whose truth is not
+  emergency 0.5, also when that truth is `none` (accept, transfer); otherwise ordinal. Then capacity: among equal relevance the learner's lower-ranked assignment overflows
   first (unranked lowest), then the later finding in case order.
 
 ### 5.4 Justification reason codes (15)
