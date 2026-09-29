@@ -61,7 +61,7 @@ export interface ResolvedVulnCase {
   findings: ResolvedVulnFinding[];
   constraints: VulnConstraints;
   idealOrder: string[];
-  tiers?: string[][];
+  tiers: string[][];
   hints: string[];
   solution: SolutionStep[];
   rubric: RubricItem[];
@@ -119,9 +119,34 @@ export function buildVulnScenario(opts: VulnScenarioOptions): VulnScenario {
     if (f.row.row.FindingId !== f.findingId) throw new Error(`${template.id}: finding ${f.findingId} does not match its row (${String(f.row.row.FindingId)})`);
   }
   const known = new Set(ids);
-  const order = [...spec.idealOrder, ...(spec.tiers ?? []).flat()];
+  const order = [...spec.idealOrder, ...spec.tiers.flat()];
   for (const id of order) if (!known.has(id)) throw new Error(`${template.id}: idealOrder/tiers name unknown finding ${id}`);
   if (new Set(spec.idealOrder).size !== spec.idealOrder.length) throw new Error(`${template.id}: idealOrder repeats a finding`);
+
+  // The ordering grade rests on the tiers (DESIGN section 5.2): relevance 3, 2, 1
+  // for the three tiers and 0 for everything else, so they must be well formed.
+  if (spec.tiers.length > 3) throw new Error(`${template.id}: at most three tiers (relevance 3, 2, 1), found ${spec.tiers.length}`);
+  const tierOf = new Map<string, number>();
+  spec.tiers.forEach((tier, i) => {
+    for (const id of tier) {
+      if (tierOf.has(id)) throw new Error(`${template.id}: tiers list finding ${id} more than once`);
+      tierOf.set(id, i);
+    }
+  });
+  for (const f of spec.findings) {
+    const tiered = tierOf.has(f.findingId);
+    if (tiered && (f.truth.decision === 'false-positive' || f.truth.decision === 'accept')) throw new Error(`${template.id}: finding ${f.findingId} is ${f.truth.decision} and must not be in a tier`);
+    if (f.mustNotMiss && !tiered) throw new Error(`${template.id}: must-not-miss finding ${f.findingId} must be in a tier`);
+  }
+  for (const id of tierOf.keys()) if (!spec.idealOrder.includes(id)) throw new Error(`${template.id}: tiered finding ${id} is missing from idealOrder`);
+  // Along idealOrder the tier index never falls, so relevance never rises;
+  // untiered findings, if listed, come after every tiered one.
+  let tierSoFar = 0;
+  for (const id of spec.idealOrder) {
+    const rank = tierOf.get(id) ?? spec.tiers.length;
+    if (rank < tierSoFar) throw new Error(`${template.id}: idealOrder puts ${id} after a less urgent finding`);
+    tierSoFar = rank;
+  }
 
   const corpus = b.finalize();
 

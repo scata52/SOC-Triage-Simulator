@@ -79,7 +79,8 @@ interface VulnCaseSpec {
   briefing: string; attachments?: Attachment[];
   findings: FindingSpec[];    // each: findingId, row: RowRef, truth: FindingTruth, weight, mustNotMiss?, evidence: EvidenceSpec[]
   constraints: { windows: Window[]; slaDays: Record<SlaClass, number>; capacityPerWindow: number };
-  idealOrder: string[];       // findingIds, most urgent first (ties allowed via `tiers: string[][]`)
+  idealOrder: string[];       // findingIds, most urgent first; lists every tiered finding, relevance never rising
+  tiers: string[][];          // urgency tiers 1–3 in order (§5.2); a finding in no tier is noise/FP/accepted (relevance 0)
   hints: string[]; solution: SolutionStep[];   // runnable KQL, same harness as SOC
   rubric: RubricItem[];       // stakeholder-note coaching (keywords), as today
   explanation: string[]; pitfalls: string[]; references: CaseReference[];
@@ -89,10 +90,16 @@ type VulnDecision = 'patch' | 'mitigate' | 'avoid' | 'accept' | 'transfer' | 'fa
 interface FindingTruth {
   decision: VulnDecision; alsoAccept?: VulnDecision[];
   schedule: 'emergency' | 'next-window' | 'standard-cycle' | 'none';
+  slaLatest?: FindingTruth['schedule']; // latest schedule that still meets this finding's SLA on the case calendar (§5.3)
   reasons: ReasonCode[];      // required justification codes (see §5.4)
-  mitigation?: ControlId[];   // acceptable controls when decision = mitigate
+  contradicting?: ReasonCode[]; // codes that count against the learner (§5.4)
+  mitigation?: ControlId[];   // controls that cover the vulnerable path: credit for mitigate (§5.1)
 }
 ```
+Clarified 2026-09-29 (WP1c, coordinator): `tiers` is required because §5.2 grades on tiers and a strict `idealOrder` cannot
+give relevance to more than three ranked findings; `slaLatest` exists because the SLA that applies is policy, not a function of
+the finding row (the T3 decider scores CVSS 7.5, High, yet has the 3-day SLA), and the calendar has no fixed date for "standard
+cycle". Build-time checks: at most 3 tiers, disjoint, FP/accept truths untiered, must-not-miss findings tiered.
 Seeded generation as today: `buildVulnScenario({worldSeed, templateId, seed})` → deterministic spec + corpus.
 
 ### 2.3 Case sizes
@@ -176,16 +183,27 @@ is gameable; judgment is graded through structured choices + evidence.
   (removes a component the business needs). Everything else 0. **false-positive given on a real must-not-miss = 0 and −5 (cap −10)**:
   dismissing a real exploited vuln is the costly mistake (mirrors SOC `mustNot`).
 - `mitigate` requires a control from the finding's acceptable list; wrong control → 0.5.
+- Clarified (WP1c): `mitigate` with no control counts as a wrong control. The patch→mitigate near miss needs a control from
+  `mitigation` (on a patch finding the list names the controls that cover the path), else 0; accept↔mitigate needs none. The −5
+  applies when `false-positive` is given on a must-not-miss finding whose truth is not FP; it is taken inside the 40 points
+  (floor 0). Σw = 0 → 0.
 
 ### 5.2 Ordering (20)
 - Relevance per finding from its tier (tier 1 = 3, 2 = 2, 3 = 1, noise/FP = 0). Score = 20 × nDCG(given order).
   Ties inside a tier are free (graded on tiers, not total order). Findings marked FP/accept may be left unranked at no cost.
 - Must-not-miss: each one not in the top `k` (k = number of must-not-miss items + 1) costs 4 points of ordering (floor 0).
+- Clarified (WP1c): tiers come from `tiers` (§2.2). A finding's position is its place in the submitted order (unknown and repeated
+  ids ignored); an unranked finding earns no gain and is outside the top `k`. A case with no tiered finding scores the full 20
+  once any of its findings has a decision, else 0 (SOC's restraint rule; keeps empty = 0).
 
 ### 5.3 Schedule (10)
 - Choices: emergency change / next window / standard cycle / none. Ordinal with half credit one step off, but
   **later than SLA allows = 0** regardless of step distance; emergency when not justified = half (change fatigue is real).
 - Capacity: if emergency+next-window assignments exceed `capacityPerWindow`, lowest-relevance overflow items score 0.
+- Clarified (WP1c): unweighted mean over all findings (§5.6 divides by 4). Rules per finding, first match wins: not set 0; later
+  than `slaLatest` (when the template gives it) 0; exact 1; emergency when the truth is not emergency 0.5 (as written, also when
+  the truth is `none`); otherwise ordinal. Then capacity: among equal relevance the learner's lower-ranked assignment overflows
+  first (unranked lowest), then the later finding in case order.
 
 ### 5.4 Justification reason codes (15)
 Fixed vocabulary (checkbox chips per finding, ≤ 3): `known-exploited`, `high-exploit-probability`, `public-exploit`,
@@ -195,10 +213,13 @@ Fixed vocabulary (checkbox chips per finding, ≤ 3): `known-exploited`, `high-e
 `unused-component`.
 Score per finding = |given ∩ required| / |required| − 0.25 × |given ∩ contradicting|, clamped 0..1; weighted like decisions.
 Each template lists `required` and `contradicting` codes per finding (e.g., `stale-scan` contradicts a real finding).
+Clarified (WP1c): only the first three distinct codes count. A finding with no required codes scores 1 when it has a decision
+(SOC's restraint rule), else 0, before the contradiction penalty.
 
 ### 5.5 Evidence (15)
 Exactly the SOC mechanism: `EvidenceSpec` with RowRefs; pin any row → point; hints −20% of this component each;
-4 free extra pins, then −1 per irrelevant pin (cap −5).
+4 free extra pins, then −1 per irrelevant pin (cap −5). The points are every evidence spec of every finding.
+Rounding (WP1c): components to one decimal (evidence to whole points, as SOC); score = their sum; percent = rounded score.
 
 ### 5.6 Worked examples (T3 case `vm-kev-internal`, 4 findings)
 Findings: F1 Sim-KEV-listed RCE on app server (must-not-miss, w3, tier1, emergency, reasons {known-exploited, public-exploit});

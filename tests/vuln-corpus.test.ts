@@ -159,6 +159,43 @@ describe('buildVulnScenario', () => {
     expect(() => run(broken((s) => void s.idealOrder.push('VF-nope')))).toThrow(/unknown finding/);
   });
 
+  it('rejects tiers the ordering grade cannot use (ADR-19)', () => {
+    const broken = (patch: (spec: VulnCaseSpec) => void): VulnTemplate => ({
+      ...fixtureTier3,
+      id: 'vm-broken-tiers',
+      build: (ctx) => {
+        const spec = fixtureTier3.build(ctx);
+        patch(spec);
+        return spec;
+      },
+    });
+    const run = (t: VulnTemplate) => buildVulnScenario({ worldSeed: WORLD, templateId: t.id, seed: 'b', world: world(WORLD), template: t });
+    // The fixture's findings: 0 exploited (must-not-miss), 1 false positive, 2 low probability,
+    // 3 false positive, 4 mitigated, 5 accepted. Tiers [[0], [4], [2]], idealOrder [0, 4, 2].
+    const id = (s: VulnCaseSpec, i: number) => s.findings[i].findingId;
+    expect(() => run(broken((s) => void s.tiers.push([])))).toThrow(/at most three tiers/);
+    expect(() => run(broken((s) => void s.tiers[1].push(id(s, 0))))).toThrow(/tiers list finding .* more than once/); // in two tiers
+    expect(() => run(broken((s) => void s.tiers[0].push(id(s, 0))))).toThrow(/tiers list finding .* more than once/); // twice in one tier
+    expect(() => run(broken((s) => void s.tiers[2].push(id(s, 1))))).toThrow(/finding .* is false-positive and must not be in a tier/);
+    expect(() => run(broken((s) => void s.tiers[2].push(id(s, 5))))).toThrow(/finding .* is accept and must not be in a tier/);
+    expect(() =>
+      run(
+        broken((s) => {
+          s.tiers[0] = [];
+          s.idealOrder = s.idealOrder.filter((x) => x !== id(s, 0));
+        }),
+      ),
+    ).toThrow(/must-not-miss finding .* must be in a tier/);
+    expect(() => run(broken((s) => void (s.idealOrder = s.idealOrder.filter((x) => x !== id(s, 2)))))).toThrow(/tiered finding .* is missing from idealOrder/);
+    expect(() => run(broken((s) => void s.idealOrder.reverse()))).toThrow(/idealOrder puts .* after a less urgent finding/);
+    expect(() => run(broken((s) => void s.idealOrder.unshift(id(s, 1))))).toThrow(/idealOrder puts .* after a less urgent finding/); // an untiered finding listed first
+
+    // Well-formed variants still build: untiered findings listed last, several findings in one tier.
+    expect(() => run(broken((s) => void s.idealOrder.push(id(s, 1))))).not.toThrow();
+    expect(() => run(broken((s) => void (s.tiers = [[id(s, 0)], [id(s, 4), id(s, 2)]])))).not.toThrow();
+    expect(run(fixtureTier3).case.tiers).toHaveLength(3);
+  });
+
   it('has consistent, sound corpus and case checks for the fixture', async () => {
     await checkVulnTemplate(fixtureTier3, vulnRuns(6, 3), 12);
   });

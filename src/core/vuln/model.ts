@@ -55,11 +55,19 @@ export interface FindingTruth {
   decision: VulnDecision;
   alsoAccept?: VulnDecision[];
   schedule: VulnSchedule;
+  // The latest schedule that still meets this finding's SLA on the case
+  // calendar. A later choice scores 0 whatever its distance (DESIGN section
+  // 5.3). It is template data: the SLA that applies is policy, not a function of
+  // the finding row, and "standard cycle" has no date of its own.
+  slaLatest?: VulnSchedule;
   reasons: ReasonCode[]; // required justification codes
   // Codes that count against the learner when chosen (e.g. `stale-scan` on a
   // real finding). Optional; the grader treats a missing list as empty.
   contradicting?: ReasonCode[];
-  mitigation?: ControlId[]; // acceptable controls when decision = mitigate
+  // Controls that cover the vulnerable path. `mitigate` needs one of them for
+  // credit, whether it is the truth, an accepted alternative, or the near miss
+  // for a patch finding (DESIGN section 5.1).
+  mitigation?: ControlId[];
 }
 
 export interface FindingSpec {
@@ -92,7 +100,10 @@ export interface VulnCaseSpec {
   findings: FindingSpec[];
   constraints: VulnConstraints;
   idealOrder: string[]; // findingIds, most urgent first
-  tiers?: string[][]; // findingIds grouped by urgency tier, when ties are allowed
+  // Urgency tiers 1 to 3 in order, findingIds per tier: relevance 3, 2, 1 for
+  // the ordering grade (DESIGN section 5.2). A finding in no tier is noise, a
+  // false positive or accepted risk (relevance 0). At most three groups.
+  tiers: string[][];
   hints: string[];
   solution: SolutionStep[]; // runnable KQL, same harness as SOC
   rubric: RubricItem[]; // stakeholder-note coaching

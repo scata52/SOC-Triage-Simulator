@@ -3,9 +3,8 @@
 // be referentially sound (findings point at real devices, scan runs and
 // intel), be internally consistent, and be solvable through the query
 // console: the reference investigation, run against a real sql.js database,
-// must surface a row for every evidence point.
-//
-// WP1c/WP1d extend this with the grader checks (perfect = 100, empty = 0).
+// must surface a row for every evidence point. The grader must agree with the
+// template: the reference answer scores 100 and an untouched worklist 0.
 
 import { expect } from 'vitest';
 import type { World } from '../../src/core/world/world.ts';
@@ -14,6 +13,7 @@ import { SiemDatabase } from '../../src/core/query/engine.ts';
 import { cysaDomain } from '../../src/core/taxonomy/cysa.ts';
 import { buildVulnScenario, type ResolvedVulnCase, type VulnScenario } from '../../src/core/vuln/scenario.ts';
 import type { VulnTemplate } from '../../src/core/vuln/model.ts';
+import { emptyVulnSubmission, gradeVulnCase, perfectVulnSubmission } from '../../src/core/vuln/grade.ts';
 import { isSimVulnId } from '../../src/core/vuln/ids.ts';
 import { syntheticViolations } from './guardrails.ts';
 import { sqljs } from './sql.ts';
@@ -102,6 +102,14 @@ export function checkVulnStructure(c: ResolvedVulnCase, corpus: Corpus): void {
   for (const days of Object.values(k.slaDays)) expect(days).toBeGreaterThan(0);
 }
 
+// The grader must agree with the template: the reference answer scores 100
+// and an untouched worklist scores 0 (the counterpart of checkGrading).
+export function checkVulnGrading(c: ResolvedVulnCase): void {
+  const perfect = gradeVulnCase(c, perfectVulnSubmission(c));
+  expect(perfect.score, `${c.id}: perfect submission ${JSON.stringify(perfect.components.filter((x) => !x.ok))}`).toBe(100);
+  expect(gradeVulnCase(c, emptyVulnSubmission()).score, `${c.id}: empty submission`).toBe(0);
+}
+
 // The reference investigation, run for real: every step returns rows (or proves
 // an absence) and together the steps surface a row of every evidence point.
 export async function checkVulnSolvable(s: VulnScenario, shared?: SiemDatabase): Promise<void> {
@@ -147,8 +155,9 @@ export function buildFor(template: VulnTemplate, w: World, seed: string): VulnSc
   return buildVulnScenario({ worldSeed: w.seed, templateId: template.id, seed, world: w, template });
 }
 
-// Build, structure, corpus integrity, synthetic guardrails, solvability and
-// determinism for one template over several runs, plus a wider crash sweep.
+// Build, structure, corpus integrity, grading, synthetic guardrails,
+// solvability and determinism for one template over several runs, plus a wider
+// crash sweep.
 export async function checkVulnTemplate(template: VulnTemplate, runs: VulnRun[], sweep = 20): Promise<void> {
   for (const run of runs) {
     const w = world(run.world);
@@ -156,6 +165,7 @@ export async function checkVulnTemplate(template: VulnTemplate, runs: VulnRun[],
     const label = `${template.id} ${run.world}/${run.seed}`;
     checkVulnStructure(s.case, s.corpus);
     checkVulnCorpus(s.corpus, label);
+    checkVulnGrading(s.case);
     expect(syntheticViolations(s.corpus, w), label).toEqual([]);
     if (run.db) await checkVulnSolvable(s);
   }
@@ -163,6 +173,7 @@ export async function checkVulnTemplate(template: VulnTemplate, runs: VulnRun[],
     const s = buildFor(template, world(`vuln-sweep-${i % 5}`), `sweep-${i}`);
     checkVulnStructure(s.case, s.corpus);
     checkVulnCorpus(s.corpus, `${template.id} sweep-${i}`);
+    checkVulnGrading(s.case);
   }
   const first = runs[0];
   const a = buildFor(template, world(first.world), first.seed);

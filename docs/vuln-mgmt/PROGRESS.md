@@ -14,9 +14,15 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   cases; helpers `cve-guard`, `vuln-fixture` (tier-3 fixture), `vuln-scenario-check`. 20 files / 334 tests, build ok, e2e 11/11
   (system Chrome). SOC output verified byte-identical (25 templates + 3 shifts hashed before/after, ignoring the six new empty tables).
   Reviewer PASS (max effort): independent hash probe, 50 practice cases + 5 shifts identical vs HEAD; build ≈ 6 ms warm / 20 ms cold.
+- **WP1c — Grader** (2026-09-29). `src/core/vuln/grade.ts` (`gradeVulnCase`, `emptyVulnSubmission`, `perfectVulnSubmission`, per-finding
+  results for the debrief); ordinal credit and evidence scoring moved to `src/core/grading/shared.ts`; ADR-19 (`tiers` required,
+  `FindingTruth.slaLatest`, five build-time tier checks). Tests `vuln-grading` (122), tier checks in `vuln-corpus`; `checkVulnGrading`
+  (perfect = 100, empty = 0) runs in `checkVulnTemplate`. 21 files / 457 tests, build ok, e2e 11/11. SOC `gradeCase` byte-identical
+  (3,000 grades + 30 shift scores hashed vs HEAD). Reviewer PASS twice: the gate, then a re-gate after a delta from the code review and
+  the differential oracle (independent grader from the rules: 0 mismatches over 87,622 submissions). Surviving mutants now killed.
 
 ## In progress
-- WP1c — Grader.
+- None. Next session starts WP1d.
 
 ## Next
 - WP1d — Slice content: 4 templates incl. twin T3
@@ -72,11 +78,40 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
 - 2026-09-28 (human): the six vuln tables that show up empty in SOC sessions stay as they are until WP1e, as recommended. PLAN.md's WP1e
   entry did not say so; it now carries the goal, acceptance (9) and the three files (`Tools.tsx`, `Editor.tsx`, `Help.tsx`).
 
+- 2026-09-29 (coordinator, before WP1c): session start found PLAN, PROGRESS and repo in agreement (WP0–WP1b committed, no WP1c file);
+  the branch was 1 commit ahead of origin (8f8da53, unpushed). DESIGN §5 left gaps the grader must fill; resolved as ADR-19 (`tiers`
+  required, `FindingTruth.slaLatest`) plus "Clarified (WP1c)" notes in DESIGN §2.2/§5: rounding, mitigate without control, penalty
+  inside the 40 points, restraint rule for an untiered case and for findings without required codes, 3-code cap, capacity ties.
+  §5.3 "emergency when not justified = half" is implemented as written, including truth `none`: on an FP, emergency then scores
+  0.5 while next-window scores 0. Flagged for the human; a one-line DESIGN change would limit it to findings that need a fix.
+- WP1c: grade details WP1e's debrief relies on: `mustNotMiss.decisionPenalty` / `orderingPenalty` give the nominal charge (5 per
+  dismissal, cap 10; 4 per miss) before the floor at 0; a finding zeroed by capacity keeps its own zero-credit verdict (`sla-breach`,
+  `wrong`) and is listed in `overflow`, so the debrief must read that list; `slaLatest: null` counts as not set; out-of-enum
+  decisions/schedules count as unanswered and negative or NaN `hintsUsed` as 0; required codes are a set (repeats ignored) and
+  `perfectVulnSubmission` answers the first three distinct ones. The ordering sentence floors the nDCG percent (§5.6 sort-by-CVSS
+  reads 69 %); WP6's copy review may switch to one decimal.
+- WP1c: the WP1a re-review at max effort ran in parallel: PASS. An independent CVSS 3.1 implementation matched every one of 2,592 base
+  vectors, 259,200 temporal and 16.6 M environmental combinations; 9,000 generated catalogues had 0 violations. Minor findings under
+  Known issues.
+
 ## Known issues
 - SOC sessions now list six empty vuln tables in the schema browser, Help schema and editor autocomplete (they come from `TABLES`).
   Scheduled in WP1e (PLAN.md acceptance 9); README.md ("18 tables", lines 46 and 156) gets the new count with WP1e (coordinator).
-- `tests/helpers/vuln-scenario-check.ts` covers build, structure, corpus integrity, synthetic guardrails, determinism and solvability;
-  the grading checks (perfect = 100, empty = 0) join it in WP1c/WP1d.
+- `tests/helpers/vuln-scenario-check.ts` covers build, structure, corpus integrity, synthetic guardrails, determinism, solvability and
+  (since WP1c) grading: perfect = 100, empty = 0.
+- **WP1d must settle first:** `checkVulnStructure` requires ≥ 1 evidence point per finding, but DESIGN §5.6's F2 has none. Relax the
+  helper to "per case", or give F2 a point.
+- The builder accepts templates whose perfect answer scores below 100: must-not-miss outside the top k of `idealOrder`; ideal
+  emergency + next-window over capacity; truth schedule later than `slaLatest`; more than 3 distinct required codes; mitigate
+  without a `mitigation` list; no evidence point. `checkVulnGrading` catches each of these for every template (WP1d); build-time
+  checks are optional.
+- WP1a re-review (minor, non-blocking): CVSS tests check little beyond the 18 oracle rows (15/15 environmental, temporal and parser
+  mutants survive; add about 40 golden vectors); catalogue tests don't pin the Sim-EPSS anchor tables or `KEV_LEGACY`; `toMetrics`
+  doesn't validate metric objects (NaN → "critical"); `fixedVersion` is set when `vendorFix` is false (the scan writer blanks it).
+- For the fact-checker before WP1d shows Sim-KEV dates: old-id Sim-KEV entries get `KnownExploitedAdded` in 2012–2020, before the
+  real KEV catalogue existed (2021). Also "Fenwick" (in a fictional product name) is a real, non-software brand.
+- Pre-existing SOC bug, on `main` too and not vuln-related: `ops-hunt-repo-exfil` fails to build for world `diff-world`, seed `d1`
+  ("evidence 'volume' row in WebProxy fell outside the corpus window"); other seeds build. The SOC suite doesn't cover that pair.
 - Parser bare-table `join` lacks tests for the error path and for a join with no `kind` (reviewer note, non-blocking).
 - `scan-writer.ts` hygiene findings report their basis without honouring a failed login (cosmetic).
 - `query/engine.ts` column-type map now also types new column names (`Port`, `Started`, …); only affects type labels on aliased SQL

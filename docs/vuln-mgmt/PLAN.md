@@ -25,7 +25,11 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 
 ## WP1c — Grader
 - Goal: `src/core/vuln/grade.ts` implementing §5 exactly; reuse ordinal helper, evidence scoring, hint penalty, nDCG from `shift/score.ts` (extract to a shared helper if needed, no behaviour change).
-- Owner: implementer. Deps: WP1a.
+- Owner: implementer. Deps: WP1a. Files: `src/core/vuln/grade.ts`, `src/core/grading/shared.ts` (ordinal credit and evidence scoring
+  moved out of `grading/grade.ts`, no behaviour change), `src/core/grading/grade.ts`, `tests/vuln-grading.test.ts`,
+  `tests/helpers/vuln-scenario-check.ts` (perfect = 100 / empty = 0 checks); outside the original list, for ADR-19 and signed off by
+  the reviewer on their own: `src/core/vuln/model.ts` (`tiers` required, `FindingTruth.slaLatest`), `src/core/vuln/scenario.ts`
+  (build-time tier checks), `tests/vuln-corpus.test.ts` (tests for those checks).
 - Acceptance: (1) §5.6 perfect (100) and sort-by-CVSS (57.3) examples reproduce to ±0.5, and the dismiss-F1 example's decisions (15) and must-not-miss (−4) parts reproduce exactly; (2) perfect = 100, empty = 0; (3) FP on must-not-miss applies −5 (cap −10); (4) capacity overflow rule; (5) near-miss matrix of §5.1 incl. the asymmetric `avoid` rule; (6) SOC grading tests unchanged.
 - Tests: `tests/vuln-grading.test.ts` with fixtures from §5.6.
 
@@ -123,3 +127,10 @@ Resolved 2026-09-28 (sources in DESIGN):
 - **ADR-18 Subagents at max effort (2026-09-28, human decision).** Every agent file on a model with effort levels sets `effort: max`
   (overrides the session effort; https://code.claude.com/docs/en/sub-agents). `explorer` stays on haiku without `effort`: Haiku has no
   effort levels (https://code.claude.com/docs/en/model-config). The coordinator's own effort is set in the app, not in these files.
+- **ADR-19 Ordering tiers and SLA limits are explicit template data (2026-09-29, WP1c, coordinator).** `VulnCaseSpec.tiers` becomes
+  required (tiers 1–3 → relevance 3/2/1, unlisted → 0) and `FindingTruth` gains optional `slaLatest` (latest schedule within the
+  finding's SLA). Reason: §5.2 grades on tiers but an optional `tiers` left relevance undefined beyond three ranked findings, and
+  §5.3's "later than SLA allows" (needed for the §5.6 total of 57.3) cannot be derived from the row: the SLA is policy and "standard
+  cycle" has no date. Alternatives rejected: inferring tiers from `truth.schedule` (breaks "noise = 0") or treating any
+  later-than-truth schedule as an SLA breach (removes §5.3's half credit for one step late within SLA). No template existed yet;
+  the builder fixture already gives `tiers`. Grading edge cases are recorded as "Clarified (WP1c)" notes in DESIGN §2.2 and §5.
