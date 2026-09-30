@@ -220,7 +220,7 @@ interface ProductDef {
 const PRODUCTS: readonly ProductDef[] = [
   { vendor: 'Quillon Software', product: 'Larkspur Portal' },
   { vendor: 'Ashgrove Labs', product: 'Ironbark Wiki' },
-  { vendor: 'Northmere Systems', product: 'Wrenwick Relay' },
+  { vendor: 'Ravenmere Systems', product: 'Wrenwick Relay' },
   { vendor: 'Larkfield Software', product: 'Foxglove Helpdesk' },
   { vendor: 'Tallowfield Networks', product: 'Sablecrest Gateway' },
   { vendor: 'Brackenridge Data', product: 'Tamarind Backup' },
@@ -236,8 +236,8 @@ const PRODUCTS: readonly ProductDef[] = [
   { vendor: 'Larkfield Software', product: 'Thistledown CMS' },
   { vendor: 'Ferrowick Industries', product: 'Cinderpath Scheduler' },
   { vendor: 'Harrowgate Tech', product: 'Dunmore Badge Manager' },
-  { vendor: 'Northmere Systems', product: 'Elderfen Chat Server' },
-  { vendor: 'Ashgrove Labs', product: 'Fenwick Inventory Agent' },
+  { vendor: 'Ravenmere Systems', product: 'Elderfen Chat Server' },
+  { vendor: 'Ashgrove Labs', product: 'Tarnwick Inventory Agent' },
   { vendor: 'Tallowfield Networks', product: 'Gallowglass Firewall Manager' },
   { vendor: 'Pinecrest Analytics', product: 'Hollowmere Reporting' },
   { vendor: 'Vantorn Corp', product: 'Ivorygate Payments Adapter' },
@@ -276,8 +276,10 @@ const OTHER_LEGACY = 13; // further old ids among the rest (15 of 60 in all)
 const NEWLY_PUBLISHED = 5;
 const LEGACY_YEARS: readonly [number, number] = [2012, 2019];
 const FIRST_RECENT_YEAR = 2020;
-// 2021-01-01: keeps the "recent" date range (2020-01-01 .. reference - 30 days) non-empty.
-export const MIN_REFERENCE_DATE = Date.UTC(2021, 0, 1);
+// First day of the real CISA KEV catalog (BOD 22-01, issued 2021-11-03); Sim-KEV listings never predate it.
+export const KEV_LAUNCH = Date.UTC(2021, 10, 3);
+// One day after the KEV launch, so the clamped listing date is always before the reference day.
+export const MIN_REFERENCE_DATE = KEV_LAUNCH + DAY;
 
 const BAND_ORDER: readonly CatalogueBand[] = ['critical', 'high', 'medium', 'low'];
 
@@ -300,7 +302,7 @@ type AgeGroup = 'legacy' | 'recent' | 'new';
 
 export function generateCatalogue(seed: string | number, referenceDate: number): VulnCatalogue {
   if (!Number.isFinite(referenceDate) || referenceDate < MIN_REFERENCE_DATE) {
-    throw new RangeError('referenceDate must be an epoch-ms instant on or after 2021-01-01');
+    throw new RangeError('referenceDate must be an epoch-ms instant on or after 2021-11-04');
   }
   const root = createRng(`vuln-catalogue/${seed}`);
   const n = CATALOGUE_SIZE;
@@ -414,7 +416,7 @@ export function generateCatalogue(seed: string | number, referenceDate: number):
       severity: bands[slot],
       published,
       knownExploited: listed,
-      knownExploitedAdded: listed ? published + addedAfter * DAY : null,
+      knownExploitedAdded: listed ? Math.max(published + addedAfter * DAY, KEV_LAUNCH) : null,
       epss,
       epssPercentile: round2(simEpssPercentile(epss)),
       publicExploit,

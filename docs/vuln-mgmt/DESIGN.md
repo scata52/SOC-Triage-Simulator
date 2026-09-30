@@ -223,7 +223,7 @@ Exactly the SOC mechanism: `EvidenceSpec` with RowRefs; pin any row → point; h
 Rounding (WP1c): components to one decimal (evidence to whole points, as SOC); score = their sum; percent = rounded score.
 
 ### 5.6 Worked examples (T3 case `vm-kev-internal`, 4 findings)
-Findings: F1 Sim-KEV-listed RCE on app server (must-not-miss, w3, tier1, emergency, reasons {known-exploited, public-exploit});
+Findings: F1 Sim-KEV-listed remote information disclosure on app server (CVSS 7.5, the T3 headline vector of §6.2; must-not-miss, w3, tier1, emergency, reasons {known-exploited, public-exploit});
 F2 medium TLS config (w1, tier3, standard, reasons {low-exploitability}); F3 stale high on file server already patched
 (w1, FP, none, {stale-scan}); F4 high on dev box, Sim-EPSS 0.004 (w1, tier2, next-window, {low-exploitability}).
 Σw = 6. Evidence points: 3 (Sim-KEV row, PatchHistory row for F3, DeviceInfo for F4).
@@ -235,6 +235,13 @@ F2 medium TLS config (w1, tier3, standard, reasons {low-exploitability}); F3 sta
 - **Dismisses F1 as FP**: decisions 40×3/6 = 20 − 5 = 15; ordering loses must-not-miss 4; rest depends on the submission,
   typically **≈ 45**. Debrief leads with F1. (Only the decisions and must-not-miss parts are exact.)
 - **Empty submission**: 0 (grader must return 0; tested).
+
+Clarified 2026-09-29 (WP1d, coordinator): the first draft called F1 an "RCE", but the T3 headline vector (`C:H/I:N/A:N`) scores a
+confidentiality-only flaw, so F1 is a remote information disclosure. The `vm-kev-internal` template (WP1d) follows this example
+literally (truths, weights, tiers, required reasons, 3 evidence points; CVSS F3 > F1 > F4 > F2 so the sort-by-CVSS order holds). F4 is
+next-window rather than standard-cycle because its High SLA, counted from first detection, runs out before the standard cycle. F2's
+"TLS" finding is an outdated bundled TLS component fixed by the vendor update, so `patch` is honest (a pure configuration weakness
+maps to a hardening baseline, 2.4).
 
 ### 5.7 Pass mark and XP
 Pass (SRS quality) 70% as SOC. XP = score × `DIFFICULTY_MULTIPLIER` + rubric bonus, identical formula to SOC so ranks stay comparable.

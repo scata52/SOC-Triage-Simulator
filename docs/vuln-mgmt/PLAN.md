@@ -36,6 +36,13 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 ## WP1d — Slice content: 4 templates incl. twin T3
 - Goal: `vm-kev-internal` / `vm-nokev-internal` (twin T3), plus `vm-stale-scan` and `vm-backport-fp` (T1/T2 A-sides) in `src/core/vuln/templates/`.
 - Owner: scenario-author; fact-checker reviews. Deps: WP1b, WP1c.
+- Files: `src/core/vuln/templates/**`, `tests/vuln-scenarios/slice.test.ts` (+ `data-rules.test.ts` for the generic data rules every
+  template must meet, and `kev-internal.test.ts`, `stale-scan.test.ts`, `backport-fp.test.ts` for template-specific checks); coordinator inline: `tests/helpers/vuln-scenario-check.ts`
+  (evidence per case + on every must-not-miss finding, FP ⇒ schedule `none`, determinism per run, `everyEvidenceRow`),
+  `src/core/vuln/registry.ts` (imports `templates/index.ts`). Outside the list, signed off by the reviewer on its own:
+  `src/core/vuln/catalogue.ts` + `tests/vuln-catalogue.test.ts` (Sim-KEV listing dates clamped to the real KEV launch, 2021-11-03,
+  after all draws; `MIN_REFERENCE_DATE` → 2021-11-04; "Fenwick Inventory Agent" → "Tarnwick Inventory Agent", "Northmere Systems" →
+  "Ravenmere Systems": real IT vendors per the fact-checker).
 - Acceptance: (1) `tests/helpers/vuln-scenario-check.ts` (implementer adds in WP1b or here via coordinator) runs every template × 20 seeds: builds, deterministic, perfect = 100, empty = 0, reference KQL returns every evidence row; (2) twins share `title` and headline base score; opposite schedule/decision; (3) fact-checker PASS.
 - Tests: `tests/vuln-scenarios/slice.test.ts`.
 

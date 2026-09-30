@@ -21,11 +21,23 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   (3,000 grades + 30 shift scores hashed vs HEAD). Reviewer PASS twice: the gate, then a re-gate after a delta from the code review and
   the differential oracle (independent grader from the rules: 0 mismatches over 87,622 submissions). Surviving mutants now killed.
 
+- **WP1d — Slice content** (2026-09-30). `src/core/vuln/templates/`: `vm-kev-internal` / `vm-nokev-internal` (twin T3, tier 1,
+  §5.6 literally), `vm-stale-scan` (T2 A, tier 1), `vm-backport-fp` (T1 A, tier 2); shared `common.ts` (org policy + calendar
+  attachments, one-row-per-finding scan model, `WORKLIST_SHAPES`: the curated class/component/vector table every worklist finding comes
+  from, background noise within §6.3, login-failure rows, contradiction facts, twin-shared rng). Tests `tests/vuln-scenarios/`: slice
+  (acceptance 1–2: every template × 20 seeds with the DB, per-seed determinism, 100/0, every evidence row returned; twins; §5.6 on
+  the built case: 57.3 / 15 / −4), data-rules (generic rules every template inherits: class/vector coherence, §6.3 budget, dates,
+  deadline derivation with ≥ 24 h margins, contradicting codes and true required codes, weights, run coverage, naive-strategy guard
+  < 70), regressions (named seeds; opt-in 2,000-seed sweep), per-template checks. Outside the list, reviewer-signed: catalogue
+  Sim-KEV dates ≥ 2021-11-03 and two renames (prep); helper and registry edits (coordinator). 27 files / 609 tests (+4 opt-in),
+  build ok. Reviews: review #1 FAIL (4 blocking); fix rounds 1–5, each checked by an independent verifier; review #2 reviewer PASS
+  and fact-checker PASS; content defects found by the other reviewers fixed afterwards; reviewer re-gate PASS; fact-checker FAIL on
+  two shape-table triples, fixed, then confirmed (see Decisions).
+
 ## In progress
-- None. Next session starts WP1d.
+- None. Next session starts WP1e.
 
 ## Next
-- WP1d — Slice content: 4 templates incl. twin T3
 - WP1e — UI slice + accessibility (slice exit review)
 - WP2 — Content batch A (twins T1, T2, T4, T5)
 - WP3 — Content batch B (twins T6, T7, T8, T11) + tier 3 (T9, T10)
@@ -99,23 +111,102 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
 - 2026-09-29 (human): ADR-18 reverted. `effort: max` is removed from the seven agent files; subagents follow the session effort again.
   Models are unchanged.
 
+- 2026-09-29 (coordinator, before WP1d): session start found PLAN, PROGRESS and repo in agreement (WP0–WP1c committed incl. 09f8f50,
+  no `templates/` yet); branch in sync with origin. Open items left for WP1d, resolved:
+  - **Evidence is per case.** `checkVulnStructure` now requires ≥ 1 evidence point per case and one on every must-not-miss finding,
+    not one per finding. Reason: §5.5 scores "every evidence spec of every finding" and §5.6 gives F2 none (3 points, "evidence
+    1/3 → 5"); a point on F2 would break the worked example, and a medium TLS finding with no decider has nothing to prove. The
+    must-not-miss rule keeps the costly mistake provable.
+  - **False positive ⇒ schedule `none`** is a structure check (Known issues, WP1c).
+  - **Acceptance 1 read literally:** every template × 20 seeds, each with the database; determinism per seed (was: first run only);
+    the reference investigation must return *every* row of every evidence point (`checkVulnTemplate(..., { everyEvidenceRow })`).
+    The WP1b tier-3 fixture keeps the SOC "any row" rule: its `backport` point lists alternative rows by design.
+  - **Sim-KEV dates and "Fenwick"** are fixed in `catalogue.ts` (outside WP1d's list, logged in PLAN.md): a listing date is never
+    before the real KEV catalogue's launch (fact-checker confirms the date), the product is renamed. Reason: Sim-KEV is "modeled on"
+    KEV, so a 2012 listing date teaches something false; rule 1 forbids real company names. Clamp after the draws, so every other
+    catalogue value stays byte-identical.
+  - **T3 headline class.** §6.2 pins the T3 headline to `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N` (7.5) but §5.6 calls F1 an "RCE"; a
+    C:H-only vector is a remote information disclosure, not code execution. The vector wins (oracle row, twin headline); F1 is an
+    unauthenticated remote information disclosure, §5.6 wording clarified.
+  - **`vm-kev-internal` is §5.6 literally:** 4 findings with §5.6's truths, weights, tiers, required reasons and 3 evidence points;
+    CVSS F3 > 7.5 > F4 (High) > F2 (Medium), so §5.6's sort-by-CVSS order holds; the slice test reproduces §5.6 on the built case.
+  - **F4 next-window vs twin B's F1 standard-cycle** (both High, Sim-EPSS ≈ 0.004): the difference is the SLA clock. F4 was first
+    seen early enough that the standard cycle breaches its High SLA (`slaLatest: 'next-window'`); B's F1 was first seen recently.
+    §5.6's required reasons stay; `sla-deadline` is allowed, never contradicting.
+  - **Worklist = the spec's findings** (tier 1: 4–6, §2.3). §6.3's "60–80 % background" is measured over the corpus `VulnFindings`
+    rows (unscored scanner output in the console), not the worklist.
+  - **Twin headline convention:** `findings[0]` is the headline finding in both twins; the slice test checks equal title, equal
+    headline base score and a different headline decision or schedule.
+  - Registry wiring (`registry.ts` imports `templates/index.ts`) and the stub index: coordinator, inline.
+- WP1d prep (fact-checker on the authoring brief, no veto; reviewer PASS on the catalogue change and the inline edits above):
+  - KEV launch 2021-11-03 (BOD 22-01); a web sweep of every catalogue/scan-writer name found two real IT vendors (Fenwick, Northmere),
+    both renamed. Catalogue output otherwise byte-identical to HEAD (reviewer probe, 10,800 catalogues).
+  - The org policy is the fictional org's own (never presented as CISA's; the fact-checker reports BOD 22-01 was revoked 2026-06-10 for
+    BOD 26-04, so prose cites neither as current). The Sim-KEV 3-day clock runs from the later of first detection and the listing date.
+  - Twin B tiers are `[[F4], [F1], [F2]]`, not a tie: F4's SLA deadline is earlier (next-window vs standard-cycle), so a tie would
+    contradict the schedule truths.
+  - Objectives: T3 twins `2.3, 2.5, 4.1`; `vm-stale-scan` `2.1, 2.2, 2.3, 2.5, 4.1` (2.5 added in review #2: it grades a risk
+    exception and change windows); `vm-backport-fp` `2.1, 2.2, 2.3, 2.5, 4.1`;
+    `cysaDomains ['2.0', '4.0']` (every template has a stakeholder-note rubric).
+  - `vm-backport-fp` is tier 2 (8–12 findings, 2 deciders), so the slice gives WP1e's tier filter two tiers; the others are tier 1.
+    T1/T2 A sides leave `twin` unset until their B side lands (WP2), so nothing links to a missing case.
+- WP1d review #1 (reviewer FAIL; fact-checker FAIL, no veto; scenario-reviewer, red-team learner and code-reviewer FAIL). Blocking:
+  backport's Sim-KEV decider had no decoy; re-vectored catalogue entries kept a class/title their vector contradicts; a table-blind
+  strategy passed `vm-nokev-internal` (72.4); a template wrote a real OS name. All fixed in one round (see Done). Rulings:
+  - **World OS strings** (`Windows Server 2022`, `Ubuntu 24.04` in DeviceInfo) come from the shared SOC world, which must stay
+    unchanged; they are platform context, never the vulnerable product. Every vulnerable product and every template-authored host OS
+    is fictional. Flagged for the human.
+  - **Weights follow §5.1:** must-not-miss 3, deciders/decoys/tiered findings 1, worklist padding (low/info, standard-cycle noise,
+    accepted risk) 0.5. §5.6 keeps F2 at 1 (literal).
+  - **Contradicting codes** list every signal code that the data proves false for that finding (`stale-scan` on a real finding,
+    `known-exploited` when not listed, `public-exploit` when none, `low-exploitability` when listed); §5.4 uses the first as its example.
+  - **Background noise** (unscored rows) stays ≤ Medium with no exploitation signal (not listed, Sim-EPSS < 0.02, no public exploit,
+    vendor fix available), per §6.3 "informational/low".
+  - Deadlines are due by the end of the day (UTC), and every truth keeps ≥ 1 day between its deadline and the window that decides it.
+  - Naive strategies (all-patch-by-CVSS, all-FP, SLA-by-class, reason spam) must stay below the 70 % pass mark on every template.
+    The remaining headroom sits in the grader as specified (extra codes cost nothing, §5.4; FP scheduled standard-cycle earns 0.5,
+    §5.3); left for the slice exit review, not changed in WP1d.
+
+- 2026-09-30 (WP1d close-out): review #2 gave reviewer PASS and fact-checker PASS, but the scenario-reviewer, red-team and
+  code-reviewer still found content that taught something false (a misconfiguration accepted "for lack of a vendor fix", a local-only
+  vector on an internet-exposed must-not-miss, a false pitfall sentence). Rather than commit known-false content, three more rounds
+  followed (each verifier-checked), ending in `WORKLIST_SHAPES`: worklist class, component and vector come only from a curated table,
+  because fitting descriptions to arbitrary catalogue vectors kept producing oddities. Reviewer re-gate PASS; fact-checker FAIL on two
+  triples ('local API' SQLi scored AV:N; web-app components in AV:L groups), fixed, then fact-checker PASS and reviewer PASS on the delta.
+  The fact-checker notes "Quorvane" (the fictional web server) also names unrelated gambling domains and a hobby project: non-blocking.
 ## Known issues
 - SOC sessions now list six empty vuln tables in the schema browser, Help schema and editor autocomplete (they come from `TABLES`).
   Scheduled in WP1e (PLAN.md acceptance 9); README.md ("18 tables", lines 46 and 156) gets the new count with WP1e (coordinator).
-- `tests/helpers/vuln-scenario-check.ts` covers build, structure, corpus integrity, synthetic guardrails, determinism, solvability and
-  (since WP1c) grading: perfect = 100, empty = 0.
-- **WP1d must settle first:** `checkVulnStructure` requires ≥ 1 evidence point per finding, but DESIGN §5.6's F2 has none. Relax the
-  helper to "per case", or give F2 a point.
+- `tests/helpers/vuln-scenario-check.ts` covers build, structure, corpus integrity, synthetic guardrails, determinism (per run since
+  WP1d), solvability (optionally every evidence row) and (since WP1c) grading: perfect = 100, empty = 0.
 - The builder accepts templates whose perfect answer scores below 100: must-not-miss outside the top k of `idealOrder`; ideal
   emergency + next-window over capacity; truth schedule later than `slaLatest`; more than 3 distinct required codes; mitigate
-  without a `mitigation` list; no evidence point. `checkVulnGrading` catches each of these for every template (WP1d); build-time
-  checks are optional. It also accepts a false positive whose truth schedule is not `none` (an emergency on it would then score
-  0.5 one-step against next-window); WP1d's structure check should require FP ⇒ schedule `none`.
+  without a `mitigation` list; no evidence point. `checkVulnGrading` catches each of these for every template, and
+  `checkVulnStructure` rejects a false positive whose schedule is not `none` (WP1d); build-time checks are optional.
+- **Catalogue class/vector pairing (WP1a, recommend fixing before WP2):** 26 % of generated catalogue entries have a class/component
+  their vector contradicts (`catalogue.ts` SHAPE_DEFS pairs e.g. AV:L shapes with `rce`, PR:L/H with `auth-bypass`, AV:L with `sqli`).
+  WP1d templates filter and re-describe entries through the coherence predicate in `templates/common.ts`, so no case shows one, but
+  every new template depends on that filter. A catalogue fix (pair classes with the shapes the predicate allows) is outside WP1d.
+- **Grading headroom (DESIGN §5, decide at the slice exit; flagged for the human):** extra reason codes cost nothing (§5.4), a false
+  positive scheduled standard-cycle earns 0.5 (§5.3), the irrelevant-pin penalty is capped at 5 so pinning every row earns about 10 of
+  15 evidence points (§5.5), and the schedule component is an unweighted mean. The generic guard (C14, strategies a/b/c/e/f with and
+  without reason spam) keeps table-blind strategies < 70 on every template; the one measured pass is `vm-nokev-internal` answered from
+  the SLA table with reason spam and every row pinned: 72.2–72.8 on every seed (in nokev the SLA-table answer is right on 3 of 4
+  findings by design). A learner who gets only the lesson finding wrong, with the targeted misconception, still passes (76–94). No
+  template change can close this under §5. Options: weight the schedule by finding weight; treat a must-not-miss or decider
+  schedule miss like a dismissal; free pins = number of evidence points.
+- **WP1e requirement:** show the worklist in a neutral order (e.g. by FindingId or scanner severity), never in template order: the
+  templates list the headline first and the ideal order early, so a learner who submits the displayed order with blanket pins and
+  reason spam reaches 71.6–75.3 on the T3 twins.
+- Minor, from the last verifier (not blocking): `vectorProblem` does not know the product kind (an AV:L "scripting console" RCE on a
+  web app passes; only background rows can show it, worklist rows must match `WORKLIST_SHAPES`); some appliance low-band shapes are
+  local DoS ("certificate handler", AV:L); the "3 shapes per band" test counts across kinds; the twins' FS01 login-failure row and
+  APP01 certificate row differ beyond FindingId (outside the worklist).
+- Twins share their worklist rows (VulnId, host, CVSS, FirstSeen, DetectedVersion) but not their background rows: the scan writer's
+  rng is seeded by template id (WP1b). Accepted; changing the seed would alter `scenario.ts`.
 - WP1a re-review (minor, non-blocking): CVSS tests check little beyond the 18 oracle rows (15/15 environmental, temporal and parser
   mutants survive; add about 40 golden vectors); catalogue tests don't pin the Sim-EPSS anchor tables or `KEV_LEGACY`; `toMetrics`
   doesn't validate metric objects (NaN → "critical"); `fixedVersion` is set when `vendorFix` is false (the scan writer blanks it).
-- For the fact-checker before WP1d shows Sim-KEV dates: old-id Sim-KEV entries get `KnownExploitedAdded` in 2012–2020, before the
-  real KEV catalogue existed (2021). Also "Fenwick" (in a fictional product name) is a real, non-software brand.
 - Pre-existing SOC bug, on `main` too and not vuln-related: `ops-hunt-repo-exfil` fails to build for world `diff-world`, seed `d1`
   ("evidence 'volume' row in WebProxy fell outside the corpus window"); other seeds build. The SOC suite doesn't cover that pair.
 - Parser bare-table `join` lacks tests for the error path and for a join with no `kind` (reviewer note, non-blocking).

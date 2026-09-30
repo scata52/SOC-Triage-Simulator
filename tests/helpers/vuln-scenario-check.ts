@@ -84,13 +84,17 @@ export function checkVulnStructure(c: ResolvedVulnCase, corpus: Corpus): void {
     expect(findingRecordIds.has(f.recordId), `${label}: ${f.findingId} row exists`).toBe(true);
     expect(String(findingRows.get(f.recordId)![fidCol]), `${label}: ${f.findingId} matches its row`).toBe(f.findingId);
     expect(f.weight, `${label}: ${f.findingId} weight`).toBeGreaterThan(0);
-    expect(f.evidence.length, `${label}: ${f.findingId} has an evidence point`).toBeGreaterThanOrEqual(1);
+    // Evidence is per case (DESIGN 5.5, 5.6: F2 has no point), but the costly
+    // mistake must be provable: every must-not-miss finding has a point.
+    if (f.mustNotMiss) expect(f.evidence.length, `${label}: must-not-miss ${f.findingId} has an evidence point`).toBeGreaterThanOrEqual(1);
+    if (f.truth.decision === 'false-positive') expect(f.truth.schedule, `${label}: false positive ${f.findingId} is not scheduled`).toBe('none');
     for (const e of f.evidence) {
       expect(e.recordIds.length, `${label}: evidence ${e.id} has rows`).toBeGreaterThan(0);
       for (const id of e.recordIds) expect(allRecordIds.has(id), `${label}: evidence ${e.id} row ${id} exists`).toBe(true);
     }
   }
   const evidenceIds = c.findings.flatMap((f) => f.evidence.map((e) => e.id));
+  expect(evidenceIds.length, `${label}: evidence points`).toBeGreaterThanOrEqual(1);
   expect(new Set(evidenceIds).size, `${label}: evidence ids unique`).toBe(evidenceIds.length);
 
   const known = new Set(c.findings.map((f) => f.findingId));
@@ -112,7 +116,9 @@ export function checkVulnGrading(c: ResolvedVulnCase): void {
 
 // The reference investigation, run for real: every step returns rows (or proves
 // an absence) and together the steps surface a row of every evidence point.
-export async function checkVulnSolvable(s: VulnScenario, shared?: SiemDatabase): Promise<void> {
+// With `everyRow` they must return every row of every point (PLAN WP1d
+// acceptance 1, used for the shipped templates).
+export async function checkVulnSolvable(s: VulnScenario, shared?: SiemDatabase, everyRow = false): Promise<void> {
   const c = s.case;
   const db = shared ?? new SiemDatabase(await sqljs(), s.corpus);
   try {
@@ -133,7 +139,11 @@ export async function checkVulnSolvable(s: VulnScenario, shared?: SiemDatabase):
     }
     for (const f of c.findings) {
       for (const e of f.evidence) {
-        expect(e.recordIds.some((id) => found.has(id)), `${c.templateId}: evidence "${e.id}" not surfaced by the reference investigation`).toBe(true);
+        if (everyRow) {
+          for (const id of e.recordIds) expect(found.has(id), `${c.templateId}: evidence "${e.id}" row ${id} not returned by the reference investigation`).toBe(true);
+        } else {
+          expect(e.recordIds.some((id) => found.has(id)), `${c.templateId}: evidence "${e.id}" not surfaced by the reference investigation`).toBe(true);
+        }
       }
     }
   } finally {
@@ -155,19 +165,20 @@ export function buildFor(template: VulnTemplate, w: World, seed: string): VulnSc
   return buildVulnScenario({ worldSeed: w.seed, templateId: template.id, seed, world: w, template });
 }
 
-// Build, structure, corpus integrity, grading, synthetic guardrails,
-// solvability and determinism for one template over several runs, plus a wider
+// Build, determinism, structure, corpus integrity, grading, synthetic
+// guardrails and solvability for one template over several runs, plus a wider
 // crash sweep.
-export async function checkVulnTemplate(template: VulnTemplate, runs: VulnRun[], sweep = 20): Promise<void> {
+export async function checkVulnTemplate(template: VulnTemplate, runs: VulnRun[], sweep = 20, opts: { everyEvidenceRow?: boolean } = {}): Promise<void> {
   for (const run of runs) {
     const w = world(run.world);
     const s = buildFor(template, w, run.seed);
     const label = `${template.id} ${run.world}/${run.seed}`;
+    expect(JSON.stringify(buildFor(template, w, run.seed)) === JSON.stringify(s), `${label}: deterministic`).toBe(true);
     checkVulnStructure(s.case, s.corpus);
     checkVulnCorpus(s.corpus, label);
     checkVulnGrading(s.case);
     expect(syntheticViolations(s.corpus, w), label).toEqual([]);
-    if (run.db) await checkVulnSolvable(s);
+    if (run.db) await checkVulnSolvable(s, undefined, opts.everyEvidenceRow ?? false);
   }
   for (let i = 0; i < sweep; i++) {
     const s = buildFor(template, world(`vuln-sweep-${i % 5}`), `sweep-${i}`);
@@ -175,8 +186,4 @@ export async function checkVulnTemplate(template: VulnTemplate, runs: VulnRun[],
     checkVulnCorpus(s.corpus, `${template.id} sweep-${i}`);
     checkVulnGrading(s.case);
   }
-  const first = runs[0];
-  const a = buildFor(template, world(first.world), first.seed);
-  const b = buildFor(template, world(first.world), first.seed);
-  expect(JSON.stringify(a)).toBe(JSON.stringify(b));
 }

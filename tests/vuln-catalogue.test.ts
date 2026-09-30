@@ -7,6 +7,7 @@ import { baseScore, parseVector, severityOf } from '../src/core/vuln/cvss31.ts';
 import { formatSimVulnId, isSimVulnId, parseSimVulnId, SIMVULN_ID_PATTERN } from '../src/core/vuln/ids.ts';
 import {
   CATALOGUE_SIZE,
+  KEV_LAUNCH,
   MIN_REFERENCE_DATE,
   NEWLY_PUBLISHED_DAYS,
   SIM_EPSS_ALL,
@@ -68,10 +69,35 @@ describe('catalogue determinism', () => {
     expect(idSets.size).toBe(catalogues.length);
   });
 
-  it('rejects a reference date before 2021-01-01', () => {
+  it('rejects a reference date before 2021-11-04', () => {
     expect(() => generateCatalogue('x', MIN_REFERENCE_DATE - 1)).toThrow(RangeError);
     expect(() => generateCatalogue('x', Number.NaN)).toThrow(RangeError);
     expect(() => generateCatalogue('x', MIN_REFERENCE_DATE)).not.toThrow();
+  });
+});
+
+describe('Sim-KEV listing dates and vendor names', () => {
+  const refs = [MIN_REFERENCE_DATE, Date.UTC(2022, 5, 15), Date.UTC(2024, 1, 29), REF, Date.UTC(2026, 9, 30)];
+  it('pins the launch of the real KEV catalogue (BOD 22-01, 2021-11-03) and the earliest reference date', () => {
+    expect(new Date(KEV_LAUNCH).toISOString()).toBe('2021-11-03T00:00:00.000Z');
+    expect(new Date(MIN_REFERENCE_DATE).toISOString()).toBe('2021-11-04T00:00:00.000Z');
+  });
+  it('never list before the KEV launch, the publish date, or on/after the reference date', () => {
+    for (const ref of refs)
+      for (let i = 0; i < 60; i++) {
+        for (const e of generateCatalogue(`kev-date-${i}`, ref).entries) {
+          if (!e.knownExploited) continue;
+          expect(e.knownExploitedAdded).not.toBeNull();
+          const added = e.knownExploitedAdded as number;
+          expect(added).toBeGreaterThanOrEqual(KEV_LAUNCH);
+          expect(added).toBeGreaterThanOrEqual(e.published);
+          expect(added).toBeLessThan(ref);
+        }
+      }
+  });
+  it('uses none of the names that collide with real vendors (fact-check 2026-09-29)', () => {
+    for (const c of catalogues)
+      for (const e of c.entries) expect(`${e.vendor} ${e.product} ${e.title}`).not.toMatch(/fenwick|northmere/i);
   });
 });
 

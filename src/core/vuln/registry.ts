@@ -1,14 +1,12 @@
 // The registered vulnerability-management templates. Kept outside
 // `templates/` on purpose: the scenario author owns that directory, this file
-// only lists what is there.
-//
-// WP1d: import the templates index (`./templates/index.ts`) and spread it into
-// VULN_TEMPLATES. Until then the list is empty and tests pass a template
-// object straight to buildVulnScenario.
+// only lists what is there. Fixtures are not registered; tests pass them
+// straight to buildVulnScenario.
 
 import type { VulnTemplate } from './model.ts';
+import { VULN_CASE_TEMPLATES } from './templates/index.ts';
 
-export const VULN_TEMPLATES: readonly VulnTemplate[] = [];
+export const VULN_TEMPLATES: readonly VulnTemplate[] = [...VULN_CASE_TEMPLATES];
 
 // Vuln template ids are namespaced so they can never collide with SOC ids.
 export const VULN_TEMPLATE_PREFIX = 'vm-';
