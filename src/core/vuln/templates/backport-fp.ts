@@ -56,7 +56,7 @@ const DISTRO = FICTIONAL_OS;
 const RELEASE_SUFFIX = 'dx54';
 const ADVISORY = 'DXSA';
 const BUGFIX = 'DXBA';
-const WEB_PRODUCT = 'Quorvane httpd';
+const WEB_PRODUCT = 'Dunmarrow httpd';
 const WEB_SERVER_RCE = /^(request parser|chunked transfer decoder|URL rewrite module)$/;
 const WEB_VENDOR = 'Dovrenix Linux (distribution package)';
 
@@ -214,6 +214,7 @@ function build(ctx: VulnContext): VulnCaseSpec {
         contradicting: contradictionsFor(head, facts(HEAD_HOST, { real: false, packageBasis: false, fixedBeforeScan: true }), ['backported-fix', 'banner-only']),
       },
       weight: 1,
+      lesson: true,
       evidence: [
         {
           id: 'distro-package-release',
@@ -238,6 +239,7 @@ function build(ctx: VulnContext): VulnCaseSpec {
     spec(decoyF, {
       truth: { decision: 'patch', schedule: 'emergency', slaLatest: 'emergency', reasons: ['sla-deadline'], contradicting: [...contradictionsFor(head, facts(DECOY_HOST, { packageBasis: false }), ['sla-deadline']), 'backported-fix'] },
       weight: 1,
+      lesson: true,
       evidence: [
         {
           id: 'pre-fix-release',

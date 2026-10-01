@@ -171,13 +171,6 @@ describe('default order and rows', () => {
 // Pairs whose pre-submit surface may differ in a named column; needs a coordinator decision.
 const TWIN_SURFACE_WHITELIST: Record<string, string[]> = {};
 
-// KNOWN ISSUE (reported to the coordinator, WP1e Part A): on some seeds (wl15, wl17, wl22, wl24, wl39,
-// wl55, wl56 of the first 60) the T3 twins write a different number of VulnIntel rows (8 vs 9), which the
-// schema browser shows as the table's row count. Templates are the scenario-author's files, so the row
-// count check is run separately below as it.fails: green while the gap exists, red as soon as the content
-// is fixed (then delete it.fails and the exemption).
-const ROW_COUNT_GAPS: Record<string, string[]> = { 'vm-kev-internal|vm-nokev-internal': ['VulnIntel'] };
-
 describe('twins present the same pre-submit surface', () => {
   const pairs = VULN_TEMPLATES.filter((t) => t.twin && t.id < t.twin).map((t) => [t.id, t.twin!] as const);
   it('has at least one twin pair in the slice', () => expect(pairs.length).toBeGreaterThan(0));
@@ -205,7 +198,7 @@ describe('twins present the same pre-submit surface', () => {
           expect(ms(ra), `${label} column ${col}`).toEqual(ms(rb));
         }
         for (const name of TABLE_NAMES) {
-          if (skip.has(name) || (ROW_COUNT_GAPS[`${a}|${b}`] ?? []).includes(name)) continue;
+          if (skip.has(name)) continue;
           expect(sa.corpus.tables[name].rows.length, `${label} rows of ${name}`).toBe(sb.corpus.tables[name].rows.length);
         }
       }
@@ -213,8 +206,7 @@ describe('twins present the same pre-submit surface', () => {
   }
 });
 
-// it.fails: see ROW_COUNT_GAPS.
-it.fails('T3 twins write the same number of rows per table (known gap: VulnIntel)', () => {
+it('T3 twins write the same number of rows per table', () => {
   for (const seed of SEEDS) {
     const a = built('vm-kev-internal', seed).corpus;
     const b = built('vm-nokev-internal', seed).corpus;

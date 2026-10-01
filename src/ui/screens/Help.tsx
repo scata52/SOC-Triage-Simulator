@@ -1,6 +1,6 @@
 import { KQL_REFERENCE, type RefKind } from '../../core/query/kql/reference.ts';
 import type { TableInfo } from '../../core/logs/schema.ts';
-import { VULN_POINTS } from '../../core/vuln/grade.ts';
+import { KEY_MISS_CAP, VULN_POINTS } from '../../core/vuln/grade.ts';
 import { VULN_PASS_PERCENT, VULN_TABLE_NAMES, tablesFor } from '../../core/vuln/worklist.ts';
 import { POINTS, HINT_PENALTY, FREE_EXTRA_PINS, DIFFICULTY_MULTIPLIER } from '../../core/grading/grade.ts';
 import { CASE_SHARE, PRIORITY_SHARE, CLEAN_SHIFT_BONUS } from '../../core/shift/score.ts';
@@ -270,7 +270,8 @@ function Grading() {
       <h2>Vulnerability cases</h2>
       <p>
         Also out of 100; the pass mark is {VULN_PASS_PERCENT}. Decisions and reasons are weighted per finding (must-not-miss findings weigh more); the schedule is the plain average over all findings. Ordering judges the
-        order of your worklist, evidence judges what you found in the scan data. The stakeholder note earns coaching and XP, never points.
+        order of your worklist, evidence judges what you found in the scan data. The stakeholder note earns coaching and XP, never points. A schedule and reasons only
+        count when the decision they belong to earns something: a finding whose decision is wrong or missing earns nothing for its schedule and its reasons.
       </p>
       <table class="table">
         <caption class="visually-hidden">Points per component in a vulnerability case</caption>
@@ -278,7 +279,7 @@ function Grading() {
           <tr>
             <th scope="row">Decisions</th>
             <td class="num mono">{VULN_POINTS.decisions}</td>
-            <td class="small">Patch, mitigate, avoid, accept, transfer or false positive. Half credit for a near miss (for example accept and mitigate, or patch when avoiding the component was the answer; avoid when a patch was needed earns nothing). Mitigate earns full credit only with a control from ControlInventory that covers the path; with a missing or wrong control it earns half. On a finding that needs a patch, mitigate earns half only with such a control, otherwise nothing. Dismissing a real must-not-miss finding as a false positive costs 5 each (up to 10).</td>
+            <td class="small">Patch, mitigate, avoid, accept, transfer or false positive. Half credit for a near miss (for example accept and mitigate, or patch when avoiding the component was the answer; avoid when a patch was needed earns nothing). When mitigate is the answer, it earns full credit only with a control from ControlInventory that covers the path; with a missing or wrong control it earns half. On a finding that needs a patch, mitigate earns half only with such a control, otherwise nothing. Leaving a real must-not-miss finding open costs 5 each (up to 10): dismissing it as a false positive, leaving it unscheduled (unless the right answer is no change), or scheduling it later than its SLA allows. It keeps its decision credit otherwise.</td>
           </tr>
           <tr>
             <th scope="row">Ordering</th>
@@ -288,17 +289,28 @@ function Grading() {
           <tr>
             <th scope="row">Schedule</th>
             <td class="num mono">{VULN_POINTS.schedule}</td>
-            <td class="small">Emergency change, next maintenance window, standard cycle or no change. Half credit one step off. An emergency change on a real finding that did not need one also earns half, however early; for a false positive it earns nothing. Later than the SLA allows scores nothing; changes beyond a window's capacity lose their credit.</td>
+            <td class="small">Emergency change, next maintenance window, standard cycle or no change. A finding left unscheduled earns nothing; exactly right earns full credit and one step off earns half. An emergency change on a real finding that did not need one also earns half, however early; for a false positive it earns nothing. Any other window two or more steps off earns nothing, and so does one later than the SLA allows; changes beyond a window's capacity lose their credit. No schedule credit when the finding's decision earned nothing.</td>
           </tr>
           <tr>
             <th scope="row">Justification</th>
             <td class="num mono">{VULN_POINTS.justification}</td>
-            <td class="small">Up to three reasons per finding. Share of the required reasons you chose; a reason the evidence contradicts takes a quarter off.</td>
+            <td class="small">Up to three reasons per finding; only the first three distinct ones count. Share of the required reasons you chose (out of at most three); a finding that needs no reason earns full marks for being decided. A reason the finding does not need takes a quarter off, so ticking every box never pays; a reason the evidence contradicts takes half off. A finding whose decision earned nothing earns nothing here.</td>
           </tr>
           <tr>
             <th scope="row">Evidence</th>
             <td class="num mono">{VULN_POINTS.evidence}</td>
-            <td class="small">Share of the evidence points you pinned (any row of a point counts). Each hint costs {Math.round(HINT_PENALTY * 100)}% of this part. More than {FREE_EXTRA_PINS} irrelevant pins cost a point each (up to 5).</td>
+            <td class="small">Share of the evidence points you pinned (any row of a point counts). Each hint costs {Math.round(HINT_PENALTY * 100)}% of this part. In a vulnerability case you may pin as many irrelevant rows as the case has evidence points; each further one costs a point, with no upper limit but zero. A finding's own row in the scan results is never irrelevant (the SOC cases keep {FREE_EXTRA_PINS} free pins and a limit of 5).</td>
+          </tr>
+          <tr>
+            <th scope="row">Lesson gate</th>
+            <td class="num mono">cap {KEY_MISS_CAP}</td>
+            <td class="small">
+              Every case turns on one or more key findings: each finding the lesson is about, and every must-not-miss finding. If you miss one, the score is capped at {KEY_MISS_CAP}, below the pass mark of {VULN_PASS_PERCENT}, whatever the components add up to; the debrief shows the sum before the cap.
+              You miss a key finding when its decision fails: on a lesson finding, anything but full credit (a half-right near miss or the wrong control counts as missed); on a must-not-miss finding that is not a lesson finding, a decision that earns nothing (a covering control on a patch finding still handles the risk).
+              Or, unless the right answer is no change, when you left it unscheduled, scheduled it later than its SLA allows, or put it two or more steps from the right window (an emergency change for a standard-cycle finding is two steps).
+              On a must-not-miss finding that is not a lesson finding, an emergency change is never a miss, however early: it only keeps half schedule credit.
+              One step off inside the SLA, an emergency change for a next-window finding included, is only a slip: it costs its half credit and nothing more. A window over capacity or a poor order never triggers the cap.
+            </td>
           </tr>
         </tbody>
       </table>

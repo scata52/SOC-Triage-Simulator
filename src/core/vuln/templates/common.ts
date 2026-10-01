@@ -273,7 +273,7 @@ const HYGIENE_SHARE_MAX = 0.4;
 // on no list at all.
 export function addBackgroundNoise(ctx: VulnContext, runs: BackgroundRun[], worklist: readonly CatalogueEntry[], opts: NoiseOptions = {}): void {
   const { catalogue, scan } = ctx.vuln;
-  const rng = ctx.rng.fork('background-noise');
+  const rng = sharedRng(ctx, 'background-noise'); // the catalogue seed, not the template id: twins write the same noise (and so the same table row counts)
   const size = opts.worklistSize ?? worklist.length;
   const total = Math.max(0, backgroundTarget(size) - (opts.extraNonWorklist ?? 0));
   const products = new Set(worklist.map((e) => e.product));
@@ -493,55 +493,9 @@ export function withVector(entry: CatalogueEntry, vector: string): CatalogueEntr
   return { ...entry, vector, base, severity: severityOf(base) as CatalogueBand };
 }
 
-// ---- class and vector coherence (a finding's vector must fit what it is) ----
-
-const metricsOf = (vector: string): Record<string, string> => Object.fromEntries(vector.split('/').slice(1).map((p) => p.split(':') as [string, string]));
-
-// Component rules: a network-facing component cannot be attacked from the local
-// machine only, and a login or pre-auth component needs no privileges. A local
-// component (installer profile, permissions template, scripting console) may be AV:L.
-const NETWORK_COMPONENT = /endpoint|login form|query parameter|callback|management interface|cross-origin|status page|file-upload|file-download|download handler|request parser|session handler|password reset|token check|admin console|directory listing|debug|update service|protocol negotiator|template engine|report filter|log viewer|error handler|image renderer|compression module/i;
-// A scripting console (rce) may be reached locally or over the network; an installer profile or a permissions
-// template is only ever a local matter.
-const LOCAL_OK_COMPONENT = /installer profile|permissions template|scripting console/i;
-const LOCAL_ONLY_COMPONENT = /installer profile|permissions template/i;
-const PRE_AUTH_COMPONENT = /login form|sso callback|password reset|default credentials/i;
-// Exposure components need no login and no user action. A physical vector fits only a physical component
-// (never a web or network-facing one), and a physical component is never reached from the network.
-const EXPOSURE_COMPONENT = /directory listing|debug endpoint|metrics endpoint|backup file exposure/i;
-const PHYSICAL_COMPONENT = /firmware|boot loader|console port/i;
-
-// Why a vector cannot belong to a flaw of this class and description, or null
-// when it can. `text` is the component or the whole title.
-export function vectorProblem(vector: string, vulnClass: VulnClass, text: string): string | null {
-  const m = metricsOf(vector);
-  const label = VULN_CLASS_LABELS[vulnClass];
-  if (vulnClass === 'rce' && !((m.AV === 'N' || m.AV === 'A' || (m.AV === 'L' && LOCAL_OK_COMPONENT.test(text))) && m.I === 'H')) return `${label} needs a network-reachable vector with high integrity impact`;
-  if (vulnClass === 'sqli' && m.AV !== 'N') return `${label} needs a network vector`;
-  if (vulnClass === 'auth-bypass' && m.PR !== 'N') return `${label} needs no privileges required`;
-  if ((vulnClass === 'sqli' || vulnClass === 'auth-bypass') && m.C === 'N' && m.I === 'N') return `${label} needs a confidentiality or integrity impact`;
-  if (/license service|API token check|admin console|SSO callback/i.test(text) && m.UI !== 'N') return `"${text}" needs no user interaction`;
-  if (/default credentials|admin console/i.test(text) && m.PR !== 'N') return `"${text}" needs no privileges required`;
-  if (vulnClass === 'info-leak' && !((m.C === 'L' || m.C === 'H') && m.I === 'N')) return `${label} needs a confidentiality impact and no integrity impact`;
-  if (vulnClass === 'dos' && !((m.A === 'L' || m.A === 'H') && m.C === 'N' && m.I === 'N')) return `${label} needs an availability impact only`;
-  if (/tls/i.test(text) && !(m.AV === 'N' && m.PR === 'N' && m.C !== 'N')) return 'a TLS flaw needs a network vector, no privileges required and a confidentiality impact';
-  if (/protocol/i.test(text) && !(m.AV === 'N' && m.PR === 'N')) return 'a protocol flaw needs a network vector and no privileges required';
-  if (m.AV === 'P' && !PHYSICAL_COMPONENT.test(text)) return `"${text}" is not a physical component and cannot need physical access`;
-  if (PHYSICAL_COMPONENT.test(text) && m.AV !== 'P' && m.AV !== 'L') return `"${text}" is a physical or local component and cannot be reached over the network`;
-  if (NETWORK_COMPONENT.test(text) && !LOCAL_OK_COMPONENT.test(text) && m.AV !== 'N' && m.AV !== 'A') return `"${text}" is a network-facing component and needs a network or adjacent vector`;
-  if (LOCAL_ONLY_COMPONENT.test(text) && m.AV !== 'L') return `"${text}" is a local component and needs a local vector`;
-  if (/cross-origin policy/i.test(text) && !(m.UI === 'R' && m.A === 'N')) return `"${text}" needs user interaction and no availability impact`;
-  if (/default credentials/i.test(text) && (m.UI !== 'N' || (m.C === 'N' && m.I === 'N'))) return `"${text}" needs no user interaction and a confidentiality or integrity impact`;
-  if (EXPOSURE_COMPONENT.test(text) && m.C === 'N') return `"${text}" needs a confidentiality impact`;
-  if (EXPOSURE_COMPONENT.test(text) && !(m.UI === 'N' && m.PR === 'N')) return `"${text}" needs no user interaction and no privileges required`;
-  if (PRE_AUTH_COMPONENT.test(text) && m.PR !== 'N') return `"${text}" is reachable before login and needs no privileges required`;
-  return null;
-}
-
-export const vectorFits = (vector: string, vulnClass: VulnClass, text: string): boolean => vectorProblem(vector, vulnClass, text) === null;
-
-// A catalogue entry whose class, title and vector agree.
-export const isCoherent = (e: CatalogueEntry): boolean => vectorFits(e.vector, e.vulnClass, `${e.component} ${e.title}`);
+// ---- class and vector coherence: one implementation, in ../coherence.ts ----
+export { vectorProblem, vectorFits, isCoherent } from '../coherence.ts';
+import { isCoherent, vectorProblem } from '../coherence.ts';
 
 // The class a finding title names (titles read "<class label> in <product> <component>").
 export function classOfTitle(title: string): VulnClass | null {
@@ -623,7 +577,7 @@ export const PRODUCT_KINDS: Readonly<Record<string, ProductKind>> = {
   'Wexcombe Object Store': 'server',
   'Vantorn Build Runner': 'server',
   'Harrowgate Directory Sync': 'server',
-  'Quorvane httpd': 'server',
+  'Dunmarrow httpd': 'server',
   'Sablecrest Gateway': 'appliance',
   'Marrowgate Proxy': 'appliance',
   'Wrenwick Relay': 'appliance',
@@ -869,7 +823,7 @@ export function contradictionsFor(entry: CatalogueEntry, facts: ContradictionFac
 // The ticket is dated on or after the entry was published, and not yet expired.
 export function writeRiskException(ctx: VulnContext, entry: CatalogueEntry, host: string, segment: string, approvedAt: number, expires: number): RowRef<'Tickets'> {
   if (entry.vendorFix) throw new Error(`writeRiskException: ${entry.id} has a vendor fix`);
-  if (metricsOf(entry.vector).AV !== 'N') throw new Error(`writeRiskException: ${entry.id} is not network-reachable (${entry.vector})`);
+  if (!entry.vector.split('/').includes('AV:N')) throw new Error(`writeRiskException: ${entry.id} is not network-reachable (${entry.vector})`);
   if (approvedAt < entry.published) throw new Error(`writeRiskException: ${entry.id} was published after the ticket`);
   return ctx.log.ticket({
     TicketId: ctx.log.nextTicketId('REQ'),

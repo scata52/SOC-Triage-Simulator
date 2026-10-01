@@ -201,6 +201,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
         truth: { decision: 'patch', schedule: 'emergency', slaLatest: 'emergency', reasons: [...f1Reasons], contradicting: contradictionsFor(f1Entry, facts(APP_HOST), f1Reasons) },
         weight: 3,
         mustNotMiss: true,
+        lesson: true,
         evidence: [
           {
             id: 'kev-listing',
@@ -213,6 +214,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
     : spec(f1, {
         truth: { decision: 'patch', schedule: 'standard-cycle', slaLatest: 'standard-cycle', reasons: [...f1Reasons], contradicting: contradictionsFor(f1Entry, facts(APP_HOST), f1Reasons) },
         weight: 1,
+        lesson: true,
         evidence: [
           {
             id: 'no-exploitation-signal',
@@ -260,9 +262,8 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
 
   const briefing = `${world.org.name}: review of the latest scan results for the internal servers in scope (two scan runs, one of them partial). Decide for each worklist finding whether to patch, mitigate, accept or dismiss it, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch and ticket data are in the SIEM tables. All data is simulated.`;
 
-  const lead = isKev
-    ? 'Which vulnerability is known to be exploited, and does that change its deadline?'
-    : 'Do any of the findings show a sign of exploitation, or is every one of them only a high score?';
+  // Hint 1 is the same text in both twins: it must not tell which one this is.
+  const lead = 'Look past the score column: what does VulnIntel say about each finding, and do the scan runs and patch records still support each one?';
 
   return {
     briefing,

@@ -41,6 +41,7 @@ export interface ResolvedVulnFinding {
   truth: FindingTruth;
   weight: number;
   mustNotMiss: boolean;
+  lesson: boolean; // the lesson text is about this finding (DESIGN section 5.8)
   evidence: ResolvedEvidence[];
 }
 
@@ -138,6 +139,14 @@ export function buildVulnScenario(opts: VulnScenarioOptions): VulnScenario {
     if (tiered && (f.truth.decision === 'false-positive' || f.truth.decision === 'accept')) throw new Error(`${template.id}: finding ${f.findingId} is ${f.truth.decision} and must not be in a tier`);
     if (f.mustNotMiss && !tiered) throw new Error(`${template.id}: must-not-miss finding ${f.findingId} must be in a tier`);
   }
+  // The lesson gate (DESIGN section 5.8) needs a lesson finding, an SLA to hold
+  // every real key finding to, and something to pin.
+  if (!spec.findings.some((f) => f.lesson === true)) throw new Error(`${template.id}: no finding is marked as the lesson finding`);
+  for (const f of spec.findings) {
+    const real = f.truth.decision !== 'false-positive';
+    if (real && (f.lesson === true || f.mustNotMiss === true) && f.truth.slaLatest == null) throw new Error(`${template.id}: key finding ${f.findingId} needs truth.slaLatest`);
+  }
+  if (!spec.findings.some((f) => f.evidence.length > 0)) throw new Error(`${template.id}: the case has no evidence point`);
   for (const id of tierOf.keys()) if (!spec.idealOrder.includes(id)) throw new Error(`${template.id}: tiered finding ${id} is missing from idealOrder`);
   // Along idealOrder the tier index never falls, so relevance never rises;
   // untiered findings, if listed, come after every tiered one.
@@ -170,6 +179,7 @@ export function buildVulnScenario(opts: VulnScenarioOptions): VulnScenario {
       truth: f.truth,
       weight: f.weight,
       mustNotMiss: f.mustNotMiss ?? false,
+      lesson: f.lesson ?? false,
       evidence: f.evidence.map((e) => ({
         id: e.id,
         label: e.label,

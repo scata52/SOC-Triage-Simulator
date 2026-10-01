@@ -146,8 +146,10 @@ describe.skipIf(!KEV)('DESIGN 5.6 worked example on vm-kev-internal', () => {
         hintsUsed: 0,
       };
       const g = gradeVulnCase(c, sort);
-      expect(Math.abs(g.score - 57.3), `${label}: sort-by-CVSS ${g.score}`).toBeLessThanOrEqual(0.5);
-      expect(part(g, 'decisions'), label).toBe(33.3);
+      expect(g.score, `${label}: sort-by-CVSS ${g.score}`).toBeCloseTo(52.3, 1);
+      expect(g.gate.missed.map((m) => m.findingId), label).toEqual([f1]);
+      expect(g.gate.cap, label).toBe(60);
+      expect(part(g, 'decisions'), label).toBe(28.3);
       expect(part(g, 'ordering'), label).toBe(14);
       expect(part(g, 'schedule'), label).toBe(5);
       expect(part(g, 'justification'), label).toBe(0);
@@ -164,6 +166,34 @@ describe.skipIf(!KEV)('DESIGN 5.6 worked example on vm-kev-internal', () => {
       expect(part(d, 'decisions'), `${label}: dismiss-F1 decisions`).toBe(15);
       expect(d.mustNotMiss.orderingPenalty, `${label}: must-not-miss ordering penalty`).toBe(4);
       expect(d.mustNotMiss.dismissed, label).toEqual([f1]);
+
+      // Dismiss F1, everything else perfect: 52.1, and the missed key finding caps it at 60 anyway.
+      const truthOf = (id: string) => c.findings.find((f) => f.findingId === id)!.truth;
+      const exact = (id: string) => ({ decision: truthOf(id).decision, control: null, schedule: truthOf(id).schedule, reasons: truthOf(id).reasons });
+      const allPins = c.findings.flatMap((f) => f.evidence.flatMap((e) => e.recordIds));
+      const dismissPerfect: VulnSubmission = {
+        answers: { [f1]: { decision: 'false-positive', control: null, schedule: null, reasons: [] }, [f2]: exact(f2), [f3]: exact(f3), [f4]: exact(f4) },
+        order: [f4, f2],
+        pins: allPins,
+        notes: '',
+        hintsUsed: 0,
+      };
+      const dp = gradeVulnCase(c, dismissPerfect);
+      expect(dp.score, `${label}: dismiss-F1 total ${dp.score}`).toBeCloseTo(52.1, 1);
+      expect(dp.gate.cap, label).toBe(60);
+
+      // Answers F1 like its twin (patch, standard cycle, ranked second): 83.4 before the cap, 60 after.
+      const twin: VulnSubmission = {
+        answers: { [f1]: { decision: 'patch', control: null, schedule: 'standard-cycle', reasons: ['low-exploitability'] }, [f2]: exact(f2), [f3]: exact(f3), [f4]: exact(f4) },
+        order: [f4, f1, f2],
+        pins: allPins,
+        notes: '',
+        hintsUsed: 0,
+      };
+      const t = gradeVulnCase(c, twin);
+      expect(t.gate.uncapped, `${label}: twin answer before the cap`).toBeCloseTo(83.4, 1);
+      expect(t.score, label).toBe(60);
+      expect(t.gate.missed.map((m) => m.findingId), label).toEqual([f1]);
     }
   });
 });

@@ -196,6 +196,41 @@ describe('buildVulnScenario', () => {
     expect(run(fixtureTier3).case.tiers).toHaveLength(3);
   });
 
+  it('rejects a case the lesson gate cannot use (ADR-22)', () => {
+    const broken = (patch: (spec: VulnCaseSpec) => void): VulnTemplate => ({
+      ...fixtureTier3,
+      id: 'vm-broken-gate',
+      build: (ctx) => {
+        const spec = fixtureTier3.build(ctx);
+        patch(spec);
+        return spec;
+      },
+    });
+    const run = (t: VulnTemplate) => buildVulnScenario({ worldSeed: WORLD, templateId: t.id, seed: 'b', world: world(WORLD), template: t });
+    // The fixture: finding 0 is the lesson and must-not-miss finding (emergency, slaLatest emergency).
+    const built = run(fixtureTier3).case;
+    expect(built.findings.map((f) => f.lesson)).toEqual([true, false, false, false, false, false]);
+    // No lesson finding.
+    expect(() => run(broken((s) => void (s.findings[0].lesson = false)))).toThrow(/no finding is marked as the lesson finding/);
+    expect(() => run(broken((s) => void s.findings.forEach((f) => void (f.lesson = undefined))))).toThrow(/no finding is marked as the lesson finding/);
+    // A real key finding without slaLatest: the must-not-miss lesson finding, a lesson finding, a must-not-miss finding.
+    expect(() => run(broken((s) => void delete s.findings[0].truth.slaLatest))).toThrow(/key finding VF-\d+ needs truth\.slaLatest/);
+    expect(() => run(broken((s) => void (s.findings[4].lesson = true)))).toThrow(/key finding .* needs truth\.slaLatest/); // a real lesson finding
+    expect(() =>
+      run(
+        broken((s) => {
+          s.findings[2].mustNotMiss = true; // tiered in the fixture
+        }),
+      ),
+    ).toThrow(/key finding .* needs truth\.slaLatest/);
+    // A key finding that is a false positive needs no SLA, and a limit on any real key finding is enough.
+    expect(() => run(broken((s) => void (s.findings[1].lesson = true)))).not.toThrow();
+    expect(() => run(broken((s) => void ((s.findings[4].lesson = true), (s.findings[4].truth.slaLatest = 'next-window'))))).not.toThrow();
+    // No evidence point anywhere.
+    expect(() => run(broken((s) => void s.findings.forEach((f) => void (f.evidence = []))))).toThrow(/no evidence point/);
+    expect(() => run(broken((s) => void s.findings.slice(1).forEach((f) => void (f.evidence = []))))).not.toThrow(); // one point is enough
+  });
+
   it('has consistent, sound corpus and case checks for the fixture', async () => {
     await checkVulnTemplate(fixtureTier3, vulnRuns(6, 3), 12);
   });

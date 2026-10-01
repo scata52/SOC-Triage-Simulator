@@ -8,7 +8,7 @@
 // score, the rubric keyword check and the difficulty multiplier.
 
 import { DIFFICULTY_MULTIPLIER, detectRubricHits } from '../grading/grade.ts';
-import { ordinalCredit, scoreEvidence, type EvidenceResult } from '../grading/shared.ts';
+import { ordinalCredit, scoreEvidence, type EvidenceResult, type PinRule } from '../grading/shared.ts';
 import { prioritisation } from '../shift/score.ts';
 import { REASON_CODES, VULN_DECISIONS, VULN_SCHEDULES, type ControlId, type FindingTruth, type ReasonCode, type VulnDecision, type VulnSchedule } from './model.ts';
 import type { ResolvedVulnCase, ResolvedVulnFinding } from './scenario.ts';
@@ -16,18 +16,23 @@ import type { ResolvedVulnCase, ResolvedVulnFinding } from './scenario.ts';
 export const VULN_POINTS = { decisions: 40, ordering: 20, schedule: 10, justification: 15, evidence: 15 } as const;
 export const VULN_MAX_SCORE = Object.values(VULN_POINTS).reduce((a, b) => a + b, 0);
 
-// Dismissing a real must-not-miss finding as a false positive costs this much
-// of the decisions component each, at most the cap (DESIGN section 5.1).
-const DISMISS_PENALTY = 5;
-const DISMISS_PENALTY_CAP = 10;
+// Leaving a real must-not-miss finding open (dismissed as a false positive,
+// unscheduled, or scheduled later than its SLA) costs this much of the
+// decisions component each, at most the cap (DESIGN section 5.1).
+const LEFT_OPEN_PENALTY = 5;
+const LEFT_OPEN_PENALTY_CAP = 10;
 // Each must-not-miss finding outside the top k costs this much ordering (5.2).
 const OUTSIDE_TOP_K_PENALTY = 4;
-// At most three reason codes count per finding, and each contradicting one
-// takes a quarter off that finding's score (5.4).
+// At most three reason codes count per finding; a counted code the finding does
+// not require takes a quarter off its score, a contradicting one half (5.4).
 const MAX_REASONS = 3;
-const CONTRADICTION_PENALTY = 0.25;
+const UNNEEDED_REASON_PENALTY = 0.25;
+const CONTRADICTING_REASON_PENALTY = 0.5;
 // Tier 1, 2 and 3 of `tiers` are worth this much relevance; no tier is 0.
 const TIER_RELEVANCE = [3, 2, 1];
+// The lesson gate (5.8): a missed key finding caps the total here, below the
+// 70 pass mark (5.7).
+export const KEY_MISS_CAP = 60;
 
 export interface VulnFindingAnswer {
   decision: VulnDecision | null;
@@ -56,23 +61,30 @@ export interface VulnComponent {
 }
 
 export type VulnDecisionVerdict = 'exact' | 'also-accepted' | 'wrong-control' | 'near-miss' | 'wrong' | 'missing';
-export type VulnScheduleVerdict = 'exact' | 'one-step' | 'emergency-unjustified' | 'sla-breach' | 'overflow' | 'wrong' | 'missing';
+export type VulnScheduleVerdict = 'exact' | 'one-step' | 'emergency-unjustified' | 'sla-breach' | 'overflow' | 'no-decision' | 'wrong' | 'missing';
+// Why a key finding counts as missed (5.8), first match in this order.
+export type KeyMissWhy = 'undecided' | 'wrong-decision' | 'near-miss' | 'wrong-control' | 'unscheduled' | 'late' | 'two-steps';
 
 export interface VulnFindingGrade {
   findingId: string;
   weight: number;
   mustNotMiss: boolean;
+  lesson: boolean;
+  key: boolean; // lesson or must-not-miss: the findings the gate watches
+  keyMiss: KeyMissWhy | null; // null when the finding is not key or was handled
   relevance: number; // 3, 2, 1 by tier, 0 for a finding in no tier
   position: number | null; // 0-based place in the submitted order; null when left out
   decision: { given: VulnDecision | null; truth: VulnDecision; credit: number; verdict: VulnDecisionVerdict };
   schedule: { given: VulnSchedule | null; truth: VulnSchedule; credit: number; verdict: VulnScheduleVerdict };
-  // given: the codes that counted (first three distinct valid ones); matched
-  // and contradicting in the learner's order, missed in the case's order.
-  reasons: { given: ReasonCode[]; matched: ReasonCode[]; missed: ReasonCode[]; contradicting: ReasonCode[]; credit: number };
+  // given: the codes that counted (first three distinct valid ones); matched,
+  // contradicting and unneeded (counted, neither required nor contradicting) in
+  // the learner's order, missed in the case's order.
+  // zeroed: the reasons would have earned credit, but the decision earned none (5.4).
+  reasons: { given: ReasonCode[]; matched: ReasonCode[]; missed: ReasonCode[]; contradicting: ReasonCode[]; unneeded: ReasonCode[]; credit: number; zeroed: boolean };
 }
 
 export interface VulnGrade {
-  score: number; // sum of the components, one decimal
+  score: number; // sum of the components, one decimal, then the lesson-gate cap
   max: number;
   percent: number;
   components: VulnComponent[]; // decisions, ordering, schedule, justification, evidence
@@ -82,7 +94,12 @@ export interface VulnGrade {
   ndcg: number | null; // null for a case with no tiered finding
   // The costly mistakes a debrief leads with. The penalties are what the
   // rules charge; a component that is already at zero cannot go lower.
-  mustNotMiss: { dismissed: string[]; outsideTopK: string[]; decisionPenalty: number; orderingPenalty: number };
+  // dismissed: a real must-not-miss finding given false-positive; late: one left
+  // unscheduled or scheduled later than its SLA. Each costs LEFT_OPEN_PENALTY.
+  mustNotMiss: { dismissed: string[]; late: string[]; outsideTopK: string[]; decisionPenalty: number; orderingPenalty: number };
+  // The lesson gate (5.8): the key findings missed (case order), the cap they
+  // set (null when none) and the component sum before the cap.
+  gate: { missed: { findingId: string; lesson: boolean; mustNotMiss: boolean; why: KeyMissWhy }[]; cap: number | null; uncapped: number };
   // Findings whose schedule went over capacity, first to overflow first. All of
   // them score 0 for the schedule; only those that had credit read "overflow".
   overflow: string[];
@@ -142,10 +159,11 @@ function decisionCall(t: FindingTruth, given: VulnDecision | null, control: Cont
 }
 
 // Lateness order is VULN_SCHEDULES: emergency, next window, standard cycle, none.
+// A stored case can carry null for "no limit"; it is not set, like undefined.
+const pastSla = (t: FindingTruth, given: VulnSchedule) => t.slaLatest != null && VULN_SCHEDULES.indexOf(given) > VULN_SCHEDULES.indexOf(t.slaLatest);
 function scheduleCall(t: FindingTruth, given: VulnSchedule | null): Call<VulnScheduleVerdict> {
   if (given === null) return { credit: 0, verdict: 'missing' };
-  // A stored case can carry null for "no limit"; it is not set, like undefined.
-  if (t.slaLatest != null && VULN_SCHEDULES.indexOf(given) > VULN_SCHEDULES.indexOf(t.slaLatest)) return { credit: 0, verdict: 'sla-breach' };
+  if (pastSla(t, given)) return { credit: 0, verdict: 'sla-breach' };
   if (given === t.schedule) return { credit: 1, verdict: 'exact' };
   // Change fatigue is real: on a real finding (the truth is not a false positive, the test the must-not-miss
   // penalty uses) an emergency change nobody needed is half right, however late the truth is, `none`
@@ -155,16 +173,43 @@ function scheduleCall(t: FindingTruth, given: VulnSchedule | null): Call<VulnSch
   return ordinalCredit(VULN_SCHEDULES, given, t.schedule) === 0.5 ? { credit: 0.5, verdict: 'one-step' } : { credit: 0, verdict: 'wrong' };
 }
 
-function justificationCall(t: FindingTruth, given: ReasonCode[], decided: boolean) {
+function justificationCall(t: FindingTruth, given: ReasonCode[], decided: boolean, noCredit: boolean) {
   const required = [...new Set(t.reasons)];
   const contradicting = new Set(t.contradicting ?? []);
   const matched = given.filter((r) => required.includes(r));
   const missed = required.filter((r) => !given.includes(r));
   const against = given.filter((r) => contradicting.has(r));
+  // Unneeded: counted, neither required nor contradicting. A code the finding
+  // does not require never raises its score (5.4).
+  const unneeded = given.filter((r) => !required.includes(r) && !contradicting.has(r));
   // Restraint: a finding that needs no reason is justified by deciding it.
-  const base = required.length > 0 ? matched.length / required.length : decided ? 1 : 0;
-  const credit = Math.min(1, Math.max(0, base - CONTRADICTION_PENALTY * against.length));
-  return { given, matched, missed, contradicting: against, credit };
+  const base = required.length > 0 ? matched.length / Math.min(required.length, MAX_REASONS) : decided ? 1 : 0;
+  const raw = base - UNNEEDED_REASON_PENALTY * unneeded.length - CONTRADICTING_REASON_PENALTY * against.length;
+  // A reason qualifies a decision: when the decision earns nothing, so do they (5.4).
+  const credit = noCredit ? 0 : Math.min(1, Math.max(0, raw));
+  return { given, matched, missed, contradicting: against, unneeded, credit, zeroed: noCredit && raw > 0 };
+}
+
+// The lesson gate (5.8). A key finding is missed when its decision fails the
+// bar (a lesson finding needs full credit, any other must-not-miss finding only
+// more than 0) or, when the truth schedule is not `none`, its schedule is unset,
+// later than its SLA or two or more steps from the truth (an emergency change
+// for a standard-cycle finding is two steps). A must-not-miss finding that is
+// not a lesson finding is never gated for an emergency change: it keeps the half
+// credit of 5.3, the rule guards against delay, not over-reaction. One step off
+// inside the SLA is a slip: half credit, nothing more. Only the learner's own
+// answer to the key finding counts: capacity overflow and ordering never gate.
+function keyMiss(t: FindingTruth, lesson: boolean, d: Call<VulnDecisionVerdict>, given: VulnSchedule | null): KeyMissWhy | null {
+  if (d.verdict === 'missing') return 'undecided';
+  if (d.verdict === 'wrong') return 'wrong-decision';
+  if (lesson && d.verdict === 'near-miss') return 'near-miss';
+  if (lesson && d.verdict === 'wrong-control') return 'wrong-control';
+  if (t.schedule === 'none') return null;
+  if (given === null) return 'unscheduled';
+  if (pastSla(t, given)) return 'late';
+  if (!lesson && given === 'emergency') return null; // keeps half credit (5.3); not a distance miss
+  if (Math.abs(VULN_SCHEDULES.indexOf(given) - VULN_SCHEDULES.indexOf(t.schedule)) >= 2) return 'two-steps';
+  return null;
 }
 
 // ---- submission reading -----------------------------------------------------
@@ -253,8 +298,14 @@ export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade
 
   // ---- decisions ----------------------------------------------------------
   const decisions = rows.map((r) => decisionCall(r.f.truth, r.decision, r.control));
-  const dismissed = rows.filter((r) => r.f.mustNotMiss && r.f.truth.decision !== 'false-positive' && r.decision === 'false-positive').map(idOf);
-  const decisionPenalty = Math.min(DISMISS_PENALTY_CAP, DISMISS_PENALTY * dismissed.length);
+  // A real must-not-miss finding is left open when it is dismissed as a false
+  // positive, or not fixed in time: unscheduled (when its truth schedule is not
+  // `none`, so there is something to schedule) or later than its SLA (5.1).
+  const realMnm = (r: Row) => r.f.mustNotMiss && r.f.truth.decision !== 'false-positive';
+  const dismissed = rows.filter((r) => realMnm(r) && r.decision === 'false-positive').map(idOf);
+  const late = rows.filter((r) => realMnm(r) && r.decision !== 'false-positive' && r.f.truth.schedule !== 'none' && (r.schedule === null || pastSla(r.f.truth, r.schedule))).map(idOf);
+  const leftOpen = dismissed.length + late.length;
+  const decisionPenalty = Math.min(LEFT_OPEN_PENALTY_CAP, LEFT_OPEN_PENALTY * leftOpen);
   const weightedCredit = rows.reduce((sum, r, i) => sum + r.f.weight * decisions[i].credit, 0);
   const dEarned = weightSum > 0 ? Math.max(0, (VULN_POINTS.decisions * weightedCredit) / weightSum - decisionPenalty) : 0;
   const dCount = (v: VulnDecisionVerdict) => decisions.filter((x) => x.verdict === v).length;
@@ -270,7 +321,7 @@ export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade
             dCount('near-miss') > 0 && `${dCount('near-miss')} near ${plural(dCount('near-miss'), 'miss', 'misses')} (half credit)`,
             dCount('wrong') > 0 && `${dCount('wrong')} wrong`,
             dCount('missing') > 0 && `${dCount('missing')} not decided`,
-            decisionPenalty > 0 && `${dismissed.length} real must-not-miss ${plural(dismissed.length, 'finding', 'findings')} dismissed as false positive (−${decisionPenalty})`,
+            decisionPenalty > 0 && `${leftOpen} real must-not-miss ${plural(leftOpen, 'finding', 'findings')} left open: dismissed as false positive or not fixed within the SLA (−${decisionPenalty})`,
           ]);
 
   // ---- ordering -----------------------------------------------------------
@@ -307,6 +358,12 @@ export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade
   // Capacity takes away whatever credit the rules gave. A finding that had none
   // keeps its own verdict (a breach or a wrong answer says more than "overflow").
   for (const r of overflowing) if (schedules[r.index].credit > 0) schedules[r.index] = { credit: 0, verdict: 'overflow' };
+  // A window only means something for the right kind of action: a finding whose
+  // decision earns 0 earns 0 for its schedule (5.3). It still takes its place
+  // in a window, so capacity above is unaffected.
+  decisions.forEach((d, i) => {
+    if (d.credit === 0 && schedules[i].credit > 0) schedules[i] = { credit: 0, verdict: 'no-decision' };
+  });
   const sEarned = n > 0 ? (VULN_POINTS.schedule * schedules.reduce((sum, x) => sum + x.credit, 0)) / n : 0;
   const sCount = (v: VulnScheduleVerdict) => schedules.filter((x) => x.verdict === v).length;
   const sDetail =
@@ -320,30 +377,41 @@ export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade
             sCount('emergency-unjustified') > 0 && `${sCount('emergency-unjustified')} emergency ${plural(sCount('emergency-unjustified'), 'change', 'changes')} not justified (half credit)`,
             sCount('sla-breach') > 0 && `${sCount('sla-breach')} later than the SLA allows`,
             sCount('overflow') > 0 && `${sCount('overflow')} over the capacity of ${capacity} per window`,
+            sCount('no-decision') > 0 && `${sCount('no-decision')} with a decision that earned nothing (no schedule credit)`,
             sCount('wrong') > 0 && `${sCount('wrong')} wrong`,
             sCount('missing') > 0 && `${sCount('missing')} not scheduled`,
           ]);
 
   // ---- justification ------------------------------------------------------
-  const reasons = rows.map((r) => justificationCall(r.f.truth, r.reasons, r.decision !== null));
+  const reasons = rows.map((r, i) => justificationCall(r.f.truth, r.reasons, r.decision !== null, decisions[i].credit === 0));
   const weightedReasons = rows.reduce((sum, r, i) => sum + r.f.weight * reasons[i].credit, 0);
   const jEarned = weightSum > 0 ? (VULN_POINTS.justification * weightedReasons) / weightSum : 0;
   const jFull = reasons.filter((x) => x.credit === 1).length;
   const jAgainst = reasons.reduce((sum, x) => sum + x.contradicting.length, 0);
+  const jUnneeded = reasons.reduce((sum, x) => sum + x.unneeded.length, 0);
+  const jZeroed = reasons.filter((x) => x.zeroed).length;
   const jDetail =
     n === 0
       ? 'No findings to justify.'
       : jFull === n
         ? 'Correct — every finding justified.'
-        : listed([`${jFull} of ${n} findings fully justified`, jAgainst > 0 && `${jAgainst} ${plural(jAgainst, 'reason', 'reasons')} contradicted the evidence (−0.25 each)`]);
+        : listed([
+            `${jFull} of ${n} findings fully justified`,
+            jAgainst > 0 && `${jAgainst} ${plural(jAgainst, 'reason', 'reasons')} contradicted the evidence (−0.5 each)`,
+            jUnneeded > 0 && `${jUnneeded} ${plural(jUnneeded, 'reason', 'reasons')} not needed for ${plural(jUnneeded, 'its finding', 'their findings')} (−0.25 each)`,
+            jZeroed > 0 && `${jZeroed} with a decision that earned nothing (no reason credit)`,
+          ]);
 
   // ---- evidence -----------------------------------------------------------
   const points = rows.flatMap((r) => r.f.evidence.map((e) => ({ findingId: r.f.findingId, e })));
-  const scored = scoreEvidence(points.map((p) => p.e), s.pins, hintsUsed, c.hints.length, VULN_POINTS.evidence);
+  // One free extra pin per evidence point, then −1 each with no cap (the
+  // component floors at 0); a finding's own scan row is never counted against you (5.5).
+  const pinRule: PinRule = { free: points.length, cap: Number.POSITIVE_INFINITY, neutral: new Set(rows.map((r) => r.f.recordId)) };
+  const scored = scoreEvidence(points.map((p) => p.e), s.pins, hintsUsed, c.hints.length, VULN_POINTS.evidence, pinRule);
   const eDetail = [
     `${scored.found} of ${points.length} evidence points pinned.`,
     hintsUsed > 0 ? `${hintsUsed} ${plural(hintsUsed, 'hint', 'hints')} used (−${Math.round((1 - scored.hintFactor) * 100)}%).` : '',
-    scored.pinPenalty > 0 ? `${scored.irrelevantPins} pins were not relevant (−${scored.pinPenalty}).` : '',
+    scored.pinPenalty > 0 ? `${scored.irrelevantPins} pins were not relevant, ${pinRule.free} of them free (−${scored.pinPenalty}).` : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -361,12 +429,22 @@ export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade
     done('evidence', 'Evidence', scored.earned, eDetail),
   ];
 
-  const score = round1(components.reduce((sum, x) => sum + x.earned, 0));
+  // The lesson gate (5.8): any missed key finding caps the score.
+  const isLesson = (r: Row) => r.f.lesson === true;
+  const isKey = (r: Row) => isLesson(r) || r.f.mustNotMiss;
+  const misses = rows.map((r, i) => (isKey(r) ? keyMiss(r.f.truth, isLesson(r), decisions[i], r.schedule) : null));
+  const missed = rows.filter((r) => misses[r.index] !== null).map((r) => ({ findingId: idOf(r), lesson: isLesson(r), mustNotMiss: r.f.mustNotMiss, why: misses[r.index]! }));
+  const uncapped = round1(components.reduce((sum, x) => sum + x.earned, 0));
+  const cap = missed.length > 0 ? KEY_MISS_CAP : null;
+  const score = cap !== null ? Math.min(uncapped, cap) : uncapped;
   const rubricHits = detectRubricHits(c, s.notes);
   const findings: VulnFindingGrade[] = rows.map((r, i) => ({
     findingId: r.f.findingId,
     weight: r.f.weight,
     mustNotMiss: r.f.mustNotMiss,
+    lesson: isLesson(r),
+    key: isKey(r),
+    keyMiss: misses[i],
     relevance: r.relevance,
     position: r.position,
     decision: { given: r.decision, truth: r.f.truth.decision, credit: decisions[i].credit, verdict: decisions[i].verdict },
@@ -382,7 +460,8 @@ export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade
     evidence: scored.results.map((e, i) => ({ findingId: points[i].findingId, ...e })),
     irrelevantPins: scored.irrelevantPins,
     ndcg,
-    mustNotMiss: { dismissed, outsideTopK, decisionPenalty, orderingPenalty },
+    mustNotMiss: { dismissed, late, outsideTopK, decisionPenalty, orderingPenalty },
+    gate: { missed, cap, uncapped },
     overflow: overflowing.map(idOf),
     rubricHits,
     xp: Math.round(score * DIFFICULTY_MULTIPLIER[c.difficulty] + 3 * rubricHits.length),

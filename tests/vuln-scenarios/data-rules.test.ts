@@ -453,6 +453,8 @@ describe.each(TEMPLATES.map((t) => [t.id, t] as const))('%s data rules', (_id, t
     });
   });
 
+  // Grading as of DESIGN 5.4/5.5/5.8: reason codes outside the required set cost 0.25 each, pins beyond one per evidence
+  // point cost 1 each with no cap, and a missed key finding caps the total at 60.
   it('C14: naive strategies stay below the pass mark', () => {
     const SPAM: ReasonCode[] = ['low-exploitability', 'stale-scan', 'sla-deadline'];
     each((v) => {
@@ -479,7 +481,8 @@ describe.each(TEMPLATES.map((t) => [t.id, t] as const))('%s data rules', (_id, t
           [`e: by computed deadline, SLA-table schedule${tag}`, submit(byDeadline, 'patch', tableSchedule, spam)],
           [`f: all patch + emergency, by CVSS, every row pinned${tag}`, submit(byScore, 'patch', () => 'emergency', spam, everyRecord)],
         ];
-        for (const [name, s] of strategies) expect(gradeVulnCase(v.c, s).score, `${v.label}: ${name}`).toBeLessThan(70);
+        // The pass decision is on percent = Math.round(score), so the guard is too (a 69.6 passes).
+        for (const [name, s] of strategies) expect(Math.round(gradeVulnCase(v.c, s).score), `${v.label}: ${name}`).toBeLessThan(70);
       }
     });
   });
@@ -611,7 +614,7 @@ describe('worklist shape table (WORKLIST_SHAPES)', () => {
   it('agent shapes never use a web application component, and every product has a kind', () => {
     for (const sh of WORKLIST_SHAPES.filter((x) => x.productKind === 'agent')) expect(sh.component).not.toMatch(WEB_ONLY);
     for (const seed of ['a', 'b', 'c']) for (const e of generateCatalogue(seed, Date.UTC(2026, 5, 1)).entries) expect(PRODUCT_KINDS[e.product], e.product).toBeDefined();
-    expect(PRODUCT_KINDS['Quorvane httpd']).toBe('server');
+    expect(PRODUCT_KINDS['Dunmarrow httpd']).toBe('server');
   });
 
   it('is unique and varied: every band the templates use has at least three shapes, and each of web-app, server and appliance has some in each', () => {
