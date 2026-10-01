@@ -61,7 +61,8 @@ function Trend({ attempts }: { attempts: AttemptRecord[] }) {
 
 export function Stats() {
   const p = profile.value;
-  const a = p.attempts;
+  // Vulnerability attempts stay out of the SOC statistics until the stats integration (WP4).
+  const a = p.attempts.filter((x) => x.mode !== 'vuln');
   const rank = rankFor(p.xp);
   if (a.length === 0 && p.shifts.length === 0) {
     return (

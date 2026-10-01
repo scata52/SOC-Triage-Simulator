@@ -5,8 +5,14 @@
 
 import type { ResolvedCase } from '../cases/scenario.ts';
 import type { IndicatorSpec } from '../cases/model.ts';
-import { ACTION_ORDER, SEVERITY_ORDER, type Difficulty, type Disposition, type Severity, type TriageAction } from '../types.ts';
+import { ACTION_ORDER, SEVERITY_ORDER, type Difficulty, type Disposition, type RubricItem, type Severity, type TriageAction } from '../types.ts';
 import { bestMatch, findMatch, normalise, type GivenIndicator } from './indicators.ts';
+import { ordinalCredit, scoreEvidence, type EvidenceResult } from './shared.ts';
+
+// Shared with the vulnerability grader, so they live in shared.ts; re-exported
+// here so every existing import keeps working.
+export { FREE_EXTRA_PINS, HINT_PENALTY } from './shared.ts';
+export type { EvidenceResult } from './shared.ts';
 
 export const POINTS = { disposition: 30, severity: 10, action: 10, attack: 15, evidence: 20, indicators: 15 } as const;
 export const MAX_SCORE = Object.values(POINTS).reduce((a, b) => a + b, 0);
@@ -18,9 +24,6 @@ export const DISPOSITION_LABELS: Record<Disposition, string> = {
 };
 export const SEVERITY_LABELS: Record<Severity, string> = { informational: 'Informational', low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' };
 export const ACTION_LABELS: Record<TriageAction, string> = { close: 'Close', monitor: 'Monitor', escalate: 'Escalate to IR' };
-
-export const HINT_PENALTY = 0.2; // share of the evidence component per hint used
-export const FREE_EXTRA_PINS = 4;
 
 export interface Verdict {
   disposition: Disposition | null;
@@ -48,15 +51,6 @@ export interface Component {
   detail: string;
 }
 
-export interface EvidenceResult {
-  id: string;
-  label: string;
-  why: string;
-  found: boolean;
-  pinned: string | null;
-  recordIds: string[];
-}
-
 export interface IndicatorResult {
   given: GivenIndicator;
   verdict: 'correct' | 'must-not' | 'unsupported';
@@ -81,7 +75,8 @@ const parentOf = (id: string) => id.split('.')[0];
 
 export const DIFFICULTY_MULTIPLIER: Record<Difficulty, number> = { tier1: 1, tier2: 1.5, tier3: 2 };
 
-export function detectRubricHits(c: ResolvedCase, notes: string): string[] {
+// Takes anything with a rubric, so the vulnerability grader can use it too.
+export function detectRubricHits(c: { rubric: readonly RubricItem[] }, notes: string): string[] {
   const text = notes.toLowerCase().replace(/\s+/g, ' ');
   if (!text.trim()) return [];
   return c.rubric.filter((r) => r.keywords.some((k) => text.includes(k.toLowerCase()))).map((r) => r.id);
@@ -113,9 +108,9 @@ export function gradeCase(c: ResolvedCase, v: Verdict): CaseGrade {
   // ---- severity / action --------------------------------------------------
   const ordinal = <T extends string>(order: T[], given: T | null, truth: T, points: number, labels: Record<T, string>, id: ComponentId, label: string) => {
     if (given === null) return components.push({ id, label, earned: 0, possible: points, ok: false, detail: `Not set. Answer: ${labels[truth]}.` });
-    const d = Math.abs(order.indexOf(given) - order.indexOf(truth));
-    const earned = d === 0 ? points : d === 1 ? points / 2 : 0;
-    components.push({ id, label, earned, possible: points, ok: d === 0, detail: d === 0 ? `Correct — ${labels[truth]}.` : `${labels[given]} vs ${labels[truth]}${d === 1 ? ' — one step off, half credit' : ''}.` });
+    const share = ordinalCredit(order, given, truth);
+    const earned = points * share;
+    components.push({ id, label, earned, possible: points, ok: share === 1, detail: share === 1 ? `Correct — ${labels[truth]}.` : `${labels[given]} vs ${labels[truth]}${share === 0.5 ? ' — one step off, half credit' : ''}.` });
   };
   ordinal(SEVERITY_ORDER, v.severity, t.severity, POINTS.severity, SEVERITY_LABELS, 'severity', 'Severity');
   ordinal(ACTION_ORDER, v.action, t.action, POINTS.action, ACTION_LABELS, 'action', 'Action');
@@ -174,17 +169,7 @@ export function gradeCase(c: ResolvedCase, v: Verdict): CaseGrade {
   components.push({ id: 'attack', label: 'MITRE ATT&CK', earned: aEarned, possible: POINTS.attack, ok: aEarned === POINTS.attack, detail: aDetail });
 
   // ---- evidence -----------------------------------------------------------
-  const pins = new Set(v.pins);
-  const evidence: EvidenceResult[] = c.evidence.map((e) => {
-    const pinned = e.recordIds.find((id) => pins.has(id)) ?? null;
-    return { id: e.id, label: e.label, why: e.why, found: pinned !== null, pinned, recordIds: e.recordIds };
-  });
-  const relevant = new Set(c.evidence.flatMap((e) => e.recordIds));
-  const irrelevantPins = [...pins].filter((p) => !relevant.has(p)).length;
-  const found = evidence.filter((e) => e.found).length;
-  const hintFactor = Math.max(0, 1 - HINT_PENALTY * Math.min(v.hintsUsed, c.hints.length));
-  const pinPenalty = Math.min(5, Math.max(0, irrelevantPins - FREE_EXTRA_PINS));
-  const eEarned = Math.max(0, Math.round((found / Math.max(1, evidence.length)) * POINTS.evidence * hintFactor) - pinPenalty);
+  const { results: evidence, found, irrelevantPins, hintFactor, pinPenalty, earned: eEarned } = scoreEvidence(c.evidence, v.pins, v.hintsUsed, c.hints.length, POINTS.evidence);
   components.push({
     id: 'evidence',
     label: 'Evidence',

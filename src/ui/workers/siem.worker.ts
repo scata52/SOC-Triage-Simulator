@@ -8,6 +8,7 @@ import { generateWorld, type World } from '../../core/world/world.ts';
 import { buildPracticeCase, type Scenario } from '../../core/cases/scenario.ts';
 import { buildShift, planShift, type ShiftPlan } from '../../core/shift/plan.ts';
 import { campaignContext, campaignSlot } from '../../core/campaign/campaign.ts';
+import { buildVulnScenario, type ResolvedVulnCase } from '../../core/vuln/scenario.ts';
 import { TABLE_NAMES, type TableName } from '../../core/logs/schema.ts';
 import { sessionKey, type OpenSpec, type Request, type Response, type SessionInfo } from '../lib/protocol.ts';
 
@@ -31,7 +32,13 @@ async function open(spec: OpenSpec): Promise<SessionInfo> {
   const w = worldFor(spec.worldSeed);
   let scenario: Scenario;
   let plan: ShiftPlan | undefined;
-  if (spec.kind === 'practice') {
+  let vulnCase: ResolvedVulnCase | undefined;
+  if (spec.kind === 'vuln') {
+    // A vulnerability-management case: same corpus, same console, no SOC cases.
+    const v = buildVulnScenario({ worldSeed: spec.worldSeed, templateId: spec.templateId, seed: spec.seed, world: w });
+    scenario = { worldSeed: v.worldSeed, now: v.now, corpus: v.corpus, cases: [], infra: {} };
+    vulnCase = v.case;
+  } else if (spec.kind === 'practice') {
     scenario = buildPracticeCase(w, spec.templateId, spec.seed);
   } else {
     const slot = spec.campaign ? campaignSlot(spec.campaign, w, spec.number) : undefined;
@@ -53,6 +60,7 @@ async function open(spec: OpenSpec): Promise<SessionInfo> {
     cases: scenario.cases,
     infra: scenario.infra,
     plan,
+    ...(vulnCase ? { vulnCase } : {}),
     buildMs: Math.round(performance.now() - t0),
   };
   return currentInfo;

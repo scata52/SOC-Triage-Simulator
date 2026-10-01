@@ -1,5 +1,7 @@
 import { KQL_REFERENCE, type RefKind } from '../../core/query/kql/reference.ts';
-import { TABLES } from '../../core/logs/schema.ts';
+import type { TableInfo } from '../../core/logs/schema.ts';
+import { VULN_POINTS } from '../../core/vuln/grade.ts';
+import { VULN_PASS_PERCENT, VULN_TABLE_NAMES, tablesFor } from '../../core/vuln/worklist.ts';
 import { POINTS, HINT_PENALTY, FREE_EXTRA_PINS, DIFFICULTY_MULTIPLIER } from '../../core/grading/grade.ts';
 import { CASE_SHARE, PRIORITY_SHARE, CLEAN_SHIFT_BONUS } from '../../core/shift/score.ts';
 import { RANKS } from '../../state/profile.ts';
@@ -75,6 +77,13 @@ function Start() {
         results (after <code>summarize</code>) cannot be pinned — go back to the rows. Indicators are what should be blocked (attacker IPs, domains, hashes) and who or
         what is affected (users, hosts). Don't report your own company's infrastructure: the office egress IP, the VPN, the sanctioned scanner.
       </p>
+      <h2>Vulnerability cases</h2>
+      <ul>
+        <li>
+          Scan reviews (<a href="#/vuln">Vulnerability cases</a>) ask for a decision, a schedule and up to three reasons per scanner finding, and for the order you would work
+          them in. Query the scan data the same way as in a SOC case.
+        </li>
+      </ul>
     </>
   );
 }
@@ -154,39 +163,59 @@ function Reference() {
   );
 }
 
+function TableDetails({ t, vulnOnly = false }: { t: TableInfo; vulnOnly?: boolean }) {
+  return (
+    <details class="disclosure" style={{ marginBottom: 6 }}>
+      <summary style={{ flexWrap: 'wrap' }}>
+        <span class="mono">{t.name}</span> <span class="badge">{t.kind}</span>
+        {vulnOnly && (
+          <>
+            {' '}
+            <span class="badge badge-accent">vuln cases only</span>
+          </>
+        )}
+      </summary>
+      <div class="disclosure-body">
+        <p class="small">{t.doc}</p>
+        <table class="table">
+          <caption class="visually-hidden">Columns of {t.name}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Column</th>
+              <th scope="col">Type</th>
+              <th scope="col">Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            {t.columns.map((c) => (
+              <tr>
+                <td class="mono small">{c.name}</td>
+                <td class="mono small faint">{c.type}</td>
+                <td class="small">{c.doc}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
 function Tables() {
+  const vulnTables = tablesFor('vuln').filter((t) => (VULN_TABLE_NAMES as readonly string[]).includes(t.name));
   return (
     <>
       <h1>Tables</h1>
       <p class="lede">A Microsoft Sentinel / Defender-style schema. Log tables record events inside the case window; context tables describe the organisation.</p>
-      {TABLES.map((t) => (
-        <details class="disclosure" style={{ marginBottom: 6 }}>
-          <summary>
-            <span class="mono">{t.name}</span> <span class="badge">{t.kind}</span>
-          </summary>
-          <div class="disclosure-body">
-            <p class="small">{t.doc}</p>
-            <table class="table">
-              <caption class="visually-hidden">Columns of {t.name}</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Column</th>
-                  <th scope="col">Type</th>
-                  <th scope="col">Meaning</th>
-                </tr>
-              </thead>
-              <tbody>
-                {t.columns.map((c) => (
-                  <tr>
-                    <td class="mono small">{c.name}</td>
-                    <td class="mono small faint">{c.type}</td>
-                    <td class="small">{c.doc}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
+      {tablesFor('soc').map((t) => (
+        <TableDetails t={t} />
+      ))}
+      <h2 id="vuln-tables">Vulnerability-management tables</h2>
+      <p class="small">
+        Filled only in vulnerability cases (<a href="#/vuln">#/vuln</a>). SOC cases leave them out of the schema browser and autocomplete.
+      </p>
+      {vulnTables.map((t) => (
+        <TableDetails t={t} vulnOnly />
       ))}
     </>
   );
@@ -238,6 +267,41 @@ function Grading() {
           </tr>
         </tbody>
       </table>
+      <h2>Vulnerability cases</h2>
+      <p>
+        Also out of 100; the pass mark is {VULN_PASS_PERCENT}. Decisions and reasons are weighted per finding (must-not-miss findings weigh more); the schedule is the plain average over all findings. Ordering judges the
+        order of your worklist, evidence judges what you found in the scan data. The stakeholder note earns coaching and XP, never points.
+      </p>
+      <table class="table">
+        <caption class="visually-hidden">Points per component in a vulnerability case</caption>
+        <tbody>
+          <tr>
+            <th scope="row">Decisions</th>
+            <td class="num mono">{VULN_POINTS.decisions}</td>
+            <td class="small">Patch, mitigate, avoid, accept, transfer or false positive. Half credit for a near miss (for example accept and mitigate, or patch when avoiding the component was the answer; avoid when a patch was needed earns nothing). Mitigate earns full credit only with a control from ControlInventory that covers the path; with a missing or wrong control it earns half. On a finding that needs a patch, mitigate earns half only with such a control, otherwise nothing. Dismissing a real must-not-miss finding as a false positive costs 5 each (up to 10).</td>
+          </tr>
+          <tr>
+            <th scope="row">Ordering</th>
+            <td class="num mono">{VULN_POINTS.ordering}</td>
+            <td class="small">How close the order of your worklist is to the ideal urgency order. Each must-not-miss finding outside the top k places (k = the number of must-not-miss findings + 1; unranked counts as outside) costs 4 ordering points.</td>
+          </tr>
+          <tr>
+            <th scope="row">Schedule</th>
+            <td class="num mono">{VULN_POINTS.schedule}</td>
+            <td class="small">Emergency change, next maintenance window, standard cycle or no change. Half credit one step off. An emergency change on a real finding that did not need one also earns half, however early; for a false positive it earns nothing. Later than the SLA allows scores nothing; changes beyond a window's capacity lose their credit.</td>
+          </tr>
+          <tr>
+            <th scope="row">Justification</th>
+            <td class="num mono">{VULN_POINTS.justification}</td>
+            <td class="small">Up to three reasons per finding. Share of the required reasons you chose; a reason the evidence contradicts takes a quarter off.</td>
+          </tr>
+          <tr>
+            <th scope="row">Evidence</th>
+            <td class="num mono">{VULN_POINTS.evidence}</td>
+            <td class="small">Share of the evidence points you pinned (any row of a point counts). Each hint costs {Math.round(HINT_PENALTY * 100)}% of this part. More than {FREE_EXTRA_PINS} irrelevant pins cost a point each (up to 5).</td>
+          </tr>
+        </tbody>
+      </table>
       <h2>XP and ranks</h2>
       <p>
         XP = score × difficulty (Tier 1 ×{DIFFICULTY_MULTIPLIER.tier1}, Tier 2 ×{DIFFICULTY_MULTIPLIER.tier2}, Tier 3 ×{DIFFICULTY_MULTIPLIER.tier3}) + 3 per point your
@@ -266,13 +330,14 @@ function Keys() {
             ['Ctrl + Space', 'Suggestions in the editor'],
             ['Tab / Shift + Tab', 'Leave the editor and move between controls (the editor never traps Tab)'],
             ['← → Home End', 'Move between tabs in a tab list'],
+            ['Alt + ↑ / Alt + ↓', 'Move the focused finding up or down in the vulnerability worklist (not from a drop-down list: there Alt + ↓ opens the list)'],
             ['↑ ↓ Enter Esc', 'Choose an ATT&CK technique in the picker'],
             ['Enter', 'Add an indicator from the indicator box'],
             ['Esc', 'Close a dialog'],
             ['First Tab on any page', 'Skip to content'],
           ].map(([k, d]) => (
             <tr>
-              <th scope="row" class="mono small" style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text)' }}>
+              <th scope="row" class="mono small" style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text)', whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
                 {k}
               </th>
               <td class="small">{d}</td>

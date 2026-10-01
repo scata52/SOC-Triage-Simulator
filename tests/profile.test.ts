@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { addQueryHistory, coerceProfile, dayNumber, defaultProfile, finishShift, migrateV1, nextShiftNumber, rankFor, recordAttempt, startShift, MAX_ATTEMPTS } from '../src/state/profile.ts';
+import { addQueryHistory, asStudyAttempts, coerceProfile, dayNumber, defaultProfile, finishShift, migrateV1, nextShiftNumber, rankFor, recordAttempt, recordVulnAttempt, startShift, MAX_ATTEMPTS, type Profile } from '../src/state/profile.ts';
 import { exportProfile, importProfile, loadProfile, saveProfile, V1_KEY, V2_KEY, type KeyValueStore } from '../src/state/storage.ts';
 import { buildPracticeCase } from '../src/core/cases/scenario.ts';
 import { emptyVerdict, gradeCase, perfectVerdict } from '../src/core/grading/grade.ts';
 import { scoreShift, CLEAN_SHIFT_BONUS } from '../src/core/shift/score.ts';
 import { startCampaign } from '../src/core/campaign/campaign.ts';
+import { buildVulnScenario } from '../src/core/vuln/scenario.ts';
+import { VULN_POINTS, gradeVulnCase, perfectVulnSubmission } from '../src/core/vuln/grade.ts';
+import { DIFFICULTY_MULTIPLIER } from '../src/core/grading/grade.ts';
+import { studyPlan, nextStudyCase } from '../src/core/study/scheduler.ts';
+import { createRng } from '../src/core/rng.ts';
 import { world } from './helpers/scenario-check.ts';
 
 const NOW = Date.UTC(2026, 9, 1, 12);
@@ -182,5 +187,138 @@ describe('profile transitions', () => {
     expect(rankFor(300).current.name).toBe('Tier 1 Analyst');
     expect(rankFor(600).progress).toBeCloseTo(0.5, 5);
     expect(rankFor(99999)).toMatchObject({ next: null, progress: 1 });
+  });
+});
+
+describe('vulnerability attempts', () => {
+  const w = world('profile');
+  const cases = ['vm-kev-internal', 'vm-backport-fp'].map((templateId) => {
+    const c = buildVulnScenario({ worldSeed: w.seed, templateId, seed: 'p1', world: w }).case;
+    // a note that hits every rubric item's first keyword
+    const submission = { ...perfectVulnSubmission(c), notes: c.rubric.map((r) => r.keywords[0]).join(' ') };
+    return { c, submission, grade: gradeVulnCase(c, submission) };
+  });
+  const input = (i: number, extra: { day?: number } = {}) => ({ c: cases[i].c, grade: cases[i].grade, submission: cases[i].submission, now: NOW, day: extra.day ?? 100, durationSec: 321 });
+
+  // a profile that already has SOC history, so "untouched" means something
+  const soc = buildPracticeCase(w, 'identity-password-spray', 'p1').cases[0];
+  function withSocHistory(): Profile {
+    const g = gradeCase(soc, perfectVerdict(soc));
+    return recordAttempt(defaultProfile(NOW, w.seed), { c: soc, grade: g, verdict: perfectVerdict(soc), mode: 'practice', now: NOW, day: 99, durationSec: 60, dailySeed: 'd1' }).profile;
+  }
+
+  it('records mode vuln and category vulnmgmt', () => {
+    for (const [i, x] of cases.entries()) {
+      expect(x.grade.rubricHits.length).toBeGreaterThan(0);
+      const r = recordVulnAttempt(defaultProfile(NOW, w.seed), input(i)).record;
+      expect(r).toMatchObject({
+        id: x.c.id,
+        templateId: x.c.templateId,
+        seed: 'p1',
+        mode: 'vuln',
+        completedAt: NOW,
+        day: 100,
+        percent: x.grade.percent,
+        score: x.grade.score,
+        dispositionCorrect: x.grade.percent >= 70,
+        xp: x.grade.xp,
+        hintsUsed: 0,
+        durationSec: 321,
+        matchedTechniques: [],
+        missedTechniques: [],
+        evidenceFound: 0,
+        evidenceTotal: 0,
+        category: 'vulnmgmt',
+        difficulty: x.c.difficulty,
+        tactics: [],
+        cysaDomains: x.c.cysaDomains,
+      });
+      expect(Object.keys(r.components).sort()).toEqual(Object.keys(VULN_POINTS).map((k) => 'vuln-' + k).sort());
+      for (const comp of x.grade.components) expect(r.components[('vuln-' + comp.id) as 'vuln-decisions']).toBe(comp.earned);
+      expect(r.vuln).toEqual({
+        objectives: x.c.objectives,
+        evidenceFound: x.grade.evidence.filter((e) => e.found).length,
+        evidenceTotal: x.grade.evidence.length,
+        decisions: x.c.findings.map((f) => ({ findingId: f.findingId, truth: f.truth.decision, given: f.truth.decision, mustNotMiss: f.mustNotMiss })),
+      });
+      expect(r.vuln!.evidenceTotal).toBeGreaterThan(0);
+      expect(r.vuln!.decisions).toHaveLength(x.c.findings.length);
+    }
+    expect(cases[0].c.difficulty).toBe('tier1');
+    expect(cases[1].c.difficulty).toBe('tier2');
+  });
+
+  it('adds the case XP to the shared total', () => {
+    for (const [i, x] of cases.entries()) {
+      expect(x.grade.xp).toBe(Math.round(x.grade.score * DIFFICULTY_MULTIPLIER[x.c.difficulty] + 3 * x.grade.rubricHits.length));
+      const p0 = { ...defaultProfile(NOW, w.seed), xp: 290 };
+      const p1 = recordVulnAttempt(p0, input(i)).profile;
+      expect(p1.xp).toBe(290 + x.grade.xp);
+      expect(rankFor(p0.xp).current.name).toBe('Trainee');
+      expect(rankFor(p1.xp).current.name).toBe('Tier 1 Analyst');
+    }
+  });
+
+  it('leaves cards, streaks, recent templates and daily flags untouched', () => {
+    const p0 = withSocHistory();
+    const p1 = recordVulnAttempt(p0, input(0)).profile;
+    expect(p1.cards).toEqual(p0.cards);
+    expect(p1.streak).toBe(p0.streak);
+    expect(p1.bestStreak).toBe(p0.bestStreak);
+    expect(p1.recentTemplateIds).toEqual(p0.recentTemplateIds);
+    expect(p1.dailyDone).toEqual(p0.dailyDone);
+    expect(p1.attempts).toHaveLength(p0.attempts.length + 1);
+    expect(p1.attempts.slice(0, -1)).toEqual(p0.attempts);
+    // a failed vuln attempt does not break the SOC streak either
+    const bad = { ...cases[0].grade, percent: 10 };
+    expect(recordVulnAttempt(p0, { ...input(0), grade: bad }).profile.streak).toBe(p0.streak);
+  });
+
+  it('study plan and suggestion are unchanged by vuln attempts', () => {
+    const p0 = withSocHistory();
+    const p1 = recordVulnAttempt(recordVulnAttempt(p0, input(0, { day: 100 })).profile, input(1, { day: 101 })).profile;
+    expect(asStudyAttempts(p1)).toEqual(asStudyAttempts(p0));
+    expect(studyPlan(p1.cards, asStudyAttempts(p1), 102)).toEqual(studyPlan(p0.cards, asStudyAttempts(p0), 102));
+    expect(nextStudyCase(p1.cards, asStudyAttempts(p1), 102, createRng('vuln-study'))).toEqual(nextStudyCase(p0.cards, asStudyAttempts(p0), 102, createRng('vuln-study')));
+  });
+
+  it('SOC component stats ignore vuln records', () => {
+    const p1 = recordVulnAttempt(withSocHistory(), input(0)).profile;
+    const r = p1.attempts.at(-1)!;
+    const socIds = new Set<string>(gradeCase(soc, perfectVerdict(soc)).components.map((x) => x.id));
+    for (const k of Object.keys(r.components)) {
+      expect(socIds.has(k)).toBe(false);
+      expect(k.startsWith('vuln-')).toBe(true);
+    }
+    expect(r.evidenceFound).toBe(0);
+    expect(r.evidenceTotal).toBe(0);
+  });
+
+  it('coerces an old v2 profile unchanged', () => {
+    const old = withSocHistory();
+    const back = coerceProfile(JSON.parse(JSON.stringify(old)), { now: NOW, tzOffsetMinutes: 0, newWorldSeed: 'x' })!;
+    expect(back).toEqual(old);
+    expect(back.attempts.every((a) => a.vuln === undefined)).toBe(true);
+    // the v1 migration still produces practice attempts only
+    expect(migrateV1(V1, NOW, 'w1', -120).attempts.every((a) => a.mode === 'practice' && a.vuln === undefined)).toBe(true);
+  });
+
+  it('a profile with vuln attempts survives export and import', () => {
+    const p = recordVulnAttempt(recordVulnAttempt(withSocHistory(), input(0)).profile, input(1, { day: 101 })).profile;
+    const back = importProfile(exportProfile(p), ctx)!;
+    expect(back).toEqual(p);
+    expect(back.attempts.filter((a) => a.mode === 'vuln')).toHaveLength(2);
+    const kv = new MemoryKV();
+    expect(saveProfile(kv, p)).toBe(true);
+    expect(loadProfile(kv, ctx).profile).toEqual(p);
+  });
+
+  it('caps stored attempts like SOC attempts', () => {
+    let p = defaultProfile(NOW, w.seed);
+    const r = recordVulnAttempt(p, input(0)).record;
+    p = { ...p, attempts: Array.from({ length: MAX_ATTEMPTS }, () => r) };
+    p = recordVulnAttempt(p, input(0, { day: 7 })).profile;
+    expect(p.attempts).toHaveLength(MAX_ATTEMPTS);
+    expect(p.attempts.at(-1)!.day).toBe(7);
   });
 });

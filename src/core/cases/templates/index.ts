@@ -26,6 +26,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   persistence: 'Persistence',
   c2: 'Command & Control',
   ransomware: 'Ransomware',
+  vulnmgmt: 'Vulnerability Management',
 };
 
 export const ALL_CATEGORIES = Object.keys(CATEGORY_LABELS) as Category[];

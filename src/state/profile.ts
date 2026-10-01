@@ -15,6 +15,10 @@ import type { CampaignState, StageOutcome } from '../core/campaign/campaign.ts';
 import { review, type Card } from '../core/study/srs.ts';
 import type { Attempt, AttemptMode } from '../core/study/scheduler.ts';
 import { templateById } from '../core/cases/templates/index.ts';
+import type { VulnComponentId, VulnGrade, VulnSubmission } from '../core/vuln/grade.ts';
+import type { VulnDecision } from '../core/vuln/model.ts';
+import type { ResolvedVulnCase } from '../core/vuln/scenario.ts';
+import { VULN_PASS_PERCENT } from '../core/vuln/worklist.ts';
 
 export const PROFILE_VERSION = 2;
 export const MAX_ATTEMPTS = 1500;
@@ -37,6 +41,10 @@ export interface Settings {
   editorFontSize: number;
 }
 
+// A vulnerability case stores its components under these keys, so SOC stats that
+// read ComponentId keys never see them.
+export type VulnComponentKey = `vuln-${VulnComponentId}`;
+
 export interface AttemptRecord {
   id: string; // `${templateId}~${seed}` or `${shiftId}/${alertId}`
   templateId: string;
@@ -50,7 +58,7 @@ export interface AttemptRecord {
   xp: number;
   hintsUsed: number;
   durationSec: number | null;
-  components: Partial<Record<ComponentId, number>>;
+  components: Partial<Record<ComponentId | VulnComponentKey, number>>;
   matchedTechniques: string[];
   missedTechniques: string[];
   evidenceFound: number;
@@ -60,6 +68,14 @@ export interface AttemptRecord {
   tactics: Tactic[];
   cysaDomains: string[];
   legacy?: boolean; // migrated from v1 (graded by the v1 rubric)
+  // Only on vulnerability cases (mode 'vuln'): the real evidence counts and the per-finding
+  // decisions, for the objective-level stats of a later package.
+  vuln?: {
+    objectives: string[];
+    evidenceFound: number;
+    evidenceTotal: number;
+    decisions: { findingId: string; truth: VulnDecision; given: VulnDecision | null; mustNotMiss: boolean }[];
+  };
 }
 
 export interface ActiveShift {
@@ -151,7 +167,8 @@ export function dayNumber(ms: number, tzOffsetMinutes: number): number {
 }
 
 export function asStudyAttempts(p: Profile): Attempt[] {
-  return p.attempts.map((a) => ({ templateId: a.templateId, percent: a.percent, day: a.day, mode: a.mode, correct: a.dispositionCorrect }));
+  // Vulnerability attempts stay out of the study plan until the stats package.
+  return p.attempts.filter((a) => a.mode !== 'vuln').map((a) => ({ templateId: a.templateId, percent: a.percent, day: a.day, mode: a.mode, correct: a.dispositionCorrect }));
 }
 
 // ---------------------------------------------------------------- transitions
@@ -206,6 +223,52 @@ export function recordAttempt(p: Profile, input: AttemptInput): { profile: Profi
     dailyDone: input.dailySeed && !p.dailyDone.includes(input.dailySeed) ? [...p.dailyDone, input.dailySeed] : p.dailyDone,
   };
   return { profile, record };
+}
+
+export interface VulnAttemptInput {
+  c: ResolvedVulnCase;
+  grade: VulnGrade;
+  submission: VulnSubmission;
+  now: number;
+  day: number;
+  durationSec: number | null;
+  id?: string;
+}
+
+// A graded vulnerability case: XP joins the shared total and the attempt is
+// recorded, but the SOC streak, study cards, recents and daily flags stay as they are.
+export function recordVulnAttempt(p: Profile, input: VulnAttemptInput): { profile: Profile; record: AttemptRecord } {
+  const { c, grade: g } = input;
+  const record: AttemptRecord = {
+    id: input.id ?? c.id,
+    templateId: c.templateId,
+    seed: c.seed,
+    mode: 'vuln',
+    completedAt: input.now,
+    day: input.day,
+    percent: g.percent,
+    score: g.score,
+    dispositionCorrect: g.percent >= VULN_PASS_PERCENT,
+    xp: g.xp,
+    hintsUsed: input.submission.hintsUsed,
+    durationSec: input.durationSec,
+    components: Object.fromEntries(g.components.map((x) => [`vuln-${x.id}`, x.earned])),
+    matchedTechniques: [],
+    missedTechniques: [],
+    evidenceFound: 0,
+    evidenceTotal: 0,
+    category: 'vulnmgmt',
+    difficulty: c.difficulty,
+    tactics: [],
+    cysaDomains: c.cysaDomains,
+    vuln: {
+      objectives: c.objectives,
+      evidenceFound: g.evidence.filter((e) => e.found).length,
+      evidenceTotal: g.evidence.length,
+      decisions: g.findings.map((f) => ({ findingId: f.findingId, truth: f.decision.truth, given: f.decision.given, mustNotMiss: f.mustNotMiss })),
+    },
+  };
+  return { profile: { ...p, xp: p.xp + g.xp, attempts: [...p.attempts, record].slice(-MAX_ATTEMPTS) }, record };
 }
 
 export function startShift(p: Profile, number: number, budget: Budget, now: number, campaignAlertId?: string): Profile {

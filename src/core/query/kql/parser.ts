@@ -259,9 +259,15 @@ class Parser {
           if (!allowed.includes(kind)) throw new KqlError(`Join kind "${kind}" is not supported (use ${allowed.join(', ')})`, this.toks[this.i - 1].start, this.toks[this.i - 1].end);
           if (kind === 'innerunique') kind = 'inner';
         }
-        this.expectOp('(', 'to open the right side of the join');
-        const right = this.query();
-        this.expectOp(')', 'to close the right side of the join');
+        let right: Query;
+        if (this.peek().kind === 'ident' && !this.isWord('on')) {
+          // A bare table name on the right, as in real KQL: `| join kind=inner VulnIntel on VulnId`.
+          right = { source: this.source(), ops: [] };
+        } else {
+          this.expectOp('(', 'to open the right side of the join');
+          right = this.query();
+          this.expectOp(')', 'to close the right side of the join');
+        }
         this.expectWord('on');
         const on: { left: string; right: string; span: { start: number; end: number } }[] = [];
         do {

@@ -1,17 +1,31 @@
 // Investigation side tools: schema browser, decoder, query history.
 
 import { useState } from 'preact/hooks';
-import { TABLES, type TableName } from '../../core/logs/schema.ts';
+import type { TableName } from '../../core/logs/schema.ts';
+import { isVulnTable, tablesFor, type SchemaMode } from '../../core/vuln/worklist.ts';
 import { base32ToBytes, decodeUtf8, defang, entropy, refang, smartBase64Decode } from '../../core/synth/encoding.ts';
 import { Icon } from './Icon.tsx';
 import { num } from '../lib/format.ts';
 
-export function SchemaBrowser({ rowsByTable, onPreview, onInsert }: { rowsByTable: Record<TableName, number>; onPreview: (table: string) => void; onInsert: (text: string) => void }) {
+export function SchemaBrowser({
+  rowsByTable,
+  onPreview,
+  onInsert,
+  mode = 'soc',
+}: {
+  rowsByTable: Record<TableName, number>;
+  onPreview: (table: string) => void;
+  onInsert: (text: string) => void;
+  mode?: SchemaMode;
+}) {
   const [filter, setFilter] = useState('');
   const f = filter.trim().toLowerCase();
-  const groups: { title: string; kind: 'log' | 'context' }[] = [
-    { title: 'Log tables', kind: 'log' },
-    { title: 'Context tables', kind: 'context' },
+  const tables = tablesFor(mode);
+  // A vulnerability case lists its own six tables first; SOC sessions do not show them at all.
+  const groups: { title: string; pick: (t: { name: string; kind: 'log' | 'context' }) => boolean }[] = [
+    ...(mode === 'vuln' ? [{ title: 'Vulnerability tables', pick: (t: { name: string }) => isVulnTable(t.name) }] : []),
+    { title: 'Log tables', pick: (t) => t.kind === 'log' },
+    { title: 'Context tables', pick: (t) => t.kind === 'context' && !(mode === 'vuln' && isVulnTable(t.name)) },
   ];
   return (
     <div class="schema">
@@ -24,7 +38,7 @@ export function SchemaBrowser({ rowsByTable, onPreview, onInsert }: { rowsByTabl
       {groups.map((g) => (
         <section aria-label={g.title}>
           <h4 class="schema-group">{g.title}</h4>
-          {TABLES.filter((t) => t.kind === g.kind)
+          {tables.filter((t) => g.pick(t))
             .filter((t) => !f || t.name.toLowerCase().includes(f) || t.columns.some((c) => c.name.toLowerCase().includes(f)))
             .map((t) => (
               <details class="disclosure schema-table" open={!!f}>
