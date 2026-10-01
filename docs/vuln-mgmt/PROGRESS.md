@@ -222,6 +222,12 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   lost. While cleaning up, `git worktree remove --force` on a review agent's scratch worktree followed its `node_modules` junction
   and deleted part of the main `node_modules`; restored with `npm ci` from the unchanged lockfile (checks matched before and after).
   Agents are now told not to junction worktrees.
+- 2026-10-01 (human, after WP1e): WP1e merged to `main` via PR #4 (merge commit 2782c3b, CI green); the branch is fast-forwarded to
+  `main`. Decisions: (1) the GitHub Pages redeploy that every push to `main` triggers is fine as is, so the live site shows the
+  vuln mode before WP1f; (2) the Claude Code Review workflow (added in PR #3) may read the PR: its `--allowedTools` now match the
+  code-review plugin's own list (`gh pr view/diff/list`, `gh issue view/list`, `gh search`, `gh pr comment` for its summary, inline
+  comments) and `pull-requests: write` as in the action's official example; before, it finished green in seconds without reading the
+  diff; (3) WP1f starts in a fresh session.
 
 ## Known issues
 - WP1e follow-ups: Stats ignores vuln attempts until WP4; the control picker with a non-empty ControlInventory has no e2e test until a
