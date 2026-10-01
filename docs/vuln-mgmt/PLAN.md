@@ -49,12 +49,41 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 ## WP1e — UI slice + accessibility
 - Goal: routes `#/vuln` and `#/vuln/<slug>/<seed>` (§7), Home card, worklist with decision/schedule/reason controls, move up/down, console tab reuse, note tab, submit → debrief; record attempt (`mode: 'vuln'`, `category: 'vulnmgmt'`) with additive type widening. Also: SOC sessions stop listing the six vuln context tables, which WP1b added and which are empty there (schema browser, Help schema, editor autocomplete all read `TABLES`); deferred to here by the human 2026-09-28.
 - Owner: implementer. Files: `src/ui/router.ts`, `src/ui/App.tsx`, `src/ui/screens/Vuln*.tsx`, `src/ui/components/Worklist.tsx`, `src/ui/styles/screens.css`, `src/state/profile.ts`, `src/core/types.ts`, `src/core/study/scheduler.ts` (AttemptMode), `src/core/cases/templates/index.ts` (label only), `src/ui/components/Tools.tsx`, `src/ui/components/Editor.tsx`, `src/ui/screens/Help.tsx` (vuln tables per mode), `e2e/vuln.spec.ts`. Deps: WP1d.
-- Acceptance: (1) solve a case end-to-end by keyboard only (e2e); (2) axe clean on library, case, debrief in both themes; (3) 360 px: no horizontal scroll, card layout; (4) reduced motion: no reorder animation; (5) reorder announced via live region; (6) old profile fixture still coerces; (7) XP added to the shared total; (8) no XP/rank gate: on a fresh profile the Home card and cases of every tier are reachable, and the vuln library has the SOC Library's tier filter (DESIGN §7); (9) a SOC session's schema browser and autocomplete don't offer the six vuln tables, a vuln session's do, and Help marks them as vuln-mode tables. README's table count ("18 tables") is updated by the coordinator with this package.
+  As built, outside the list (coordinator-approved, reviewer sign-off on each): `src/core/vuln/worklist.ts` + `tests/vuln-worklist.test.ts`
+  (pure worklist helpers, per-mode table list, case types; unit-testable because vitest has no DOM); `src/ui/screens/Home.tsx` (the Home
+  card the goal names; vuln branch in Recent; first-run and accuracy chip from SOC attempts only, so SOC Home is unchanged);
+  `src/ui/screens/Stats.tsx` (reads SOC attempts only until WP4, one filter); `src/ui/components/Debrief.tsx` (`export` on `scoreColor`,
+  `EvidenceRows`, `StepRunner`, no behaviour change); `tests/profile.test.ts` (Tests line); `README.md` table count (coordinator).
+- Acceptance: (1) solve a case end-to-end by keyboard only (e2e); (2) axe clean on library, case, debrief in both themes; (3) 360 px: no horizontal scroll, card layout; (4) reduced motion: no reorder animation; (5) reorder announced via live region; (6) old profile fixture still coerces; (7) XP added to the shared total; (8) no XP/rank gate: on a fresh profile the Home card and cases of every tier are reachable, and the vuln library has the SOC Library's tier filter (DESIGN §7); (9) a SOC session's schema browser and autocomplete don't offer the six vuln tables, a vuln session's do, and Help marks them as vuln-mode tables. README's table count ("18 tables") is updated by the coordinator with this package;
+  (10) the worklist's default order is not derived from the answer key (not template/spec order, not truth, tiers or `idealOrder`), and
+  its columns are sortable (added 2026-09-30, human).
 - Tests: `e2e/vuln.spec.ts`; `tests/profile.test.ts` new cases. CI: none (e2e job globs `e2e/`).
 - **Slice exit**: coordinator + reviewer confirm architecture; record ADR adjustments before content batches.
 
+## WP1f — Grading and catalogue hardening (added 2026-09-30, human; ADR-20)
+- Goal: close the grading headroom and the catalogue class/vector contradictions (PROGRESS.md Known issues) before content batches;
+  rename "Quorvane"; reserved domains; verify CS0-003 objective titles against the official objectives.
+- Owner: implementer (grader, catalogue, tests); scenario-author (template data, if the new rules need it); fact-checker (names,
+  objectives); coordinator: DESIGN §5 and the §5.6 worked examples. Deps: WP1e.
+- Files: `src/core/vuln/grade.ts`, `src/core/vuln/catalogue.ts`, `tests/vuln-grading.test.ts`, `tests/vuln-catalogue.test.ts`, a new
+  hardening test over every template; template files only via the scenario-author; `docs/vuln-mgmt/DESIGN.md` §5 (coordinator).
+- Starting mechanism (the tests define done; adjust if needed): a missed schedule on a must-not-miss finding counts like a dismissal;
+  free extra pins are capped at the number of evidence points (was 4); irrelevant reason codes never score positively.
+- Acceptance, as tests run against every template: (1) the shotgun strategy (SLA-table schedule, every reason code, every row pinned)
+  fails (< 70); (2) an answer that gets only the lesson finding wrong fails (< 70); (3) the ideal answer scores ≥ 90; (4) an answer
+  that gets the lesson finding right with minor slips still passes (≥ 70); (5) the catalogue has no class/CVSS-vector contradiction and
+  a test fails the build on any; (6) "Quorvane" renamed to a name with no real-world hits (fact-checker web sweep); every generated
+  domain uses a reserved name (`.example`, `.test`, `.invalid`), fixed where not (a fix that would change SOC output goes to the human
+  first: existing SOC content stays unchanged); (7) the fact-checker tries to fetch the official CS0-003 objectives and verifies the
+  2.x/4.1 titles; if the download is gated, the item goes on the NEEDS-HUMAN-CHECK list; (8) DESIGN §5, §5.6 and the Help grading table match the grader;
+  (9) twins present the same pre-submit surface (found in WP1e): the T3 twins' first hint is shared and neutral (today hint 1 and
+  hint 3 differ per twin in `kev-internal.ts`, so revealing hint 1 tells the twin; later hints may stay twin-specific), and the twins
+  write the same row count per table (today `VulnIntel` differs on some seeds, visible in the schema browser); the `it.fails` and
+  `ROW_COUNT_GAPS` exemption in `tests/vuln-worklist.test.ts` are removed.
+- Tests: `tests/vuln-grading.test.ts`, `tests/vuln-catalogue.test.ts`, new hardening test.
+
 ## WP2 — Content batch A (twins T1, T2, T4, T5)
-- Owner: scenario-author; fact-checker + scenario-reviewer. Deps: WP1e.
+- Owner: scenario-author; fact-checker + scenario-reviewer. Deps: WP1f.
 - Acceptance: 6 new templates (completing T1, T2; T4 both; T5 both), all harness checks, fact-checker PASS, each twin's `lesson` names the clue.
 - Tests: `tests/vuln-scenarios/batch-a.test.ts`.
 
@@ -142,3 +171,10 @@ Resolved 2026-09-28 (sources in DESIGN):
   cycle" has no date. Alternatives rejected: inferring tiers from `truth.schedule` (breaks "noise = 0") or treating any
   later-than-truth schedule as an SLA breach (removes §5.3's half credit for one step late within SLA). No template existed yet;
   the builder fixture already gives `tiers`. Grading edge cases are recorded as "Clarified (WP1c)" notes in DESIGN §2.2 and §5.
+- **ADR-20 Grading and catalogue hardening before content batches (2026-09-30, human).** New package WP1f between WP1e and WP2.
+  Reason: under §5 as written, a table-blind shotgun answer passes `vm-nokev-internal` (72.2–72.8) and a learner who gets only the
+  lesson finding wrong still passes (76–94); every WP2/WP3 template would inherit both, and 26 % of catalogue entries carry a class
+  their vector contradicts. Acceptance is defined by strategy tests over every template, not by the mechanism.
+- **ADR-21 Real OS names as platform context only (2026-09-30, human).** World OS strings (`Windows Server 2022`, `Ubuntu 24.04` in
+  `DeviceInfo`) stay, on the condition that a fictional vulnerability only ever belongs to a fictional product, never to a real OS or
+  vendor. Reason: the shared SOC world must stay unchanged; the vulnerable product carries the fiction.

@@ -9,6 +9,11 @@ import { campaignSummary, nextCampaign } from '../../core/campaign/campaign.ts';
 import { ago, clock, dailySeed, plural, randomSeed } from '../lib/format.ts';
 import { ALERT_TYPES, dailyCase } from '../lib/cases.ts';
 import { useState } from 'preact/hooks';
+import { VULN_TEMPLATES } from '../../core/vuln/registry.ts';
+import { vulnCaseTypes } from '../../core/vuln/worklist.ts';
+
+const VULN_TYPES = vulnCaseTypes(VULN_TEMPLATES);
+const VULN_TIERS = [...new Set(VULN_TYPES.map((t) => t.difficulty.replace('tier', '')))].sort();
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -48,14 +53,16 @@ export function Home() {
   const [budget, setBudget] = useState<Budget>(p.settings.defaultBudget);
   const plan = studyPlan(p.cards, asStudyAttempts(p), today());
   const recent = [...p.attempts].reverse().slice(0, 6);
-  const last20 = p.attempts.slice(-20);
+  // Vulnerability attempts are listed under Recent, but the SOC first-run card and accuracy chip stay SOC-only.
+  const socAttempts = p.attempts.filter((a) => a.mode !== 'vuln');
+  const last20 = socAttempts.slice(-20);
   const accuracy = last20.length ? Math.round((last20.filter((a) => a.dispositionCorrect).length / last20.length) * 100) : null;
   const daily = dailySeed();
   const dailyDone = p.dailyDone.includes(daily);
   const shiftNo = nextShiftNumber(p);
   const s = p.activeShift;
   const camp = p.campaign ? campaignSummary(p.campaign) : null;
-  const firstRun = p.attempts.length === 0 && p.shifts.length === 0;
+  const firstRun = socAttempts.length === 0 && p.shifts.length === 0;
 
   return (
     <div class="page">
@@ -201,6 +208,33 @@ export function Home() {
             </a>
           </div>
         </section>
+
+        <section class="card home-vuln" aria-labelledby="vuln-h">
+          <div class="card-head">
+            <h2 id="vuln-h">
+              <Icon name="shield" /> Vulnerability management
+            </h2>
+          </div>
+          <p class="muted">
+            {VULN_TYPES.length} scan reviews across tier{VULN_TIERS.length === 1 ? '' : 's'} {VULN_TIERS.join(', ')}, each with endless variations. Decide, schedule and justify remediation for a scanner
+            worklist.
+          </p>
+          <div class="btn-row">
+            <button
+              type="button"
+              class="btn"
+              onClick={() => {
+                const t = VULN_TYPES[Math.floor(Math.random() * VULN_TYPES.length)];
+                navigate({ name: 'vuln-case', slug: t.slug, seed: randomSeed() });
+              }}
+            >
+              <Icon name="play" /> Random scan review
+            </button>
+            <a class="btn btn-ghost" href="#/vuln">
+              Browse vulnerability cases
+            </a>
+          </div>
+        </section>
       </div>
 
       <div class="grid grid-2" style={{ marginTop: 'var(--space-4)' }}>
@@ -213,14 +247,23 @@ export function Home() {
             <p class="muted">Nothing yet. Your cases and shifts will show up here.</p>
           ) : (
             <ul class="recent-list">
-              {recent.map((a) => (
+              {recent.map((a) =>
+                a.mode === 'vuln' ? (
+                  <li>
+                    <Icon name={a.dispositionCorrect ? 'check' : 'x'} class={a.dispositionCorrect ? 'text-ok' : 'text-bad'} label={a.dispositionCorrect ? 'Passed' : 'Below the pass mark'} />
+                    <span class="recent-title">{VULN_TYPES.find((t) => t.templates.some((x) => x.id === a.templateId))?.title ?? a.templateId}</span>
+                    <span class="mono faint">{a.percent}%</span>
+                    <span class="faint small">{ago(a.completedAt)}</span>
+                  </li>
+                ) : (
                 <li>
                   <Icon name={a.dispositionCorrect ? 'check' : 'x'} class={a.dispositionCorrect ? 'text-ok' : 'text-bad'} label={a.dispositionCorrect ? 'Right call' : 'Wrong call'} />
                   <span class="recent-title">{ALERT_TYPES.find((t) => t.templates.some((x) => x.id === a.templateId))?.title ?? a.templateId}</span>
                   <span class="mono faint">{a.percent}%</span>
                   <span class="faint small">{ago(a.completedAt)}</span>
                 </li>
-              ))}
+                ),
+              )}
             </ul>
           )}
         </section>

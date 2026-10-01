@@ -13,6 +13,8 @@ import { Intel } from './screens/Intel.tsx';
 import { Study } from './screens/Study.tsx';
 import { Stats } from './screens/Stats.tsx';
 import { Help } from './screens/Help.tsx';
+import { VulnLibrary } from './screens/VulnLibrary.tsx';
+import { VulnCase } from './screens/VulnCase.tsx';
 
 const NAV: { to: Route; label: string; icon: IconName; match: Route['name'][] }[] = [
   { to: { name: 'home' }, label: 'Console', icon: 'terminal', match: ['home'] },
@@ -29,6 +31,8 @@ const TITLES: Record<Route['name'], string> = {
   practice: 'Practice',
   case: 'Investigation',
   daily: 'Case of the day',
+  vuln: 'Vulnerability cases',
+  'vuln-case': 'Vulnerability case',
   study: 'Study',
   shift: 'Shift',
   'shift-alert': 'Shift — investigation',
@@ -50,6 +54,10 @@ function Screen({ r }: { r: Route }) {
       return <CaseScreen slug={r.slug} seed={r.seed} mode={r.study ? 'study' : 'practice'} key={`${r.slug}/${r.seed}/${r.study ? 's' : 'p'}`} />;
     case 'daily':
       return <DailyScreen />;
+    case 'vuln':
+      return <VulnLibrary />;
+    case 'vuln-case':
+      return <VulnCase slug={r.slug} seed={r.seed} key={`${r.slug}/${r.seed}`} />;
     case 'study':
       return <Study />;
     case 'shift':
@@ -162,7 +170,7 @@ export function App() {
       <main id="main" ref={mainRef} tabIndex={-1}>
         <Screen r={r} />
       </main>
-      {!['case', 'shift-alert', 'daily'].includes(r.name) && (
+      {!['case', 'shift-alert', 'daily', 'vuln-case'].includes(r.name) && (
         <footer class="site-footer">
           Every person, organisation, host, address, domain and hash here is synthetic — generated in your browser from documentation-reserved ranges and
           fictitious names. Nothing is sent anywhere; progress stays in this browser.

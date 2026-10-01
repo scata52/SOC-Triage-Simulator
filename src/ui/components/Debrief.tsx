@@ -14,11 +14,11 @@ import { Icon } from './Icon.tsx';
 import { Ring } from './ui.tsx';
 import { Results, fmtCell } from './Results.tsx';
 
-function scoreColor(pct: number): string {
+export function scoreColor(pct: number): string {
   return pct >= 85 ? 'var(--ok)' : pct >= 60 ? 'var(--warn)' : 'var(--bad)';
 }
 
-function EvidenceRows({ ids }: { ids: string[] }) {
+export function EvidenceRows({ ids }: { ids: string[] }) {
   const [rows, setRows] = useState<LookupRow[] | null>(null);
   const [open, setOpen] = useState(false);
   const toggle = async () => {
@@ -68,7 +68,7 @@ function EvidenceRows({ ids }: { ids: string[] }) {
   );
 }
 
-function StepRunner({ kql, expectEmpty }: { kql: string; expectEmpty?: boolean }) {
+export function StepRunner({ kql, expectEmpty }: { kql: string; expectEmpty?: boolean }) {
   const [res, setRes] = useState<QueryResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

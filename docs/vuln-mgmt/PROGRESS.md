@@ -34,11 +34,22 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   and fact-checker PASS; content defects found by the other reviewers fixed afterwards; reviewer re-gate PASS; fact-checker FAIL on
   two shape-table triples, fixed, then confirmed (see Decisions).
 
+- **WP1e — UI slice + accessibility** (2026-10-01). Routes `#/vuln` and `#/vuln/<slug>/<seed>`; `VulnLibrary` (the SOC Library's tier
+  filter and labels; twins share one card, the seed picks the twin), `VulnCase` (brief, worklist, console, note, submit gate,
+  debrief), `Worklist` (table above 760 px, cards at or below; sortable columns with Undo sort, Move up/down, priority input,
+  Alt+Up/Down, up to 3 reason chips, live-region announcements), `VulnDebrief`; pure helpers in `src/core/vuln/worklist.ts`. Attempts
+  are recorded as `mode: 'vuln'`, `category: 'vulnmgmt'`, with XP added to the shared total. SOC sessions no longer offer the six vuln
+  tables (schema browser, KQL autocomplete); Help marks them as vuln-only. Tests: `tests/vuln-worklist.test.ts`, vuln cases in
+  `tests/profile.test.ts`, `e2e/vuln.spec.ts` (16). 28 files / 655 tests (+1 expected fail, 4 opt-in), build ok, e2e 27/27, vuln e2e
+  80/80 over 5 repeats. Process: design spec with 3 critics; pre-gate review (5 lenses, one skeptic per finding: 7 defects confirmed,
+  fixed in one round); reviewer gate FAIL once (a Help near-miss example was reversed, fixed inline), re-gate PASS with sign-off on
+  every outside-list file. README table count updated.
+
 ## In progress
-- None. Next session starts WP1e.
+- None. Next session starts WP1f.
 
 ## Next
-- WP1e — UI slice + accessibility (slice exit review)
+- WP1f — Grading and catalogue hardening (added 2026-09-30)
 - WP2 — Content batch A (twins T1, T2, T4, T5)
 - WP3 — Content batch B (twins T6, T7, T8, T11) + tier 3 (T9, T10)
 - WP4 — Stats and study integration
@@ -174,20 +185,63 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   because fitting descriptions to arbitrary catalogue vectors kept producing oddities. Reviewer re-gate PASS; fact-checker FAIL on two
   triples ('local API' SQLi scored AV:N; web-app components in AV:L groups), fixed, then fact-checker PASS and reviewer PASS on the delta.
   The fact-checker notes "Quorvane" (the fictional web server) also names unrelated gambling domains and a hobby project: non-blocking.
+
+- 2026-09-30 (coordinator, before WP1e): session start found PLAN, PROGRESS and repo in agreement (WP0–WP1d committed, no WP1e file:
+  no `Vuln*.tsx`, `Worklist.tsx`, `e2e/vuln.spec.ts`); branch clean and in sync with origin. Human decisions on the open items, recorded:
+  1. **Grading loophole: fix it** in a new package **WP1f** (after WP1e, before WP2; ADR-20). Done = strategy tests over every
+     template: shotgun fails, only-the-lesson-wrong fails, ideal ≥ 90, lesson right with minor slips passes. Starting mechanism: a
+     missed must-not-miss schedule counts like a dismissal, free pins = number of evidence points, irrelevant codes never score
+     positively. DESIGN §5 and §5.6 follow in WP1f.
+  2. **Real OS names as platform context: confirmed** (ADR-21), on the condition that fictional vulnerabilities only ever belong to
+     fictional products, never to a real OS or vendor.
+  3. **Catalogue class/vector contradictions** are fixed in WP1f, with a test that fails the build on any contradiction.
+  4. **Worklist order** is WP1e acceptance (10): the default order is not derived from the answer key; columns are sortable.
+  5. In WP1f: rename "Quorvane" (no real-world hits), reserved domains only (`.example`, `.test`, `.invalid`), fetch the official
+     CS0-003 objectives to verify titles (NEEDS-HUMAN-CHECK if gated).
+- WP1e (coordinator): the default worklist order is **FindingId ascending** (scanner export order). FindingIds are `VF-NNNNN` drawn
+  from the scan writer's rng (`nextFindingId`), so the order carries no answer-key signal; sorting by severity or CVSS is one action
+  away. Column sort reorders the worklist itself: the table order is the submitted priority order (§7 has one order, refined by Move
+  up/down and the priority input), and each sort is announced in the live region.
+
+- WP1e (coordinator sign-off on the design spec, 2026-09-30). Deviations from DESIGN: D1 `recordVulnAttempt` instead of
+  `recordAttempt` (no SRS cards or disposition streak for vuln until WP4; `asStudyAttempts` skips vuln attempts); D2 components stored
+  under `vuln-*` keys, top-level evidence 0/0, details in optional `AttemptRecord.vuln`, so SOC Stats math is untouched; D3 a vuln
+  console (reusing `Results`, `SchemaBrowser`, `LazyEditor`, `Decoder`, `QueryHistory`, `Tabs`) instead of the SOC `Workspace`, which is
+  typed to SOC cases; D4 no live rubric before submit, whatever `showRubricLive` says (rubric texts and keyword ticks reveal schedules
+  and the twin); D5 Alt+Up/Down does not act from a `<select>` (Alt+Down opens it; Help says so); D6 a vuln-local `say()` so a
+  repeated message is spoken again; D7 the submit gate asks for a decision and a schedule on every finding, and for a control only
+  when ControlInventory has rows. Also: Stats reads SOC attempts only until WP4; Home's first-run state and accuracy chip count SOC
+  attempts only; the vuln screens must have zero axe violations of any impact (stricter than the shared SOC helper); no nav item
+  (WP6 decides); the submitted order is the table order, FP/accept rows included.
+- WP1e acceptance readings: (1) keyboard-only from the library to the debrief, including a reorder, a query, a pin and a note;
+  (3) no `<table>` at 760 px or less and no page scroll at 360 and 320 px; (4) no running animation after a move or sort, under the
+  system setting and the app's MotionPref; (8) every tier that has a template (1 and 2 today) — Tier 3 shows an empty state until WP3;
+  (10) default order = FindingId ascending, proven on a seed whose spec order is not ascending, and a column sort changes the
+  submitted order.
+- 2026-10-01: the session limit paused WP1e's pre-gate review on 2026-09-30; it resumed from the workflow cache and nothing was
+  lost. While cleaning up, `git worktree remove --force` on a review agent's scratch worktree followed its `node_modules` junction
+  and deleted part of the main `node_modules`; restored with `npm ci` from the unchanged lockfile (checks matched before and after).
+  Agents are now told not to junction worktrees.
+
 ## Known issues
-- SOC sessions now list six empty vuln tables in the schema browser, Help schema and editor autocomplete (they come from `TABLES`).
-  Scheduled in WP1e (PLAN.md acceptance 9); README.md ("18 tables", lines 46 and 156) gets the new count with WP1e (coordinator).
+- WP1e follow-ups: Stats ignores vuln attempts until WP4; the control picker with a non-empty ControlInventory has no e2e test until a
+  template writes controls (WP2, T5/T6; unit tests cover the gate branch); the query engine still knows the six vuln tables in SOC
+  sessions (empty results, a did-you-mean could name one); a "Query this finding in the console" button was dropped (WP6
+  candidate); devtools on one's own profile shows the template id of an earlier attempt of the same seed; SQL mode has no
+  autocomplete popup in either mode (pre-existing; the SQL schema map is inert); Help's "with a missing or wrong control it earns
+  half" should start "When mitigate is the answer" (WP1f item 8). Twin-telling first hint and twin `VulnIntel` row counts: WP1f
+  item 9.
 - `tests/helpers/vuln-scenario-check.ts` covers build, structure, corpus integrity, synthetic guardrails, determinism (per run since
   WP1d), solvability (optionally every evidence row) and (since WP1c) grading: perfect = 100, empty = 0.
 - The builder accepts templates whose perfect answer scores below 100: must-not-miss outside the top k of `idealOrder`; ideal
   emergency + next-window over capacity; truth schedule later than `slaLatest`; more than 3 distinct required codes; mitigate
   without a `mitigation` list; no evidence point. `checkVulnGrading` catches each of these for every template, and
   `checkVulnStructure` rejects a false positive whose schedule is not `none` (WP1d); build-time checks are optional.
-- **Catalogue class/vector pairing (WP1a, recommend fixing before WP2):** 26 % of generated catalogue entries have a class/component
+- **Catalogue class/vector pairing (WP1a; scheduled in WP1f, human 2026-09-30):** 26 % of generated catalogue entries have a class/component
   their vector contradicts (`catalogue.ts` SHAPE_DEFS pairs e.g. AV:L shapes with `rce`, PR:L/H with `auth-bypass`, AV:L with `sqli`).
   WP1d templates filter and re-describe entries through the coherence predicate in `templates/common.ts`, so no case shows one, but
   every new template depends on that filter. A catalogue fix (pair classes with the shapes the predicate allows) is outside WP1d.
-- **Grading headroom (DESIGN §5, decide at the slice exit; flagged for the human):** extra reason codes cost nothing (§5.4), a false
+- **Grading headroom (DESIGN §5; scheduled in WP1f, human 2026-09-30):** extra reason codes cost nothing (§5.4), a false
   positive scheduled standard-cycle earns 0.5 (§5.3), the irrelevant-pin penalty is capped at 5 so pinning every row earns about 10 of
   15 evidence points (§5.5), and the schedule component is an unweighted mean. The generic guard (C14, strategies a/b/c/e/f with and
   without reason spam) keeps table-blind strategies < 70 on every template; the one measured pass is `vm-nokev-internal` answered from
@@ -195,9 +249,6 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   findings by design). A learner who gets only the lesson finding wrong, with the targeted misconception, still passes (76–94). No
   template change can close this under §5. Options: weight the schedule by finding weight; treat a must-not-miss or decider
   schedule miss like a dismissal; free pins = number of evidence points.
-- **WP1e requirement:** show the worklist in a neutral order (e.g. by FindingId or scanner severity), never in template order: the
-  templates list the headline first and the ideal order early, so a learner who submits the displayed order with blanket pins and
-  reason spam reaches 71.6–75.3 on the T3 twins.
 - Minor, from the last verifier (not blocking): `vectorProblem` does not know the product kind (an AV:L "scripting console" RCE on a
   web app passes; only background rows can show it, worklist rows must match `WORKLIST_SHAPES`); some appliance low-band shapes are
   local DoS ("certificate handler", AV:L); the "3 shapes per band" test counts across kinds; the twins' FS01 login-failure row and

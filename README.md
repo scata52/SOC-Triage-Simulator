@@ -43,7 +43,8 @@ nothing leaves your machine.
 
 **A real SIEM, not a slideshow.** The console is [sql.js](https://sql.js.org)
 (SQLite compiled to WebAssembly) in a Web Worker, fed with a generated corpus
-in a Sentinel/Defender-style schema (18 tables). KQL is parsed by a Pratt
+in a Sentinel/Defender-style schema (18 SOC tables, plus 6 context tables
+in vulnerability-management mode). KQL is parsed by a Pratt
 parser and transpiled to SQLite: `where`, `project`, `extend`, `summarize`
 with `bin()`, `join`, `search`, `let`, `arg_max`, `prev()/next()`,
 `render timechart` and ~60 functions and operators, with did-you-mean errors
@@ -153,7 +154,7 @@ src/
   core/                pure TypeScript, no DOM — runs in the browser, the worker and Node
     synth/             the synthetic-data policy: address pools, fictitious orgs, names, geo, domains
     world/             the persistent organisation: people, hosts, sites, VPN, partners
-    logs/              schema (18 tables), corpus builder, noise generators with decoys
+    logs/              schema (18 SOC + 6 vuln-mgmt tables), corpus builder, noise generators with decoys
     query/             KQL lexer, parser, transpiler, reference; SQL guard; sql.js engine
     cases/             template model, picker, attacker infra, scenario builder, 25 templates
     grading/           verdict grading, indicator matching

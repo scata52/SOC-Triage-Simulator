@@ -3,14 +3,14 @@
 // domains, ATT&CK tactics and alert categories.
 
 import type { Rng } from '../rng.ts';
-import type { Category, Difficulty, Tactic } from '../types.ts';
+import type { Category, Difficulty, SocCategory, Tactic } from '../types.ts';
 import type { CaseTemplate } from '../cases/model.ts';
 import { ALL_TEMPLATES, CATEGORY_LABELS, templateById } from '../cases/templates/index.ts';
 import { TACTIC_LABELS, TACTIC_ORDER } from '../taxonomy/mitre.ts';
 import { CYSA_DOMAINS, cysaLabel } from '../taxonomy/cysa.ts';
 import { isDue, type Card } from './srs.ts';
 
-export type AttemptMode = 'practice' | 'study' | 'shift' | 'campaign';
+export type AttemptMode = 'practice' | 'study' | 'shift' | 'campaign' | 'vuln';
 
 export interface Attempt {
   templateId: string;
@@ -37,7 +37,7 @@ const RECENCY = 0.85; // each older attempt counts 85% of the next newer one
 // Benign twins and ops cases train the same judgement as the attacks they
 // resemble, so they count toward their twin's tactics — or, without a twin,
 // the tactic their alert category is about.
-const CATEGORY_TACTIC: Record<Category, Tactic> = {
+const CATEGORY_TACTIC: Record<SocCategory, Tactic> = {
   phishing: 'initial-access',
   identity: 'credential-access',
   malware: 'execution',
@@ -53,7 +53,7 @@ const CATEGORY_TACTIC: Record<Category, Tactic> = {
 export function skillTactics(t: CaseTemplate): Tactic[] {
   if (t.tactics.length) return t.tactics;
   const twin = t.twin ? templateById(t.twin) : ALL_TEMPLATES.find((x) => x.twin === t.id);
-  return twin?.tactics.length ? twin.tactics : [CATEGORY_TACTIC[t.category]];
+  return twin?.tactics.length ? twin.tactics : t.category === 'vulnmgmt' ? [] : [CATEGORY_TACTIC[t.category]];
 }
 
 function skillKeys(t: CaseTemplate): { kind: SkillKind; key: string }[] {

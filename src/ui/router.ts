@@ -7,6 +7,8 @@ export type Route =
   | { name: 'practice' }
   | { name: 'case'; slug: string; seed: string; study?: boolean }
   | { name: 'daily' }
+  | { name: 'vuln' }
+  | { name: 'vuln-case'; slug: string; seed: string }
   | { name: 'study' }
   | { name: 'shift' }
   | { name: 'shift-alert'; alertId: string }
@@ -30,6 +32,10 @@ export function parse(hash: string): Route {
       break;
     case 'daily':
       return { name: 'daily' };
+    case 'vuln':
+      if (parts[1] && parts[2]) return { name: 'vuln-case', slug: parts[1], seed: parts[2] };
+      if (!parts[1]) return { name: 'vuln' };
+      break;
     case 'study':
       return { name: 'study' };
     case 'shift':
@@ -54,6 +60,8 @@ export function href(r: Route): string {
       return '#/';
     case 'case':
       return `#/case/${encodeURIComponent(r.slug)}/${encodeURIComponent(r.seed)}${r.study ? '/study' : ''}`;
+    case 'vuln-case':
+      return `#/vuln/${encodeURIComponent(r.slug)}/${encodeURIComponent(r.seed)}`;
     case 'shift-alert':
       return `#/shift/${encodeURIComponent(r.alertId)}`;
     case 'help':

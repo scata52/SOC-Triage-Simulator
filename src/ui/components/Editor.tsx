@@ -14,6 +14,7 @@ import { TABLES } from '../../core/logs/schema.ts';
 import { TABULAR_OPERATORS } from '../../core/query/kql/parser.ts';
 import { KQL_KEYWORDS, KQL_REFERENCE, referenceNames } from '../../core/query/kql/reference.ts';
 import type { QueryLang } from '../../core/query/engine.ts';
+import { isVulnTable, tablesFor, type SchemaMode } from '../../core/vuln/worklist.ts';
 
 const TABLE_SET = new Set(TABLES.map((x) => x.name.toLowerCase()));
 const OPS = new Set<string>([...TABULAR_OPERATORS]);
@@ -70,29 +71,46 @@ function docFor(name: string): string | undefined {
   return KQL_REFERENCE.find((e) => e.name.split(/\s*\/\s*/).includes(name))?.doc;
 }
 
-const TABLE_OPTIONS: Completion[] = TABLES.map((x) => ({ label: x.name, type: 'class', detail: x.kind === 'log' ? 'log' : 'context', info: x.doc }));
+// Completion lists come from the tables of the session's mode: SOC sessions never
+// offer the six vulnerability tables (they are empty there).
+const TABLE_OPTIONS_BY_MODE = new Map<SchemaMode, Completion[]>();
+function tableOptions(mode: SchemaMode): Completion[] {
+  let o = TABLE_OPTIONS_BY_MODE.get(mode);
+  if (!o) {
+    o = tablesFor(mode).map((x) => ({ label: x.name, type: 'class', detail: isVulnTable(x.name) ? 'vuln' : x.kind === 'log' ? 'log' : 'context', info: x.doc }));
+    TABLE_OPTIONS_BY_MODE.set(mode, o);
+  }
+  return o;
+}
 const OP_OPTIONS: Completion[] = [...TABULAR_OPERATORS].map((o) => ({ label: o, type: 'keyword', info: docFor(o) }));
 const FN_OPTIONS: Completion[] = [...referenceNames('scalar'), ...referenceNames('aggregate')].filter((n, i, a) => a.indexOf(n) === i && /^[a-z_]+$/.test(n)).map((n) => ({ label: n, type: 'function', apply: `${n}(`, info: docFor(n) }));
 const KW_OPTIONS: Completion[] = [...KQL_KEYWORDS, 'contains', 'has', 'startswith', 'endswith', 'hasprefix', 'hassuffix', 'matches regex', 'in~', '!contains', '!has', '!in'].map((k) => ({ label: k, type: 'keyword' }));
 
-export function kqlComplete(ctx: CompletionContext): CompletionResult | null {
-  const word = ctx.matchBefore(/[\w!~-]*/);
-  if (!word || (word.from === word.to && !ctx.explicit)) return null;
-  const before = ctx.state.sliceDoc(0, word.from);
-  const doc = ctx.state.doc.toString();
-  // After a pipe: operators. Start of a query: tables. Otherwise columns of
-  // the tables mentioned, functions and keywords.
-  if (/\|\s*$/.test(before)) return { from: word.from, options: OP_OPTIONS, validFor: /^[\w-]*$/ };
-  if (/(^|;|\(|\n)\s*$/.test(before) && !/\|[^\n]*$/.test(before.split('\n').pop() ?? '')) {
-    return { from: word.from, options: [...TABLE_OPTIONS, { label: 'search', type: 'keyword' }, { label: 'let', type: 'keyword' }], validFor: /^\w*$/ };
-  }
-  const mentioned = TABLES.filter((x) => new RegExp(`\\b${x.name}\\b`).test(doc));
-  const cols = new Map<string, Completion>();
-  for (const tbl of mentioned.length ? mentioned : TABLES) {
-    for (const c of tbl.columns) if (!cols.has(c.name)) cols.set(c.name, { label: c.name, type: 'property', detail: c.type, info: c.doc, boost: mentioned.length ? 2 : 0 });
-  }
-  return { from: word.from, options: [...cols.values(), ...FN_OPTIONS, ...KW_OPTIONS, ...TABLE_OPTIONS], validFor: /^[\w!~-]*$/ };
+export function kqlCompleteFor(mode: SchemaMode): (ctx: CompletionContext) => CompletionResult | null {
+  const tables = tablesFor(mode);
+  const tableOpts = tableOptions(mode);
+  return (ctx) => {
+    const word = ctx.matchBefore(/[\w!~-]*/);
+    if (!word || (word.from === word.to && !ctx.explicit)) return null;
+    const before = ctx.state.sliceDoc(0, word.from);
+    const doc = ctx.state.doc.toString();
+    // After a pipe: operators. Start of a query: tables. Otherwise columns of
+    // the tables mentioned, functions and keywords.
+    if (/\|\s*$/.test(before)) return { from: word.from, options: OP_OPTIONS, validFor: /^[\w-]*$/ };
+    if (/(^|;|\(|\n)\s*$/.test(before) && !/\|[^\n]*$/.test(before.split('\n').pop() ?? '')) {
+      return { from: word.from, options: [...tableOpts, { label: 'search', type: 'keyword' }, { label: 'let', type: 'keyword' }], validFor: /^\w*$/ };
+    }
+    const mentioned = tables.filter((x) => new RegExp(`\\b${x.name}\\b`).test(doc));
+    const cols = new Map<string, Completion>();
+    for (const tbl of mentioned.length ? mentioned : tables) {
+      for (const c of tbl.columns) if (!cols.has(c.name)) cols.set(c.name, { label: c.name, type: 'property', detail: c.type, info: c.doc, boost: mentioned.length ? 2 : 0 });
+    }
+    return { from: word.from, options: [...cols.values(), ...FN_OPTIONS, ...KW_OPTIONS, ...tableOpts], validFor: /^[\w!~-]*$/ };
+  };
 }
+
+export const kqlComplete = kqlCompleteFor('soc');
+const COMPLETE_BY_MODE: Record<SchemaMode, (ctx: CompletionContext) => CompletionResult | null> = { soc: kqlComplete, vuln: kqlCompleteFor('vuln') };
 
 const setError = StateEffect.define<{ from: number; to: number } | null>();
 const errorField = StateField.define<DecorationSet>({
@@ -134,13 +152,13 @@ const theme = EditorView.theme({
   '.cm-completionDetail': { color: 'var(--text-faint)', fontStyle: 'normal', marginLeft: '8px' },
 });
 
-function langExtension(lang: QueryLang): Extension {
+function langExtension(lang: QueryLang, mode: SchemaMode): Extension {
   if (lang === 'sql') {
     const schema: Record<string, string[]> = {};
-    for (const x of TABLES) schema[x.name] = x.columns.map((c) => c.name);
+    for (const x of tablesFor(mode)) schema[x.name] = x.columns.map((c) => c.name);
     return sql({ dialect: SQLite, schema, upperCaseKeywords: true });
   }
-  return [kqlLanguage, autocompletion({ override: [kqlComplete], icons: false })];
+  return [kqlLanguage, autocompletion({ override: [COMPLETE_BY_MODE[mode]], icons: false })];
 }
 
 export interface EditorHandle {
@@ -163,6 +181,7 @@ export function Editor({
   placeholder,
   handle,
   label,
+  schemaMode = 'soc',
 }: {
   initial: string;
   lang: QueryLang;
@@ -172,6 +191,7 @@ export function Editor({
   placeholder?: string;
   handle?: (h: EditorHandle) => void;
   label: string;
+  schemaMode?: SchemaMode;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -192,7 +212,7 @@ export function Editor({
           bracketMatching(),
           closeBrackets(),
           syntaxHighlighting(highlight),
-          langComp.current.of(langExtension(lang)),
+          langComp.current.of(langExtension(lang, schemaMode)),
           errorField,
           theme,
           EditorView.lineWrapping,
@@ -228,8 +248,8 @@ export function Editor({
   }, []);
 
   useEffect(() => {
-    view.current?.dispatch({ effects: langComp.current.reconfigure(langExtension(lang)) });
-  }, [lang]);
+    view.current?.dispatch({ effects: langComp.current.reconfigure(langExtension(lang, schemaMode)) });
+  }, [lang, schemaMode]);
 
   useEffect(() => {
     view.current?.dispatch({ effects: setError.of(error) });

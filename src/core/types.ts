@@ -32,7 +32,11 @@ export type Category =
   | 'lateral'
   | 'persistence'
   | 'c2'
-  | 'ransomware';
+  | 'ransomware'
+  | 'vulnmgmt';
+
+// The alert categories of SOC cases (vulnerability cases have their own).
+export type SocCategory = Exclude<Category, 'vulnmgmt'>;
 
 export interface MitreTechnique {
   id: string;
