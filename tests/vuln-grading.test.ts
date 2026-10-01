@@ -1,5 +1,5 @@
-// WP1c: the vulnerability-management grader (DESIGN section 5, its "Clarified
-// (WP1c)" notes and ADR-19). Cases are built by hand, so each test isolates one
+// WP1c, WP1f: the vulnerability-management grader (DESIGN section 5, its
+// "Clarified (WP1c)" notes, ADR-19 and the WP1f lesson gate of section 5.8, ADR-22). Cases are built by hand, so each test isolates one
 // rule; the generated tier-3 fixture proves perfect = 100 and empty = 0 on a
 // real corpus.
 import { describe, expect, it } from 'vitest';
@@ -27,7 +27,7 @@ function calendar(capacityPerWindow: number): ResolvedVulnCase['constraints'] {
 }
 
 function finding(findingId: string, truth: Partial<FindingTruth> = {}, over: Partial<ResolvedVulnFinding> = {}): ResolvedVulnFinding {
-  return { findingId, recordId: `VF-${findingId}`, truth: { decision: 'patch', schedule: 'next-window', reasons: [], ...truth }, weight: 1, mustNotMiss: false, evidence: [], ...over };
+  return { findingId, recordId: `VF-${findingId}`, truth: { decision: 'patch', schedule: 'next-window', reasons: [], ...truth }, weight: 1, mustNotMiss: false, lesson: false, evidence: [], ...over };
 }
 
 const point = (id: string, ...recordIds: string[]) => ({ id, label: `Point ${id}`, why: `Why ${id}`, recordIds });
@@ -111,7 +111,7 @@ function deepFreeze<T>(x: T): T {
 function example(): ResolvedVulnCase {
   return vcase(
     [
-      finding('F1', { decision: 'patch', schedule: 'emergency', slaLatest: 'emergency', reasons: ['known-exploited', 'public-exploit'] }, { weight: 3, mustNotMiss: true, evidence: [point('kev', 'REC-KEV')] }),
+      finding('F1', { decision: 'patch', schedule: 'emergency', slaLatest: 'emergency', reasons: ['known-exploited', 'public-exploit'] }, { weight: 3, mustNotMiss: true, lesson: true, evidence: [point('kev', 'REC-KEV')] }),
       finding('F2', { decision: 'patch', schedule: 'standard-cycle', reasons: ['low-exploitability'] }),
       finding('F3', { decision: 'false-positive', schedule: 'none', reasons: ['stale-scan'] }, { evidence: [point('patched', 'REC-PATCH')] }),
       finding('F4', { decision: 'patch', schedule: 'next-window', reasons: ['low-exploitability'] }, { evidence: [point('epss', 'REC-DEVICE')] }),
@@ -149,32 +149,36 @@ describe('DESIGN 5.6 worked examples', () => {
       ['evidence', 15, 15, true],
     ]);
     expect(g.ndcg).toBeCloseTo(1, 12);
-    expect(g.mustNotMiss).toEqual({ dismissed: [], outsideTopK: [], decisionPenalty: 0, orderingPenalty: 0 });
+    expect(g.mustNotMiss).toEqual({ dismissed: [], late: [], outsideTopK: [], decisionPenalty: 0, orderingPenalty: 0 });
     expect(g.overflow).toEqual([]);
+    expect(g.gate).toEqual({ missed: [], cap: null, uncapped: 100 });
     expect(g.findings.map((f) => [f.decision.verdict, f.schedule.verdict])).toEqual(Array(4).fill(['exact', 'exact']));
+    expect(g.findings.map((f) => [f.lesson, f.key, f.keyMiss])).toEqual([[true, true, null], [false, false, null], [false, false, null], [false, false, null]]);
     expectPerfectDetails(g);
   });
 
-  it('the sort-by-CVSS analyst scores 57.3', () => {
+  it('the sort-by-CVSS analyst scores 52.3, and F1 is left open (past its SLA) at -5', () => {
     const g = gradeVulnCase(c, sortByCvss());
-    expect(earned(g, 'decisions')).toBe(33.3);
+    expect(earned(g, 'decisions')).toBe(28.3); // 40 x 5/6 - 5
     expect(g.ndcg).toBeCloseTo(0.698, 3);
     expect(earned(g, 'ordering')).toBe(14);
     expect(earned(g, 'schedule')).toBe(5);
     expect(earned(g, 'justification')).toBe(0);
     expect(earned(g, 'evidence')).toBe(5);
-    expect(g.score).toBeCloseTo(57.3, 1);
-    expect(Math.abs(g.score - 57.3)).toBeLessThanOrEqual(0.5);
-    expect(g.percent).toBe(57);
-    // F1 is in the top two places, so no must-not-miss penalty; three windows are in use, within the capacity of 3.
-    expect(g.mustNotMiss).toEqual({ dismissed: [], outsideTopK: [], decisionPenalty: 0, orderingPenalty: 0 });
+    expect(g.score).toBe(52.3);
+    expect(g.percent).toBe(52);
+    // F1 is in the top two places, so no ordering penalty; three windows are in use, within the capacity of 3.
+    expect(g.mustNotMiss).toEqual({ dismissed: [], late: ['F1'], outsideTopK: [], decisionPenalty: 5, orderingPenalty: 0 });
+    // F1 is a missed key finding (later than its SLA), but 52.3 is already under the cap of 60.
+    expect(g.gate).toEqual({ missed: [{ findingId: 'F1', lesson: true, mustNotMiss: true, why: 'late' }], cap: 60, uncapped: 52.3 });
     expect(g.overflow).toEqual([]);
     expect(g.findings.map((f) => f.decision.verdict)).toEqual(['exact', 'exact', 'wrong', 'exact']);
+    // F3's schedule would be "wrong" anyway; its decision earned 0, so it reads "no credit" only where it had credit to lose.
     expect(g.findings.map((f) => f.schedule.verdict)).toEqual(['sla-breach', 'exact', 'wrong', 'exact']);
     expect(g.findings.map((f) => f.position)).toEqual([1, 3, 0, 2]);
     expect(g.findings.map((f) => f.relevance)).toEqual([3, 1, 0, 2]);
     expect(g.components.map((x) => x.detail)).toEqual([
-      '3 of 4 decided right; 1 wrong.',
+      '3 of 4 decided right; 1 wrong; 1 real must-not-miss finding left open: dismissed as false positive or not fixed within the SLA (−5).',
       'Your order earned 69% of the ideal urgency score.', // 0.698, rounded down: 100% is kept for a perfect order
       '2 of 4 scheduled right; 1 later than the SLA allows; 1 wrong.',
       '0 of 4 findings fully justified.',
@@ -182,21 +186,41 @@ describe('DESIGN 5.6 worked examples', () => {
     ]);
   });
 
-  it('dismissing F1 as a false positive: decisions exactly 15, must-not-miss ordering penalty exactly 4', () => {
-    const g = gradeVulnCase(
-      c,
-      submit({ F1: { decision: 'false-positive' }, F2: { decision: 'patch' }, F3: { decision: 'false-positive' }, F4: { decision: 'patch' } }, { order: ['F4', 'F2'] }),
-    );
+  it('dismissing F1 as a false positive: 52.1, no variant passes, F1 leads the debrief', () => {
+    // Everything else perfect, F1 unranked and without reasons.
+    const p = perfectVulnSubmission(c);
+    const g = gradeVulnCase(c, { ...p, answers: { ...p.answers, F1: { decision: 'false-positive', control: null, schedule: 'none', reasons: [] } }, order: ['F4', 'F2'] });
     expect(earned(g, 'decisions')).toBe(15); // 40 * 3/6 - 5
-    expect(g.mustNotMiss).toEqual({ dismissed: ['F1'], outsideTopK: ['F1'], decisionPenalty: 5, orderingPenalty: 4 });
+    expect(earned(g, 'schedule')).toBe(7.5); // F1's decision earns 0, so does its schedule
+    expect(earned(g, 'justification')).toBe(7.5);
+    expect(earned(g, 'evidence')).toBe(15);
+    expect(g.score).toBe(52.1);
+    expect(g.gate).toEqual({ missed: [{ findingId: 'F1', lesson: true, mustNotMiss: true, why: 'wrong-decision' }], cap: 60, uncapped: 52.1 });
+    expect(g.mustNotMiss).toEqual({ dismissed: ['F1'], late: [], outsideTopK: ['F1'], decisionPenalty: 5, orderingPenalty: 4 });
     expect(g.findings[0].decision).toEqual({ given: 'false-positive', truth: 'patch', credit: 0, verdict: 'wrong' });
     // Ordering: 20 x nDCG of [F4, F2] with F1 left out, less the 4 points.
     const ndcg = ndcgOf([[3, null], [2, 0], [1, 1], [0, null]]);
     expect(g.ndcg).toBeCloseTo(ndcg, 12);
     expect(earned(g, 'ordering')).toBe(round1(20 * ndcg - 4));
     expect(earned(g, 'ordering')).toBe(7.1);
-    expect(part(g, 'decisions').detail).toBe('3 of 4 decided right; 1 wrong; 1 real must-not-miss finding dismissed as false positive (−5).');
+    expect(part(g, 'decisions').detail).toBe('3 of 4 decided right; 1 wrong; 1 real must-not-miss finding left open: dismissed as false positive or not fixed within the SLA (−5).');
     expect(part(g, 'ordering').detail).toBe('Your order earned 55% of the ideal urgency score; 1 must-not-miss finding outside the top 2 (−4).');
+  });
+
+  it('answering F1 like its twin (patch, standard cycle, the twin\'s reason) is 83.4 before the cap and 60 after it', () => {
+    const p = perfectVulnSubmission(c);
+    const g = gradeVulnCase(c, {
+      ...p,
+      answers: { ...p.answers, F1: { decision: 'patch', control: null, schedule: 'standard-cycle', reasons: ['low-exploitability'] } },
+      order: ['F4', 'F1', 'F2', 'F3'],
+    });
+    expect(g.components.map((x) => x.earned)).toEqual([35, 18.4, 7.5, 7.5, 15]);
+    expect(g.gate).toEqual({ missed: [{ findingId: 'F1', lesson: true, mustNotMiss: true, why: 'late' }], cap: 60, uncapped: 83.4 });
+    expect(g.mustNotMiss.late).toEqual(['F1']);
+    expect(g.findings[0].reasons).toMatchObject({ matched: [], contradicting: [], unneeded: ['low-exploitability'], credit: 0 }); // the example gives F1 no contradicting list
+    expect(g.score).toBe(60);
+    expect(g.percent).toBe(60);
+    expect(g.xp).toBe(Math.round(60 * DIFFICULTY_MULTIPLIER.tier1));
   });
 
   it('an empty submission scores 0', () => {
@@ -358,7 +382,8 @@ describe('false positive on a must-not-miss finding (DESIGN 5.1)', () => {
   // Three must-not-miss findings and seven ordinary ones, all weight 1, all patch.
   const ids = ['M1', 'M2', 'M3', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'];
   const c = vcase(ids.map((id) => finding(id, {}, { mustNotMiss: id.startsWith('M') })));
-  const grade = (given: Record<string, VulnDecision>) => gradeVulnCase(c, submit(Object.fromEntries(ids.map((id) => [id, { decision: given[id] ?? 'patch' }]))));
+  const grade = (given: Record<string, VulnDecision>) =>
+    gradeVulnCase(c, submit(Object.fromEntries(ids.map((id) => [id, { decision: given[id] ?? 'patch', schedule: 'next-window' as const }]))));
 
   it('takes 5 for one, 10 for two, and stops at 10 for three', () => {
     const one = grade({ M1: 'false-positive' });
@@ -388,6 +413,50 @@ describe('false positive on a must-not-miss finding (DESIGN 5.1)', () => {
     expect(g.mustNotMiss.dismissed).toEqual([]);
   });
 
+  it('also takes 5 for a real must-not-miss finding left unscheduled, or scheduled later than its SLA, and keeps its decision credit', () => {
+    const open = (m: Partial<VulnFindingAnswer>, slaLatest?: VulnSchedule) =>
+      gradeVulnCase(vcase([finding('M', { slaLatest }, { mustNotMiss: true }), finding('P')]), submit({ M: { decision: 'patch', ...m }, P: { decision: 'patch', schedule: 'next-window' } }));
+    const unscheduled = open({});
+    expect(earned(unscheduled, 'decisions')).toBe(35); // full credit 40, left open -5
+    expect(unscheduled.mustNotMiss).toMatchObject({ late: ['M'], dismissed: [], decisionPenalty: 5 });
+    expect(unscheduled.findings[0].decision.credit).toBe(1);
+    const late = open({ schedule: 'standard-cycle' }, 'next-window');
+    expect(late.mustNotMiss).toMatchObject({ late: ['M'], decisionPenalty: 5 });
+    expect(open({ schedule: 'next-window' }, 'next-window').mustNotMiss).toMatchObject({ late: [], decisionPenalty: 0 }); // on the limit: in time
+    expect(open({ schedule: 'standard-cycle' }).mustNotMiss).toMatchObject({ late: [], decisionPenalty: 0 }); // no limit: only unscheduled counts
+    // A false-positive truth is not real, so it is never left open; neither is an ordinary finding.
+    const fp = gradeVulnCase(vcase([finding('M', { decision: 'false-positive', schedule: 'none' }, { mustNotMiss: true })]), submit({ M: { decision: 'false-positive' } }));
+    expect(fp.mustNotMiss.late).toEqual([]);
+    expect(gradeVulnCase(vcase([finding('P')]), submit({ P: { decision: 'patch' } })).mustNotMiss.late).toEqual([]);
+    // Dismissed and late findings share the cap of 10: three left open cost 10, not 15.
+    const three = vcase(['M1', 'M2', 'M3'].map((id) => finding(id, {}, { mustNotMiss: true })).concat(finding('P1'), finding('P2'), finding('P3'), finding('P4'), finding('P5'), finding('P6'), finding('P7')));
+    const mixed = gradeVulnCase(three, submit({ M1: { decision: 'false-positive', schedule: 'next-window' }, M2: { decision: 'patch' }, M3: { decision: 'patch' }, ...Object.fromEntries(['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'].map((id) => [id, { decision: 'patch' as const, schedule: 'next-window' as const }])) }));
+    expect(mixed.mustNotMiss).toMatchObject({ dismissed: ['M1'], late: ['M2', 'M3'], decisionPenalty: 10 });
+    expect(earned(mixed, 'decisions')).toBe(26); // 40 x 9/10 = 36, less the capped 10
+  });
+
+  it('leaves a must-not-miss finding unscheduled only when its truth schedule is not none: no penalty and no gate for a none truth', () => {
+    const grade = (truth: Partial<FindingTruth>) =>
+      gradeVulnCase(vcase([finding('M', truth, { mustNotMiss: true }), finding('P')]), submit({ M: { decision: truth.decision ?? 'patch' }, P: { decision: 'patch', schedule: 'next-window' } }));
+    // Truth none (an accepted risk): nothing to schedule, so leaving it unscheduled is right.
+    const none = grade({ decision: 'accept', schedule: 'none' });
+    expect(none.mustNotMiss).toMatchObject({ late: [], dismissed: [], decisionPenalty: 0 });
+    expect(none.gate.missed).toEqual([]);
+    expect(none.findings[0].keyMiss).toBeNull();
+    // Truth not none: unscheduled is left open (-5) and a missed key finding.
+    const real = grade({ decision: 'patch', schedule: 'next-window' });
+    expect(real.mustNotMiss).toMatchObject({ late: ['M'], decisionPenalty: 5 });
+    expect(real.gate.missed).toEqual([{ findingId: 'M', lesson: false, mustNotMiss: true, why: 'unscheduled' }]);
+    expect(real.gate.cap).toBe(60);
+    // Truth none with an SLA: scheduled past it is not left open either (5.1): no penalty, no gate.
+    const noneLate = gradeVulnCase(
+      vcase([finding('M', { decision: 'accept', schedule: 'none', slaLatest: 'next-window' }, { mustNotMiss: true }), finding('P')]),
+      submit({ M: { decision: 'accept', schedule: 'standard-cycle' }, P: { decision: 'patch', schedule: 'next-window' } }),
+    );
+    expect(noneLate.mustNotMiss).toMatchObject({ late: [], dismissed: [], decisionPenalty: 0 });
+    expect(noneLate.gate.missed).toEqual([]);
+  });
+
   it('cannot take the component below 0', () => {
     const only = vcase([finding('M1', {}, { mustNotMiss: true })]);
     const g = gradeVulnCase(only, submit({ M1: { decision: 'false-positive' } }));
@@ -402,7 +471,7 @@ describe('schedule', () => {
   // The truth decision is explicit because rule d asks whether the finding is real. `grade` is a real
   // finding that needs a fix (patch); `gradeAs` names another decision.
   const gradeAs = (decision: VulnDecision, truth: VulnSchedule, given: VulnSchedule | null, slaLatest?: VulnSchedule) =>
-    gradeOne({ decision, schedule: truth, slaLatest }, { schedule: given }).f.schedule;
+    gradeOne({ decision, schedule: truth, slaLatest }, { decision, schedule: given }).f.schedule;
   const grade = (truth: VulnSchedule, given: VulnSchedule | null, slaLatest?: VulnSchedule) => gradeAs('patch', truth, given, slaLatest);
 
   // truth (row: decision and schedule) x given schedule (column), no SLA limit: exact 1; one step off 0.5; an
@@ -453,7 +522,7 @@ describe('schedule', () => {
 
   it('rule b: a null limit is not set, like an absent one', () => {
     // A stored case can hold null where the type says "absent"; that must not read as a limit earlier than every choice.
-    const gradeNull = (truth: VulnSchedule, given: VulnSchedule) => gradeOne({ schedule: truth, slaLatest: null } as unknown as Partial<FindingTruth>, { schedule: given }).f.schedule;
+    const gradeNull = (truth: VulnSchedule, given: VulnSchedule) => gradeOne({ schedule: truth, slaLatest: null } as unknown as Partial<FindingTruth>, { decision: 'patch', schedule: given }).f.schedule;
     expect(gradeNull('next-window', 'standard-cycle')).toEqual({ given: 'standard-cycle', truth: 'next-window', credit: 0.5, verdict: 'one-step' });
     expect(gradeNull('next-window', 'next-window')).toMatchObject({ credit: 1, verdict: 'exact' });
     expect(gradeNull('emergency', 'none')).toMatchObject({ credit: 0, verdict: 'wrong' }); // not a breach
@@ -497,8 +566,8 @@ describe('schedule', () => {
   it('is an unweighted mean over all findings', () => {
     const c = vcase([finding('A', {}, { weight: 3 }), finding('B', {}, { weight: 1 }), finding('C'), finding('D')]);
     // A exact, the others not set: 10 x 1/4 whatever A's weight.
-    expect(earned(gradeVulnCase(c, submit({ A: { schedule: 'next-window' } })), 'schedule')).toBe(2.5);
-    expect(earned(gradeVulnCase(c, submit({ B: { schedule: 'next-window' } })), 'schedule')).toBe(2.5);
+    expect(earned(gradeVulnCase(c, submit({ A: { decision: 'patch', schedule: 'next-window' } })), 'schedule')).toBe(2.5);
+    expect(earned(gradeVulnCase(c, submit({ B: { decision: 'patch', schedule: 'next-window' } })), 'schedule')).toBe(2.5);
   });
 });
 
@@ -543,7 +612,7 @@ describe('schedule capacity', () => {
 
   it('keeps the verdict of a finding that already scored 0, a breach or a wrong answer, and still lists it as overflow', () => {
     const c = vcase([finding('A'), finding('B', { schedule: 'emergency', slaLatest: 'emergency' }), finding('C', { schedule: 'none' })], { constraints: calendar(1), tiers: [['A'], ['B'], ['C']] });
-    const submission = submit({ A: { schedule: 'next-window' }, B: { schedule: 'next-window' }, C: { schedule: 'next-window' } }, { order: ['A', 'B', 'C'] });
+    const submission = submit({ A: { decision: 'patch', schedule: 'next-window' }, B: { decision: 'patch', schedule: 'next-window' }, C: { decision: 'patch', schedule: 'next-window' } }, { order: ['A', 'B', 'C'] });
     // Before capacity: A exact, B a breach of its SLA, C wrong.
     const before = gradeVulnCase({ ...c, constraints: calendar(3) }, submission);
     expect(before.findings.map((f) => f.schedule.verdict)).toEqual(['exact', 'sla-breach', 'wrong']);
@@ -560,7 +629,7 @@ describe('schedule capacity', () => {
   it('says "overflow" for a finding whose credit capacity took away, half credit included', () => {
     // A is exact, B one step off (half credit), C an emergency change nobody needed (half credit); capacity 1 keeps A only.
     const c = vcase([finding('A'), finding('B', { schedule: 'standard-cycle' }), finding('C')], { constraints: calendar(1), tiers: [['A'], ['B'], ['C']] });
-    const submission = submit({ A: { schedule: 'next-window' }, B: { schedule: 'next-window' }, C: { schedule: 'emergency' } }, { order: ['A', 'B', 'C'] });
+    const submission = submit({ A: { decision: 'patch', schedule: 'next-window' }, B: { decision: 'patch', schedule: 'next-window' }, C: { decision: 'patch', schedule: 'emergency' } }, { order: ['A', 'B', 'C'] });
     expect(gradeVulnCase({ ...c, constraints: calendar(3) }, submission).findings.map((f) => [f.schedule.verdict, f.schedule.credit])).toEqual([['exact', 1], ['one-step', 0.5], ['emergency-unjustified', 0.5]]);
     const g = gradeVulnCase(c, submission);
     expect(g.overflow).toEqual(['C', 'B']);
@@ -572,7 +641,7 @@ describe('schedule capacity', () => {
   it('puts relevance before the learner\'s order: the less urgent finding overflows even when it was ranked first', () => {
     // A is tier 1, B tier 2, but B was put first. Rank only breaks a tie in relevance.
     const c = vcase([finding('A'), finding('B')], { tiers: [['A'], ['B']], constraints: calendar(1) });
-    const g = gradeVulnCase(c, submit({ A: { schedule: 'next-window' }, B: { schedule: 'next-window' } }, { order: ['B', 'A'] }));
+    const g = gradeVulnCase(c, submit({ A: { decision: 'patch', schedule: 'next-window' }, B: { decision: 'patch', schedule: 'next-window' } }, { order: ['B', 'A'] }));
     expect(g.findings.map((f) => f.position)).toEqual([1, 0]);
     expect(g.overflow).toEqual(['B']);
     expect(g.findings.map((f) => f.schedule.verdict)).toEqual(['exact', 'overflow']);
@@ -629,7 +698,7 @@ describe('ordering', () => {
     const ndcgFor = (order: string[]) => ndcgOf(['M1', 'M2', 'X', 'Y', 'Z'].map((id, i): [number, number | null] => [relevance[i], order.includes(id) ? order.indexOf(id) : null]));
 
     it('takes 4 points for each one outside the top k, and none inside it', () => {
-      expect(rank(['M1', 'M2', 'X', 'Y', 'Z']).mustNotMiss).toEqual({ dismissed: [], outsideTopK: [], decisionPenalty: 0, orderingPenalty: 0 });
+      expect(rank(['M1', 'M2', 'X', 'Y', 'Z']).mustNotMiss).toMatchObject({ outsideTopK: [], orderingPenalty: 0 });
       const third = rank(['M1', 'X', 'M2', 'Y', 'Z']); // M2 in place 3 of 3: inside
       expect(third.mustNotMiss.outsideTopK).toEqual([]);
       expect(earned(third, 'ordering')).toBe(round1(20 * ndcgFor(['M1', 'X', 'M2', 'Y', 'Z'])));
@@ -667,7 +736,7 @@ describe('ordering', () => {
       // M, X and Y are all tier 1 but only M must not be missed: k = 2, so M in place 3 is outside.
       const tied = vcase(['M', 'X', 'Y'].map((id) => finding(id, {}, { mustNotMiss: id === 'M' })), { tiers: [['M', 'X', 'Y']] });
       const g = gradeVulnCase(tied, submit({}, { order: ['X', 'Y', 'M'] }));
-      expect(g.mustNotMiss).toEqual({ dismissed: [], outsideTopK: ['M'], decisionPenalty: 0, orderingPenalty: 4 });
+      expect(g.mustNotMiss).toMatchObject({ dismissed: [], outsideTopK: ['M'], orderingPenalty: 4 });
       expect(g.ndcg).toBeCloseTo(1, 12); // a tie inside a tier is free: the penalty is the whole loss
       expect(earned(g, 'ordering')).toBe(16);
       expect(part(g, 'ordering').detail).toBe('Your order earned 100% of the ideal urgency score; 1 must-not-miss finding outside the top 2 (−4).');
@@ -690,7 +759,7 @@ describe('ordering', () => {
     it('applies nothing else: no nDCG and no must-not-miss penalty', () => {
       const g = gradeVulnCase(none, submit({ A: { decision: 'false-positive' } }));
       expect(g.ndcg).toBeNull();
-      expect(g.mustNotMiss).toEqual({ dismissed: [], outsideTopK: [], decisionPenalty: 0, orderingPenalty: 0 });
+      expect(g.mustNotMiss).toEqual({ dismissed: [], late: [], outsideTopK: [], decisionPenalty: 0, orderingPenalty: 0 });
       expect(part(g, 'ordering').ok).toBe(true);
     });
 
@@ -760,23 +829,41 @@ describe('justification', () => {
   const grade = (truth: Partial<FindingTruth>, reasons: string[], over: Partial<VulnFindingAnswer> = {}) =>
     gradeOne({ decision: 'patch', ...truth }, { decision: 'patch', reasons: reasons as ReasonCode[], ...over });
 
-  it('is |given and required| / |required|, and codes outside the list are free', () => {
+  it('is |given and required| / min(|required|, 3), and a code outside the list never raises it', () => {
     const t = { reasons: ['known-exploited', 'public-exploit'] as ReasonCode[] };
     expect(grade(t, ['known-exploited', 'public-exploit']).f.reasons.credit).toBe(1);
     expect(grade(t, ['known-exploited']).f.reasons.credit).toBe(0.5);
-    expect(grade(t, ['known-exploited', 'banner-only']).f.reasons.credit).toBe(0.5);
+    expect(grade(t, ['known-exploited', 'banner-only']).f.reasons.credit).toBe(0.25); // 0.5, less a quarter for the unneeded code
+    expect(grade(t, ['known-exploited', 'public-exploit', 'banner-only']).f.reasons.credit).toBe(0.75);
     expect(grade(t, ['banner-only']).f.reasons.credit).toBe(0);
     expect(grade(t, []).f.reasons.credit).toBe(0);
     expect(earned(grade(t, ['known-exploited']).g, 'justification')).toBe(7.5);
-    expect(grade(t, ['public-exploit', 'banner-only']).f.reasons).toEqual({ given: ['public-exploit', 'banner-only'], matched: ['public-exploit'], missed: ['known-exploited'], contradicting: [], credit: 0.5 });
+    expect(grade(t, ['public-exploit', 'banner-only']).f.reasons).toEqual({ given: ['public-exploit', 'banner-only'], matched: ['public-exploit'], missed: ['known-exploited'], contradicting: [], unneeded: ['banner-only'], credit: 0.25, zeroed: false });
   });
 
-  it('takes a quarter off for each contradicting code and clamps at 0', () => {
+  it('divides by the three codes that can count, not by a longer list of required codes', () => {
+    const t = { reasons: ['known-exploited', 'public-exploit', 'internet-exposed', 'critical-asset'] as ReasonCode[] };
+    expect(grade(t, ['known-exploited', 'public-exploit', 'internet-exposed']).f.reasons.credit).toBe(1);
+    expect(grade(t, ['known-exploited', 'public-exploit']).f.reasons.credit).toBeCloseTo(2 / 3, 12);
+    expect(grade(t, ['known-exploited', 'public-exploit', 'banner-only']).f.reasons.credit).toBeCloseTo(2 / 3 - 0.25, 12);
+  });
+
+  it('takes a quarter off each unneeded code (counted, neither required nor contradicting) and half off each contradicting one', () => {
+    const t = { reasons: ['known-exploited'] as ReasonCode[], contradicting: ['stale-scan'] as ReasonCode[] };
+    expect(grade(t, ['known-exploited', 'banner-only']).f.reasons).toMatchObject({ unneeded: ['banner-only'], contradicting: [], credit: 0.75 });
+    expect(grade(t, ['known-exploited', 'banner-only', 'internet-exposed']).f.reasons).toMatchObject({ unneeded: ['banner-only', 'internet-exposed'], credit: 0.5 });
+    expect(grade(t, ['known-exploited', 'stale-scan']).f.reasons).toMatchObject({ unneeded: [], contradicting: ['stale-scan'], credit: 0.5 });
+    expect(grade(t, ['known-exploited', 'stale-scan', 'banner-only']).f.reasons.credit).toBe(0.25);
+    expect(part(grade(t, ['banner-only']).g, 'justification').detail).toBe('0 of 1 findings fully justified; 1 reason not needed for its finding (−0.25 each).');
+    expect(part(grade(t, ['stale-scan']).g, 'justification').detail).toBe('0 of 1 findings fully justified; 1 reason contradicted the evidence (−0.5 each).');
+  });
+
+  it('takes half off for each contradicting code and clamps at 0', () => {
     const t = { reasons: ['known-exploited', 'public-exploit'] as ReasonCode[], contradicting: ['stale-scan', 'banner-only'] as ReasonCode[] };
-    expect(grade(t, ['known-exploited', 'public-exploit', 'stale-scan']).f.reasons.credit).toBe(0.75);
-    expect(grade(t, ['known-exploited', 'stale-scan', 'banner-only']).f.reasons.credit).toBe(0); // 0.5 - 0.5
-    expect(grade(t, ['known-exploited', 'stale-scan']).f.reasons.credit).toBe(0.25);
-    expect(grade(t, ['stale-scan', 'banner-only']).f.reasons.credit).toBe(0); // 0 - 0.5, clamped: never negative
+    expect(grade(t, ['known-exploited', 'public-exploit', 'stale-scan']).f.reasons.credit).toBe(0.5);
+    expect(grade(t, ['known-exploited', 'stale-scan', 'banner-only']).f.reasons.credit).toBe(0); // 0.5 - 1, clamped
+    expect(grade(t, ['known-exploited', 'stale-scan']).f.reasons.credit).toBe(0); // 0.5 - 0.5
+    expect(grade(t, ['stale-scan', 'banner-only']).f.reasons.credit).toBe(0); // 0 - 1, clamped: never negative
     const g = grade(t, ['stale-scan']);
     expect(g.f.reasons).toMatchObject({ contradicting: ['stale-scan'], credit: 0 });
     expect(earned(g.g, 'justification')).toBe(0);
@@ -792,10 +879,10 @@ describe('justification', () => {
     // The fourth code is ignored, whether it would help or hurt.
     const fourth = grade(t, ['banner-only', 'internet-exposed', 'critical-asset', 'known-exploited', 'public-exploit']);
     expect(fourth.f.reasons).toMatchObject({ given: ['banner-only', 'internet-exposed', 'critical-asset'], matched: [], credit: 0 });
-    expect(grade(t, ['known-exploited', 'banner-only', 'internet-exposed', 'stale-scan']).f.reasons).toMatchObject({ contradicting: [], credit: 0.5 });
+    expect(grade(t, ['known-exploited', 'banner-only', 'internet-exposed', 'stale-scan']).f.reasons).toMatchObject({ contradicting: [], unneeded: ['banner-only', 'internet-exposed'], credit: 0 }); // 0.5 - 0.5
     // Repeats and unknown codes take no slot.
     const spread = grade(t, ['known-exploited', 'known-exploited', 'nonsense', 'known-exploited', 'public-exploit', 'banner-only']);
-    expect(spread.f.reasons).toMatchObject({ given: ['known-exploited', 'public-exploit', 'banner-only'], credit: 1 });
+    expect(spread.f.reasons).toMatchObject({ given: ['known-exploited', 'public-exploit', 'banner-only'], credit: 0.75 });
     expect(REASON_CODES).not.toContain('nonsense');
   });
 
@@ -803,16 +890,40 @@ describe('justification', () => {
     expect(grade({ reasons: [] }, []).f.reasons.credit).toBe(1);
     expect(grade({ reasons: [] }, [], { decision: null }).f.reasons.credit).toBe(0);
     expect(grade({ reasons: [] }, ['banner-only'], { decision: null }).f.reasons.credit).toBe(0);
-    // A reason nobody asked for is free, a contradicting one still costs a quarter.
-    expect(grade({ reasons: [] }, ['banner-only']).f.reasons.credit).toBe(1);
-    expect(grade({ reasons: [], contradicting: ['banner-only'] }, ['banner-only']).f.reasons.credit).toBe(0.75);
-    // Required reasons without a decision still score their share: the decision is only the restraint rule.
-    expect(grade({ reasons: ['known-exploited'] }, ['known-exploited'], { decision: null }).f.reasons.credit).toBe(1);
+    // A reason nobody asked for costs a quarter, a contradicting one half.
+    expect(grade({ reasons: [] }, ['banner-only']).f.reasons.credit).toBe(0.75);
+    expect(grade({ reasons: [], contradicting: ['banner-only'] }, ['banner-only']).f.reasons.credit).toBe(0.5);
+    expect(grade({ reasons: [] }, ['banner-only', 'stale-scan', 'internet-exposed']).f.reasons.credit).toBe(0.25);
+  });
+
+  it('coherence: a finding whose decision earns 0 earns 0 for its reasons, a half-credit decision keeps them', () => {
+    const t = { reasons: ['known-exploited'] as ReasonCode[] };
+    expect(grade(t, ['known-exploited'], { decision: null }).f.reasons.credit).toBe(0); // not decided
+    expect(grade(t, ['known-exploited'], { decision: 'accept' }).f.reasons.credit).toBe(0); // wrong
+    expect(grade({ reasons: [] }, [], { decision: 'accept' }).f.reasons.credit).toBe(0); // restraint does not rescue a wrong decision
+    expect(grade({ ...t, decision: 'mitigate', mitigation: ['CTL'] }, ['known-exploited'], { decision: 'mitigate', control: 'CTL-X' }).f.reasons.credit).toBe(1); // wrong control: half credit, keeps reasons
+    expect(grade({ ...t, mitigation: ['CTL'] }, ['known-exploited'], { decision: 'mitigate', control: 'CTL' }).f.reasons.credit).toBe(1); // near miss keeps reasons
+    // The codes are still reported, only the credit is zero.
+    expect(grade(t, ['known-exploited'], { decision: 'accept' }).f.reasons).toMatchObject({ matched: ['known-exploited'], credit: 0 });
+  });
+
+  it('says so when the coherence rule removed credit the reasons had: zeroed, and a count in the detail', () => {
+    const t = { reasons: ['known-exploited'] as ReasonCode[] };
+    const zeroed = grade(t, ['known-exploited'], { decision: 'accept' });
+    expect(zeroed.f.reasons).toMatchObject({ credit: 0, zeroed: true });
+    expect(part(zeroed.g, 'justification').detail).toBe('0 of 1 findings fully justified; 1 with a decision that earned nothing (no reason credit).');
+    // Nothing was removed when the reasons earned nothing anyway, or the decision kept credit.
+    expect(grade(t, ['banner-only'], { decision: 'accept' }).f.reasons.zeroed).toBe(false);
+    expect(grade(t, [], { decision: 'accept' }).f.reasons.zeroed).toBe(false);
+    expect(grade(t, ['known-exploited'], { decision: 'patch' }).f.reasons.zeroed).toBe(false);
+    // Restraint: a finding that needs no reason would have scored 1 for deciding, and a wrong decision takes that away.
+    expect(grade({ reasons: [] }, [], { decision: 'accept' }).f.reasons).toMatchObject({ credit: 0, zeroed: true });
+    expect(grade({ reasons: [] }, [], { decision: null }).f.reasons.zeroed).toBe(false);
   });
 
   it('weights findings like decisions: 15 x sum(w x score) / sum(w)', () => {
     const c = vcase([finding('A', { reasons: ['known-exploited', 'public-exploit'] }, { weight: 3 }), finding('B', { reasons: ['banner-only'] })]);
-    const g = gradeVulnCase(c, submit({ A: { reasons: ['known-exploited'] }, B: { reasons: ['banner-only'] } }));
+    const g = gradeVulnCase(c, submit({ A: { decision: 'patch', reasons: ['known-exploited'] }, B: { decision: 'patch', reasons: ['banner-only'] } }));
     expect(earned(g, 'justification')).toBe(round1((15 * (3 * 0.5 + 1)) / 4));
   });
 });
@@ -852,16 +963,36 @@ describe('evidence', () => {
     expect(earned(grade(Number.NaN), 'evidence')).toBe(15);
   });
 
-  it('allows four irrelevant pins, then costs a point each up to 5', () => {
-    const c = vcase([finding('A', {}, { evidence: [point('a', 'R1')] })]);
-    const grade = (extra: number) => gradeVulnCase(c, submit({}, { pins: ['R1', ...Array.from({ length: extra }, (_, i) => `X${i}`)] }));
-    expect([0, 4, 5, 6, 9, 10, 20].map((n) => earned(grade(n), 'evidence'))).toEqual([15, 15, 14, 13, 10, 10, 10]);
+  it('allows as many irrelevant pins as the case has evidence points, then costs a point each with no cap but 0', () => {
+    const c = vcase([finding('A', {}, { evidence: [point('a', 'R1'), point('b', 'R2')] }), finding('B', {}, { evidence: [point('c', 'R3'), point('d', 'R4')] })]);
+    const grade = (extra: number) => gradeVulnCase(c, submit({}, { pins: ['R1', 'R2', 'R3', 'R4', ...Array.from({ length: extra }, (_, i) => `X${i}`)] }));
+    // Four points, so four free pins; then -1 each, 15 floors at 0.
+    expect([0, 4, 5, 6, 9, 14, 19, 30].map((n) => earned(grade(n), 'evidence'))).toEqual([15, 15, 14, 13, 10, 5, 0, 0]);
     expect(grade(9).irrelevantPins).toBe(9);
-    expect(part(grade(9), 'evidence').detail).toBe('1 of 1 evidence points pinned. 9 pins were not relevant (−5).');
+    expect(part(grade(9), 'evidence').detail).toBe('4 of 4 evidence points pinned. 9 pins were not relevant, 4 of them free (−5).');
     // The same pin twice is one pin; a pin that satisfies a point is never irrelevant.
     expect(gradeVulnCase(c, submit({}, { pins: ['R1', 'R1', 'X', 'X'] })).irrelevantPins).toBe(1);
     // The penalty comes off the earned points, and cannot go below 0.
-    expect(earned(gradeVulnCase(c, submit({}, { pins: Array.from({ length: 9 }, (_, i) => `X${i}`) })), 'evidence')).toBe(0);
+    expect(earned(gradeVulnCase(c, submit({}, { pins: Array.from({ length: 20 }, (_, i) => `X${i}`) })), 'evidence')).toBe(0);
+    // One point: one free pin.
+    const one = vcase([finding('A', {}, { evidence: [point('a', 'R1')] })]);
+    const oneGrade = (extra: number) => gradeVulnCase(one, submit({}, { pins: ['R1', ...Array.from({ length: extra }, (_, i) => `X${i}`)] }));
+    expect([0, 1, 2, 3, 9, 16, 20].map((n) => earned(oneGrade(n), 'evidence'))).toEqual([15, 15, 14, 13, 7, 0, 0]);
+  });
+
+  it('never counts a finding\'s own scan row as irrelevant, and a row that is also evidence still satisfies its point', () => {
+    const c = vcase([finding('A', {}, { evidence: [point('a', 'R1', 'VF-B')] }), finding('B')]);
+    // VF-A and VF-B are the findings' own rows: neutral. VF-B is also a row of A's point: it satisfies it.
+    const g = gradeVulnCase(c, submit({}, { pins: ['VF-A', 'VF-B', 'X0'] }));
+    expect(g.irrelevantPins).toBe(1);
+    expect(g.evidence[0]).toMatchObject({ found: true, pinned: 'VF-B' });
+    expect(gradeVulnCase(c, submit({}, { pins: ['VF-A'] })).evidence[0].found).toBe(false); // neutral is not credit
+    expect(gradeVulnCase(c, submit({}, { pins: ['VF-A', 'VF-B'] })).irrelevantPins).toBe(0);
+  });
+
+  it('keeps the floor of 0 and the hint factor', () => {
+    const c = vcase([finding('A', {}, { evidence: [point('a', 'R1')] })], { hints: ['h1', 'h2'] });
+    expect(earned(gradeVulnCase(c, submit({}, { pins: ['R1', 'X', 'Y', 'Z'], hintsUsed: 1 })), 'evidence')).toBe(10); // 12 (one hint), less 2 pins past the free one
   });
 
   it('scores 0 when the case has no evidence points', () => {
@@ -871,20 +1002,231 @@ describe('evidence', () => {
   });
 });
 
+// ---- lesson gate (DESIGN 5.8) ------------------------------------------------------------------
+
+describe('lesson gate', () => {
+  // X is a lesson finding the learner always gets right; L is the finding under test, flagged as a lesson or a
+  // must-not-miss finding through `flag`. Three ordinary findings and a good rest of the answer keep the sum high,
+  // so the cap of 60 binds whenever it applies.
+  const base: Partial<FindingTruth> = { decision: 'patch', schedule: 'next-window', slaLatest: 'standard-cycle', reasons: ['known-exploited'], mitigation: ['CTL'] };
+  function keyed(truth: Partial<FindingTruth>, flag: Partial<ResolvedVulnFinding>) {
+    return vcase(
+      [
+        finding('X', { decision: 'accept', schedule: 'none', reasons: [] }, { lesson: true }),
+        finding('L', { ...base, ...truth }, { evidence: [point('l', 'RL')], ...flag }),
+        finding('A', { reasons: ['low-exploitability'] }, { evidence: [point('a', 'RA')] }),
+        finding('B', { reasons: ['low-exploitability'] }, { evidence: [point('b', 'RB')] }),
+        finding('C', { reasons: ['low-exploitability'] }, { evidence: [point('c', 'RC')] }),
+      ],
+      { tiers: [['L'], ['A', 'B', 'C']], idealOrder: ['L', 'A', 'B', 'C'], constraints: calendar(5) },
+    );
+  }
+  const LESSON = { lesson: true };
+  const MNM = { mustNotMiss: true };
+  // The perfect answer except for L's answer; the grade, and L's reason for being missed (null: not missed).
+  function run(truth: Partial<FindingTruth>, flag: Partial<ResolvedVulnFinding>, given: Partial<VulnFindingAnswer>) {
+    const c = keyed(truth, flag);
+    const p = perfectVulnSubmission(c);
+    const g = gradeVulnCase(c, { ...p, answers: { ...p.answers, L: { ...p.answers.L, ...given } } });
+    return { g, why: g.gate.missed.find((m) => m.findingId === 'L')?.why ?? null };
+  }
+
+  it('is off for the perfect answer: no cap, the uncapped sum is the score', () => {
+    for (const flag of [LESSON, MNM]) {
+      const c = keyed({}, flag);
+      const g = gradeVulnCase(c, perfectVulnSubmission(c));
+      expect(g.gate).toEqual({ missed: [], cap: null, uncapped: 100 });
+      expect(g.score).toBe(100);
+    }
+  });
+
+  it('caps an empty answer at 60 without changing its score of 0', () => {
+    const g = gradeVulnCase(keyed({}, LESSON), emptyVulnSubmission());
+    expect(g.gate.cap).toBe(60);
+    expect(g.gate.uncapped).toBe(0);
+    expect(g.gate.missed.map((m) => m.findingId)).toEqual(['X', 'L']);
+    expect(g.score).toBe(0);
+  });
+
+  describe('the decision clause', () => {
+    it('needs full decision credit on a lesson finding: truth or alsoAccept, mitigate with a covering control', () => {
+      expect(run({}, LESSON, {}).why).toBeNull();
+      expect(run({ alsoAccept: ['mitigate'] }, LESSON, { decision: 'mitigate', control: 'CTL' }).why).toBeNull();
+      expect(run({ alsoAccept: ['avoid'] }, LESSON, { decision: 'avoid' }).why).toBeNull();
+      expect(run({}, LESSON, { decision: 'mitigate', control: 'CTL' }).why).toBe('near-miss'); // covering control on a patch finding: half credit
+      expect(run({ decision: 'mitigate', schedule: 'next-window' }, LESSON, { decision: 'mitigate', control: 'CTL-X' }).why).toBe('wrong-control');
+      expect(run({ decision: 'mitigate', schedule: 'next-window' }, LESSON, { decision: 'mitigate', control: null }).why).toBe('wrong-control');
+      expect(run({}, LESSON, { decision: 'accept' }).why).toBe('wrong-decision');
+      expect(run({}, LESSON, { decision: 'false-positive' }).why).toBe('wrong-decision');
+      expect(run({}, LESSON, { decision: null }).why).toBe('undecided');
+    });
+
+    it('needs only more than 0 on a must-not-miss finding that is not a lesson finding', () => {
+      expect(run({}, MNM, { decision: 'mitigate', control: 'CTL' }).why).toBeNull(); // near miss: still handles the risk
+      expect(run({ decision: 'mitigate', schedule: 'next-window' }, MNM, { decision: 'mitigate', control: 'CTL-X' }).why).toBeNull(); // wrong control: half credit
+      expect(run({}, MNM, { decision: 'accept' }).why).toBe('wrong-decision');
+      expect(run({}, MNM, { decision: 'false-positive' }).why).toBe('wrong-decision');
+      expect(run({}, MNM, { decision: null }).why).toBe('undecided');
+    });
+
+    it('never watches an ordinary finding', () => {
+      expect(run({}, {}, { decision: 'false-positive', schedule: null }).g.gate.missed).toEqual([]);
+    });
+
+    it('treats a finding that is both a lesson and a must-not-miss finding as a lesson finding', () => {
+      expect(run({}, { ...LESSON, ...MNM }, { decision: 'mitigate', control: 'CTL' }).why).toBe('near-miss');
+    });
+  });
+
+  describe('the schedule clause', () => {
+    it('misses a key finding that is unset or later than its SLA, on a lesson or a must-not-miss finding alike', () => {
+      for (const flag of [LESSON, MNM]) {
+        expect(run({}, flag, { schedule: null }).why).toBe('unscheduled');
+        expect(run({ slaLatest: 'next-window' }, flag, { schedule: 'standard-cycle' }).why).toBe('late');
+        expect(run({ slaLatest: 'next-window' }, flag, { schedule: 'none' }).why).toBe('late');
+        expect(run({ slaLatest: 'next-window' }, flag, { schedule: 'next-window' }).why).toBeNull(); // on the limit
+      }
+    });
+
+    it('misses a key finding two or more steps from the truth, and forgives one step inside the SLA as a slip', () => {
+      for (const flag of [LESSON, MNM]) {
+        const t = { schedule: 'emergency' as const, slaLatest: 'standard-cycle' as const };
+        expect(run(t, flag, { schedule: 'standard-cycle' }).why).toBe('two-steps');
+        const slip = run(t, flag, { schedule: 'next-window' });
+        expect(slip.why).toBeNull(); // one step: a slip
+        expect(slip.g.findings[1].schedule).toMatchObject({ credit: 0.5, verdict: 'one-step' });
+        expect(slip.g.gate.cap).toBeNull();
+      }
+    });
+
+    it('treats an emergency change on a lesson finding by distance: one step is a slip, two steps are missed', () => {
+      // Next-window truth: the emergency is one step early, within the SLA, so a slip (the half credit of 5.3).
+      const slip = run({}, LESSON, { schedule: 'emergency' });
+      expect(slip.why).toBeNull();
+      expect(slip.g.findings[1].schedule).toMatchObject({ credit: 0.5, verdict: 'emergency-unjustified' });
+      expect(slip.g.gate.cap).toBeNull();
+      // Standard-cycle truth: the emergency is two steps early, the over-reaction the T3 twin teaches.
+      const t = { schedule: 'standard-cycle' as const, slaLatest: 'standard-cycle' as const };
+      expect(run(t, LESSON, { schedule: 'emergency' }).why).toBe('two-steps');
+      expect(run(t, LESSON, { schedule: 'next-window' }).why).toBeNull();
+      // An emergency is fine when it is the truth.
+      expect(run({ schedule: 'emergency', slaLatest: 'emergency' }, LESSON, { schedule: 'emergency' }).why).toBeNull();
+    });
+
+    it('never gates an emergency change on a must-not-miss finding that is not a lesson finding, at any distance', () => {
+      for (const truth of ['next-window', 'standard-cycle'] as const) {
+        const m = run({ schedule: truth, slaLatest: 'standard-cycle' }, MNM, { schedule: 'emergency' });
+        expect(m.why, truth).toBeNull();
+        expect(m.g.findings[1].schedule, truth).toMatchObject({ credit: 0.5, verdict: 'emergency-unjustified' });
+        expect(m.g.gate.cap, truth).toBeNull();
+      }
+      // The other distance rules still hold for it: later than the SLA, unset.
+      expect(run({}, MNM, { schedule: 'standard-cycle' }).why).toBeNull(); // one step late, inside the SLA: a slip
+      expect(run({ schedule: 'emergency', slaLatest: 'standard-cycle' }, MNM, { schedule: 'standard-cycle' }).why).toBe('two-steps');
+    });
+
+    it('applies only when the truth schedule is not none', () => {
+      const none = { decision: 'accept' as const, schedule: 'none' as const, slaLatest: undefined, reasons: [] as ReasonCode[] };
+      for (const given of [null, ...VULN_SCHEDULES]) expect(run(none, LESSON, { decision: 'accept', schedule: given }).why, String(given)).toBeNull();
+      // A none truth with a limit is still not gated: the clause is about when a fix is due.
+      expect(run({ ...none, slaLatest: 'next-window' }, LESSON, { decision: 'accept', schedule: 'standard-cycle' }).why).toBeNull();
+      // The decision clause still applies.
+      expect(run(none, LESSON, { decision: 'patch', schedule: 'none' }).why).toBe('wrong-decision');
+    });
+
+    it('is not triggered by capacity overflow or ordering', () => {
+      const c = { ...keyed({}, LESSON), constraints: calendar(1) }; // L, A, B and C all next-window against a capacity of 1
+      const p = perfectVulnSubmission(c);
+      const g = gradeVulnCase(c, { ...p, order: ['C', 'B', 'A', 'L', 'X'] });
+      expect(g.overflow.length).toBeGreaterThan(0);
+      expect(g.gate.missed).toEqual([]);
+      const m = keyed({}, MNM);
+      expect(gradeVulnCase(m, { ...perfectVulnSubmission(m), order: ['C', 'B', 'A', 'L', 'X'] }).gate.missed).toEqual([]); // a must-not-miss outside the top k is an ordering matter
+    });
+  });
+
+  describe('the cap', () => {
+    it('lowers a high score to 60 and keeps the uncapped sum, the percent and the XP on the capped score', () => {
+      const { g, why } = run({ schedule: 'standard-cycle' }, LESSON, { schedule: 'emergency' });
+      expect(why).toBe('two-steps');
+      expect(g.gate.uncapped).toBeGreaterThan(60);
+      expect(g.gate).toMatchObject({ cap: 60, missed: [{ findingId: 'L', lesson: true, mustNotMiss: false, why: 'two-steps' }] });
+      expect(g.score).toBe(60);
+      expect(g.percent).toBe(60);
+      expect(g.xp).toBe(Math.round(60 * DIFFICULTY_MULTIPLIER.tier2));
+    });
+
+    it('does not bind when the components are already below it: the score is the sum', () => {
+      const c = keyed({}, LESSON);
+      const g = gradeVulnCase(c, submit({ L: { decision: 'accept' } }));
+      expect(g.gate.cap).toBe(60);
+      expect(g.gate.uncapped).toBeLessThan(60);
+      expect(g.score).toBe(g.gate.uncapped);
+    });
+
+    it('never lets a missed key finding score above 60', () => {
+      for (const given of [{ decision: 'accept' as const }, { schedule: 'standard-cycle' as const }, { schedule: null }]) expect(run({ schedule: 'emergency', slaLatest: 'standard-cycle' }, LESSON, given).g.score).toBeLessThanOrEqual(60);
+    });
+
+    it('lists every missed key finding in case order with its flags, and flags them per finding', () => {
+      const c = keyed({}, { ...MNM });
+      const g = gradeVulnCase(c, submit({ X: { decision: 'patch' }, L: { decision: 'accept' } }));
+      expect(g.gate.missed).toEqual([
+        { findingId: 'X', lesson: true, mustNotMiss: false, why: 'wrong-decision' },
+        { findingId: 'L', lesson: false, mustNotMiss: true, why: 'wrong-decision' },
+      ]);
+      expect(g.findings.map((f) => [f.findingId, f.lesson, f.mustNotMiss, f.key, f.keyMiss])).toEqual([
+        ['X', true, false, true, 'wrong-decision'],
+        ['L', false, true, true, 'wrong-decision'],
+        ['A', false, false, false, null],
+        ['B', false, false, false, null],
+        ['C', false, false, false, null],
+      ]);
+    });
+  });
+
+  describe('coherence: a decision that earns 0 earns 0 for the schedule', () => {
+    it('zeroes the schedule of a wrongly decided or undecided finding, and says so in the verdict', () => {
+      const wrong = run({}, {}, { decision: 'accept' }).g;
+      expect(wrong.findings[1].schedule).toEqual({ given: 'next-window', truth: 'next-window', credit: 0, verdict: 'no-decision' });
+      expect(earned(wrong, 'schedule')).toBe(8); // four of five findings
+      expect(part(wrong, 'schedule').detail).toBe('4 of 5 scheduled right; 1 with a decision that earned nothing (no schedule credit).');
+      const none = run({}, {}, { decision: null }).g;
+      expect(none.findings[1].schedule).toMatchObject({ credit: 0, verdict: 'no-decision' });
+    });
+
+    it('keeps the schedule credit of a near miss and of a wrong control', () => {
+      expect(run({}, {}, { decision: 'mitigate', control: 'CTL' }).g.findings[1].schedule).toMatchObject({ credit: 1, verdict: 'exact' });
+      const wrongControl = run({ decision: 'mitigate' }, {}, { decision: 'mitigate', control: 'CTL-X' }).g;
+      expect(wrongControl.findings[1].decision.verdict).toBe('wrong-control');
+      expect(wrongControl.findings[1].schedule).toMatchObject({ credit: 1, verdict: 'exact' });
+    });
+
+    it('leaves a verdict that already scored 0 alone, and capacity unchanged', () => {
+      expect(run({ slaLatest: 'next-window' }, {}, { decision: 'accept', schedule: 'standard-cycle' }).g.findings[1].schedule).toMatchObject({ credit: 0, verdict: 'sla-breach' });
+      // The wrongly decided finding still takes its place in the window: a capacity of 3 with four assignments overflows one.
+      const c = { ...keyed({}, {}), constraints: calendar(3) };
+      const p = perfectVulnSubmission(c);
+      const g = gradeVulnCase(c, { ...p, answers: { ...p.answers, L: { ...p.answers.L, decision: 'accept' } } });
+      expect(g.overflow).toHaveLength(1);
+    });
+  });
+});
+
 // ---- totals, XP, purity -----------------------------------------------------------------------
 
 describe('totals', () => {
   it('rounds each component to one decimal and sums the rounded components', () => {
     // Decisions 40/3 = 13.33 and schedule 10/3 = 3.33 round down to 13.3 and 3.3;
-    // the raw components sum to 51.67, the rounded ones to 51.6.
+    // the raw components sum to 41.67, the rounded ones to 41.6 (B and C decided wrong earn no reasons).
     const c = vcase([finding('A', { reasons: [] }), finding('B', { reasons: [] }), finding('C', { reasons: [] })]);
     const g = gradeVulnCase(
       c,
       submit({ A: { decision: 'patch', schedule: 'next-window' }, B: { decision: 'accept', schedule: 'none' }, C: { decision: 'transfer', schedule: 'none' } }),
     );
-    expect(g.components.map((x) => x.earned)).toEqual([13.3, 20, 3.3, 15, 0]);
-    expect(g.score).toBe(51.6);
-    expect(g.percent).toBe(52);
+    expect(g.components.map((x) => x.earned)).toEqual([13.3, 20, 3.3, 5, 0]);
+    expect(g.score).toBe(41.6);
+    expect(g.percent).toBe(42);
   });
 
   it('reports the components in order, with labels, possible points and a sentence each', () => {
@@ -905,7 +1247,7 @@ describe('totals', () => {
     const g = gradeVulnCase(c, perfectVulnSubmission(c));
     expect(g.findings.map((f) => f.findingId)).toEqual(['F1', 'F2', 'F3', 'F4']);
     expect(g.findings.map((f) => [f.weight, f.mustNotMiss])).toEqual([[3, true], [1, false], [1, false], [1, false]]);
-    expect(g.findings[0].reasons).toEqual({ given: ['known-exploited', 'public-exploit'], matched: ['known-exploited', 'public-exploit'], missed: [], contradicting: [], credit: 1 });
+    expect(g.findings[0].reasons).toEqual({ given: ['known-exploited', 'public-exploit'], matched: ['known-exploited', 'public-exploit'], missed: [], contradicting: [], unneeded: [], credit: 1, zeroed: false });
     expect(g.evidence.map((e) => e.findingId)).toEqual(['F1', 'F3', 'F4']);
     expect(g.irrelevantPins).toBe(0);
   });
@@ -927,13 +1269,13 @@ describe('totals', () => {
       expect(noted.xp).toBe(Math.round(100 * DIFFICULTY_MULTIPLIER[difficulty] + 6));
       expect(noted.score).toBe(plain.score); // notes are coaching and XP, never points
     }
-    // A fractional score is rounded once, in the XP: 51.6 x 2 = 103.2, and 57.3 x 1.5 = 85.95 rounds up.
+    // A fractional score is rounded once, in the XP: 41.6 x 2 = 83.2, and 52.3 x 1.5 = 78.45 rounds down.
     const c = vcase([finding('A', { reasons: [] }), finding('B', { reasons: [] }), finding('C', { reasons: [] })], { difficulty: 'tier3' });
     const g = gradeVulnCase(c, submit({ A: { decision: 'patch', schedule: 'next-window' }, B: { decision: 'accept', schedule: 'none' }, C: { decision: 'transfer', schedule: 'none' } }));
-    expect(g.score).toBe(51.6);
-    expect(g.xp).toBe(103);
-    expect(gradeVulnCase({ ...example(), difficulty: 'tier2' }, sortByCvss()).xp).toBe(86);
-    expect(gradeVulnCase(example(), sortByCvss()).xp).toBe(57);
+    expect(g.score).toBe(41.6);
+    expect(g.xp).toBe(83);
+    expect(gradeVulnCase({ ...example(), difficulty: 'tier2' }, sortByCvss()).xp).toBe(78);
+    expect(gradeVulnCase(example(), sortByCvss()).xp).toBe(52);
     expect(gradeVulnCase(example(), emptyVulnSubmission()).xp).toBe(0);
   });
 

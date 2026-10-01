@@ -97,7 +97,7 @@ function fixtureBuild(ctx: VulnContext): VulnCaseSpec {
   });
 
   const findings: FindingSpec[] = [
-    spec(f1, 'patch', 'emergency', ['known-exploited'], 3, [{ id: 'kev-listing', label: 'The vulnerability is on the Sim-KEV list', why: 'Confirmed exploitation outranks a modest probability score.', rows: [scan.intel(kev)] }], { mustNotMiss: true }),
+    spec(f1, 'patch', 'emergency', ['known-exploited'], 3, [{ id: 'kev-listing', label: 'The vulnerability is on the Sim-KEV list', why: 'Confirmed exploitation outranks a modest probability score.', rows: [scan.intel(kev)] }], { mustNotMiss: true, lesson: true, truth: { decision: 'patch', schedule: 'emergency', slaLatest: 'emergency', reasons: ['known-exploited'] } }),
     spec(f2, 'false-positive', 'none', ['stale-scan'], 1, [{ id: 'patched-since', label: 'The device was patched after the scan', why: 'The finding comes from a scan that predates the fix.', rows: [patch] }]),
     spec(f3, 'patch', 'standard-cycle', ['low-exploitability'], 1, [{ id: 'low-probability', label: 'Sim-EPSS probability is low', why: 'High CVSS, but little sign of exploitation.', rows: [scan.intel(lowEpss)] }]),
     spec(f4, 'false-positive', 'none', ['backported-fix', 'banner-only'], 1, [{ id: 'backport', label: 'The distribution backported the fix', why: 'A banner shows the upstream version, not the patched package.', rows: [backport, f4.row] }, { id: 'web-exposed', label: 'The web server is reachable from the internet', why: 'Exposure would raise the priority of a real finding here.', rows: exposure }]),

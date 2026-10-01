@@ -88,11 +88,14 @@ export function checkVulnStructure(c: ResolvedVulnCase, corpus: Corpus): void {
     // mistake must be provable: every must-not-miss finding has a point.
     if (f.mustNotMiss) expect(f.evidence.length, `${label}: must-not-miss ${f.findingId} has an evidence point`).toBeGreaterThanOrEqual(1);
     if (f.truth.decision === 'false-positive') expect(f.truth.schedule, `${label}: false positive ${f.findingId} is not scheduled`).toBe('none');
+    // The lesson gate (DESIGN 5.8) holds every real key finding to an SLA.
+    if ((f.lesson || f.mustNotMiss) && f.truth.decision !== 'false-positive') expect(f.truth.slaLatest, `${label}: key finding ${f.findingId} has slaLatest`).toBeDefined();
     for (const e of f.evidence) {
       expect(e.recordIds.length, `${label}: evidence ${e.id} has rows`).toBeGreaterThan(0);
       for (const id of e.recordIds) expect(allRecordIds.has(id), `${label}: evidence ${e.id} row ${id} exists`).toBe(true);
     }
   }
+  expect(c.findings.some((f) => f.lesson), `${label}: a lesson finding`).toBe(true);
   const evidenceIds = c.findings.flatMap((f) => f.evidence.map((e) => e.id));
   expect(evidenceIds.length, `${label}: evidence points`).toBeGreaterThanOrEqual(1);
   expect(new Set(evidenceIds).size, `${label}: evidence ids unique`).toBe(evidenceIds.length);

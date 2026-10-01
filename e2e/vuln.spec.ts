@@ -583,6 +583,99 @@ test.describe('vulnerability mode', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a missed lesson finding caps the debrief: a binding cap leads with the gate line, names the finding and why, axe clean', async ({ page }) => {
+    test.setTimeout(180_000);
+    const errors = watchErrors(page);
+    await withProfile(page);
+    await openCase(page);
+    // First pass: accept every risk. Only the debrief matters: it shows the right answers.
+    for (const id of await rowIds(page)) {
+      await page.locator(`#wl-${id}-decision`).selectOption('accept');
+      await page.locator(`#wl-${id}-schedule`).selectOption('none');
+    }
+    await pinOne(page);
+    await page.locator('#vc-submit-btn').click();
+    await expect(page.locator('#debrief-h')).toBeVisible();
+
+    const DECISION_BY_LABEL: Record<string, string> = { Patch: 'patch', Mitigate: 'mitigate', Avoid: 'avoid', Accept: 'accept', Transfer: 'transfer', 'False positive': 'false-positive' };
+    const cards = page.locator('li.vd-finding');
+    const order = await cards.evaluateAll((els) => els.map((e) => e.getAttribute('data-finding-id')!));
+    const right: Record<string, { decision: string; schedule: string; reasons: string[] }> = {};
+    for (const id of order) {
+      const card = page.locator(`li.vd-finding[data-finding-id="${id}"]`);
+      const decision = (await card.locator('dd[data-field="decision"]').innerText()).match(/Right: ([^·]+?) ·/)![1].trim();
+      const schedule = (await card.locator('dd[data-field="schedule"]').innerText()).match(/Right: ([^·]+?) ·/)![1].trim();
+      const because = (await card.locator('dd[data-field="why"]').innerText()).replace(/^Right because:\s*/, '').trim();
+      right[id] = {
+        decision: DECISION_BY_LABEL[decision],
+        schedule: SCHEDULE_VALUE[SCHEDULE_SHOWN.indexOf(schedule)],
+        reasons: because === 'none' ? [] : because.split(', ').slice(0, 3),
+      };
+      expect(right[id].decision, `${id} decision "${decision}"`).toBeTruthy();
+      expect(right[id].schedule, `${id} schedule "${schedule}"`).toBeTruthy();
+    }
+    // The lesson finding to get wrong: right decision, a schedule later than its SLA allows.
+    const lessonCard = page.locator('li.vd-finding:has(.badge:text-is("Lesson finding"))').first();
+    const lessonId = (await lessonCard.getAttribute('data-finding-id'))!;
+    expect(await lessonCard.locator('dd[data-field="schedule"]').innerText(), `${lessonId} has an SLA that "No change" is later than`).toMatch(/Latest schedule within the SLA: (Emergency change|Next maintenance window|Standard patch cycle)/);
+
+    // Second pass: every finding right and in the debrief's order, but the lesson finding scheduled too late.
+    await page.getByRole('button', { name: 'Work it again' }).click();
+    await expect(page.locator('.vc-worklist')).toBeVisible();
+    for (const id of await rowIds(page)) {
+      const a = right[id];
+      await page.locator(`#wl-${id}-decision`).selectOption(a.decision);
+      await page.locator(`#wl-${id}-schedule`).selectOption(id === lessonId ? 'none' : a.schedule);
+      if (a.reasons.length > 0) {
+        await page.locator(`#wl-${id}-reasons`).click();
+        for (const label of a.reasons) await page.locator(`#wl-${id}-reasons-panel`).getByLabel(label, { exact: true }).check();
+        await page.locator(`#wl-${id}-reasons`).click();
+      }
+    }
+    for (const [k, id] of order.entries()) {
+      await page.locator(`#wl-${id}-prio`).click();
+      await page.keyboard.press('Control+A');
+      await page.keyboard.type(String(k + 1));
+      await page.keyboard.press('Tab');
+    }
+    expect(await rowIds(page)).toEqual(order);
+    await pinOne(page);
+    await page.locator('#vc-submit-btn').click();
+    await expect(page.locator('#debrief-h')).toBeVisible();
+
+    // The cap binds: the sum before the cap is above 60.
+    const gate = page.locator('.vd-gate');
+    await expect(gate).toHaveCount(1);
+    await expect(gate).toBeVisible();
+    const text = (await gate.innerText()).replace(/\s+/g, ' ');
+    const bound = text.match(/^Capped at 60 \(pass 70; (\d+(?:\.\d+)?) before the cap\)/);
+    expect(bound, text).not.toBeNull();
+    expect(Number(bound![1]), 'the uncapped sum is above the cap').toBeGreaterThan(60);
+    expect(text).toContain(`${lessonId} on `);
+    expect(text).toContain('a finding this case turns on, was given a schedule later than its SLA allows');
+    await expect(page.locator(`li.vd-finding[data-finding-id="${lessonId}"] .badge:text-is("missed key finding")`)).toBeVisible();
+
+    // The gate line comes before the below-pass line, and "What mattered most" lists the finding once.
+    await expect(page.getByText('Below the pass mark.')).toBeVisible();
+    const gateFirst = await page.evaluate(() => {
+      const g = document.querySelector('.vd-gate')!;
+      const p = [...document.querySelectorAll('.debrief-hero-text p')].find((x) => x.textContent!.startsWith('Below the pass mark.') || x.textContent!.startsWith('Passed.'))!;
+      return Boolean(g.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    expect(gateFirst).toBe(true);
+    await expect(page.locator(`.vd-lead li[data-miss="${lessonId}"]`)).toHaveCount(1);
+    const lead = await page.locator('.vd-lead li').allInnerTexts();
+    for (const id of await cards.evaluateAll((els) => els.map((e) => e.getAttribute('data-finding-id')!))) {
+      expect(lead.filter((t) => t.includes(`${id} `) || t.includes(`${id},`)).length, `${id} bullets`).toBeLessThanOrEqual(1);
+    }
+
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await axeStrict(page, `capped debrief ${scheme}`);
+    }
+    expect(errors).toEqual([]);
+  });
+
   for (const vp of [
     { width: 360, height: 740 },
     { width: 320, height: 640 },

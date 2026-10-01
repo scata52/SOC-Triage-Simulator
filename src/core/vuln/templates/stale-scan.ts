@@ -146,6 +146,7 @@ function build(ctx: VulnContext): VulnCaseSpec {
     spec(stale, {
       truth: { decision: 'false-positive', schedule: 'none', reasons: ['stale-scan'], contradicting: contradictionsFor(staleEntry, facts(STALE_HOST, { real: false, staleNoReboot: true }), ['stale-scan']) },
       weight: 1,
+      lesson: true,
       evidence: [
         {
           id: 'patched-after-scan',
@@ -164,6 +165,7 @@ function build(ctx: VulnContext): VulnCaseSpec {
     spec(decoy, {
       truth: { decision: 'patch', schedule: 'next-window', slaLatest: 'next-window', reasons: ['sla-deadline', 'credentialed-confirmed'], contradicting: contradictionsFor(decoyEntry, facts(DECOY_HOST), ['sla-deadline', 'credentialed-confirmed']) },
       weight: 1,
+      lesson: true,
       evidence: [
         {
           id: 'unrelated-rollup',

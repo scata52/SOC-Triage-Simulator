@@ -67,6 +67,18 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
   objectives); coordinator: DESIGN §5 and the §5.6 worked examples. Deps: WP1e.
 - Files: `src/core/vuln/grade.ts`, `src/core/vuln/catalogue.ts`, `tests/vuln-grading.test.ts`, `tests/vuln-catalogue.test.ts`, a new
   hardening test over every template; template files only via the scenario-author; `docs/vuln-mgmt/DESIGN.md` §5 (coordinator).
+  As built, outside the list (reviewer sign-off on each): implementer — `tests/vuln-hardening.test.ts` (the new test),
+  `src/core/grading/shared.ts` (opt-in pin rule; SOC output byte-identical), `src/core/vuln/scenario.ts` (`lesson` on resolved
+  findings; build errors: no lesson finding, real key finding without `slaLatest`, no evidence point), new
+  `src/core/vuln/coherence.ts` (the class/vector predicate moved out of `templates/common.ts`, tightened after the fact-checker's
+  veto) and `src/core/vuln/classes.ts` (class list and labels, so catalogue and coherence don't import each other),
+  `src/ui/screens/VulnDebrief.tsx` (gate line), `src/ui/screens/Help.tsx` (grading table), `e2e/vuln.spec.ts` (binding-cap debrief
+  test with axe), `tests/vuln-corpus.test.ts`,
+  `tests/helpers/vuln-fixture.ts`, `tests/helpers/vuln-scenario-check.ts`, `tests/vuln-worklist.test.ts` (exemption removed),
+  `tests/vuln-guardrails.test.ts` (reserved-domain scan); scenario-author — `templates/{common,kev-internal,stale-scan,backport-fp}.ts`
+  and `tests/vuln-scenarios/{slice,data-rules,kev-internal,backport-fp}.test.ts`; coordinator inline — `src/core/vuln/model.ts`
+  (`FindingSpec.lesson`) and the six `lesson: true` lines (four headlines, then the two decoys after the pre-gate review), the
+  `Fragment` keys in `VulnDebrief.tsx` after the gate (reviewer note), DESIGN §2.2/§5/§5.8, PLAN, PROGRESS.
 - Starting mechanism (the tests define done; adjust if needed): a missed schedule on a must-not-miss finding counts like a dismissal;
   free extra pins are capped at the number of evidence points (was 4); irrelevant reason codes never score positively.
 - Acceptance, as tests run against every template: (1) the shotgun strategy (SLA-table schedule, every reason code, every row pinned)
@@ -124,7 +136,22 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 ```
 
 ## NEEDS-HUMAN-CHECK
-Open: none.
+Open (WP1f, 2026-10-01):
+3. **CS0-003 objective titles 2.1–2.5 and 4.1.** The official PDF (DESIGN §1 link) downloads but is encrypted/password-protected, so
+   the fact-checker could not read it; CompTIA's web page gives only short labels (2.1 "Vulnerability scanning" … 4.1 "Vulnerability
+   management reporting"), which agree with DESIGN §1 but are not the "Given a scenario, …" titles. No mismatch found. A human with
+   the PDF should confirm the six titles verbatim.
+4. **Reserved domain names.** Every vuln-authored string is fictional, but generated output also carries the shared world's org
+   domains: Microsoft's fictitious-company names (`contoso.com`, `fabrikam.com`, … 19 `.com` + `treyresearch.net`,
+   `src/core/synth/orgs.ts`), which are registered real domains, not RFC 2606 reserved names; SOC-only output also uses suspicious
+   real TLDs for attacker domains (`.top`, `.xyz`, … `src/core/synth/domains.ts`) and well-known service domains as log noise
+   (`microsoft.com`, `github.com`, …). Changing any of them changes SOC output (every SOC case), so per WP1f acceptance (6) it goes
+   to the human first. Options: (a) keep them as a documented exception (they are the industry's standard fictitious names, and the
+   SOC lessons on suspicious TLDs and known SaaS domains need real-looking names); (b) move org domains to `<org>.example` app-wide
+   (re-baselines every SOC case); (c) vuln mode only (splits one org into two domains, breaks WP5's vuln → SOC hook). Coordinator
+   recommendation: (a). `tests/vuln-guardrails.test.ts` enforces it for vuln output: every domain is reserved or the world's org
+   domain. Second exemption for the human to accept: case `references` cite real documentation (`first.org`, `cisa.gov`,
+   `comptia.org`, …); they are citations, not generated data, and the test allows only a fixed list of citation hosts there.
 
 Resolved 2026-09-28 by the human:
 1. **Target exam version: CS0-003, confirmed.** CS0-003 (English) retires 2026-12-22 and CS0-004 launched 2026-06-23 (DESIGN §1); the
@@ -178,6 +205,17 @@ Resolved 2026-09-28 (sources in DESIGN):
 - **ADR-21 Real OS names as platform context only (2026-09-30, human).** World OS strings (`Windows Server 2022`, `Ubuntu 24.04` in
   `DeviceInfo`) stay, on the condition that a fictional vulnerability only ever belongs to a fictional product, never to a real OS or
   vendor. Reason: the shared SOC world must stay unchanged; the vulnerable product carries the fiction.
+- **ADR-22 Lesson gate (2026-10-01, WP1f, coordinator; the human set the acceptance tests, ADR-20).** Key findings (the lesson
+  findings, `FindingSpec.lesson`, plus must-not-miss findings) gate the pass: a missed key finding caps the case at 60 (DESIGN §5.8).
+  Also: a must-not-miss schedule miss counts like a dismissal (−5); a decision that earns 0 earns no schedule or reason credit; an
+  unneeded reason code costs 0.25 and a contradicting one 0.5; vuln pins: free = number of evidence points, no penalty cap, own scan
+  rows neutral. Reason: three mechanisms were built and measured on every template × 20 runs (probe harness of the strategy
+  tests); all three met the bounds, and two judges compared them. Score arithmetic alone (lesson finding weighing half the case,
+  per-finding composite) fails "only the lesson wrong" only by a structural 2.5 points, inflates naive answers that get the lesson
+  right by accident (a synthetic T2-B failed the shotgun bound), and lets a late or dismissed Sim-KEV must-not-miss pass at tier-3
+  size (82–89). The cap holds at any size and needs no per-template tuning. Cost: a score can drop from about 98 to 60, so the debrief
+  leads with the gate and shows the uncapped sum. Alternatives rejected: A (lesson weight = all others, exact lesson answer
+  required: fails honest one-step hedges at 66), C (per-finding composite with a fixed lesson share: weakest on future twins).
 - **ADR-23 Subagents at high effort (2026-10-01, human decision, during WP1f).** Every agent file whose model has effort levels sets
   `effort: high` in its frontmatter: `implementer`, `scenario-author`, `fact-checker` (sonnet), `reviewer` (opus), and the three
   reviewers without `model:` that follow the main session's model (Opus 5.5: `code-reviewer`, `guardrail-auditor`,

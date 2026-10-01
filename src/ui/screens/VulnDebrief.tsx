@@ -1,8 +1,8 @@
 // The debrief of a vulnerability case. The only screen that receives the
 // resolved case (truth, lesson, rubric): it renders after the submit.
 
-import type { ComponentChildren } from 'preact';
-import type { VulnFindingGrade, VulnGrade, VulnSubmission, VulnDecisionVerdict, VulnScheduleVerdict } from '../../core/vuln/grade.ts';
+import { Fragment, type ComponentChildren } from 'preact';
+import type { KeyMissWhy, VulnFindingGrade, VulnGrade, VulnSubmission, VulnDecisionVerdict, VulnScheduleVerdict } from '../../core/vuln/grade.ts';
 import type { ResolvedVulnCase, ResolvedVulnFinding } from '../../core/vuln/scenario.ts';
 import { DECISION_LABELS, REASON_LABELS, SCHEDULE_LABELS, VULN_PASS_PERCENT, type WorklistRow } from '../../core/vuln/worklist.ts';
 import { Icon } from '../components/Icon.tsx';
@@ -24,8 +24,20 @@ const SCHEDULE_VERDICT: Record<VulnScheduleVerdict, string> = {
   'emergency-unjustified': 'Half: emergency not needed',
   'sla-breach': 'Later than the SLA allows',
   overflow: 'Over capacity',
+  'no-decision': 'No credit: the decision earned nothing',
   wrong: 'Wrong',
   missing: 'Not scheduled',
+};
+
+// Why a key finding counts as missed (DESIGN section 5.8), as it reads after "was given".
+const MISS_TEXT: Record<KeyMissWhy, string> = {
+  undecided: 'no decision',
+  'wrong-decision': 'a wrong decision',
+  'near-miss': 'a half-right decision, and this finding decides the lesson',
+  'wrong-control': 'a control that does not cover the path',
+  unscheduled: 'no schedule',
+  late: 'a schedule later than its SLA allows',
+  'two-steps': 'a schedule two or more steps from the right one',
 };
 
 const reasonText = (codes: readonly string[]) => (codes.length ? codes.map((c) => REASON_LABELS[c as keyof typeof REASON_LABELS] ?? c).join(', ') : 'none');
@@ -51,12 +63,18 @@ export function VulnDebrief({
     const host = rows.get(id)?.host;
     return host ? `${id} on ${host}` : id;
   };
-  const { dismissed, outsideTopK, decisionPenalty, orderingPenalty } = g.mustNotMiss;
+  const { dismissed, late, outsideTopK, decisionPenalty, orderingPenalty } = g.mustNotMiss;
+  const { missed, cap, uncapped } = g.gate;
+  const binds = cap !== null && uncapped > cap;
+  const describeMiss = (m: VulnGrade['gate']['missed'][number]) => `${where(m.findingId)}, ${m.lesson ? 'a finding this case turns on' : 'a must-not-miss finding'}, was given ${MISS_TEXT[m.why]}`;
   const topK = c.findings.filter((f) => f.mustNotMiss).length + 1;
 
-  // Dismissed must-not-miss findings first, then the ideal order, then the rest.
+  // One bullet per finding: missed key findings first, then dismissed, late, and out-of-place must-not-miss ones.
+  const leadIds = [...new Set([...missed.map((m) => m.findingId).filter((id) => !dismissed.includes(id)), ...dismissed, ...late, ...outsideTopK])].filter((id) => byId.has(id));
+
+  // Missed key findings first, then dismissed or late must-not-miss ones, then the ideal order, then the rest.
   const ordered = [
-    ...new Set([...dismissed, ...c.idealOrder, ...c.findings.map((f) => f.findingId).sort()]),
+    ...new Set([...missed.map((m) => m.findingId), ...dismissed, ...late, ...c.idealOrder, ...c.findings.map((f) => f.findingId).sort()]),
   ].filter((id) => byId.has(id));
 
   const notesPoints = g.rubricHits.length;
@@ -68,6 +86,18 @@ export function VulnDebrief({
         <div class="debrief-hero-text">
           <p class="eyebrow">Debrief · {c.title}</p>
           <h1 id="debrief-h">{c.lesson}</h1>
+          {cap !== null && (
+            <p class="vd-gate" data-gate="missed">
+              <strong class="text-bad">{binds ? `Capped at ${cap} (pass ${VULN_PASS_PERCENT}; ${uncapped} before the cap)` : `A missed key finding caps the score at ${cap} (pass ${VULN_PASS_PERCENT}); yours was ${uncapped} before the cap`}:</strong>{' '}
+              {missed.map((m, i) => (
+                <Fragment key={m.findingId}>
+                  {i > 0 ? '; ' : ''}
+                  {describeMiss(m)}
+                </Fragment>
+              ))}
+              .
+            </p>
+          )}
           <p>
             <strong class={passed ? 'text-ok' : 'text-bad'}>{passed ? 'Passed.' : 'Below the pass mark.'}</strong> The pass mark is {VULN_PASS_PERCENT}; you scored {g.percent}.
           </p>
@@ -84,31 +114,49 @@ export function VulnDebrief({
         </div>
       </section>
 
-      {(dismissed.length > 0 || outsideTopK.length > 0) && (
+      {(missed.length > 0 || dismissed.length > 0 || late.length > 0 || outsideTopK.length > 0) && (
         <section class="card vd-lead" aria-labelledby="vd-lead-h">
           <h2 id="vd-lead-h">What mattered most</h2>
           <ul class="small">
-            {dismissed.map((id) => {
+            {leadIds.map((id) => {
               const f = byId.get(id)!;
+              const t = f.truth;
+              const m = missed.find((x) => x.findingId === id);
               const r = rows.get(id);
-              return (
-                <li>
-                  You dismissed <strong>{id}</strong> on <strong>{r?.host ?? 'its host'}</strong> ({r?.title ?? 'finding'}) as a false positive. It is real: the right call was <strong>{DECISION_LABELS[f.truth.decision]}</strong>,{' '}
-                  <strong>{SCHEDULE_LABELS[f.truth.schedule].toLowerCase()}</strong>. {g.evidence.find((e) => e.findingId === id)?.why ?? ''}
-                </li>
-              );
-            })}
-            {outsideTopK.map((id) => {
               const pos = gradeOf.get(id)?.position;
               return (
-                <li>
-                  <strong>{where(id)}</strong> was {pos === null || pos === undefined ? 'not ranked' : `at position ${pos + 1}`}; must-not-miss findings belong in the top {topK}.
+                <li data-miss={m ? id : undefined}>
+                  {dismissed.includes(id) ? (
+                    <>
+                      You dismissed <strong>{id}</strong> on <strong>{r?.host ?? 'its host'}</strong> ({r?.title ?? 'finding'}) as a false positive. It is real: the right call was <strong>{DECISION_LABELS[t.decision]}</strong>,{' '}
+                      <strong>{SCHEDULE_LABELS[t.schedule].toLowerCase()}</strong>. {g.evidence.find((e) => e.findingId === id)?.why ?? ''}
+                    </>
+                  ) : m ? (
+                    <>
+                      <strong>{where(id)}</strong> {m.lesson ? 'is a finding this case turns on' : 'is a must-not-miss finding'}, and it was given {MISS_TEXT[m.why]}. The right call was <strong>{DECISION_LABELS[t.decision]}</strong>,{' '}
+                      <strong>{SCHEDULE_LABELS[t.schedule].toLowerCase()}</strong>
+                      {t.slaLatest ? ` (latest within the SLA: ${SCHEDULE_LABELS[t.slaLatest].toLowerCase()})` : ''}.
+                    </>
+                  ) : late.includes(id) ? (
+                    <>
+                      <strong>{where(id)}</strong> was left open: {gradeOf.get(id)?.schedule.given ? 'scheduled later than its SLA allows' : 'not scheduled'}. A real must-not-miss finding has to be fixed in time.
+                    </>
+                  ) : (
+                    <strong>{where(id)}</strong>
+                  )}
+                  {outsideTopK.includes(id) && (
+                    <>
+                      {' '}
+                      It was {pos === null || pos === undefined ? 'not ranked' : `at position ${pos + 1}`}; must-not-miss findings belong in the top {topK}.
+                    </>
+                  )}
                 </li>
               );
             })}
           </ul>
           <p class="faint small">
-            Penalty: −{decisionPenalty} decisions, −{orderingPenalty} ordering (a component never goes below 0).
+            Penalty: −{decisionPenalty} decisions for findings left open, −{orderingPenalty} ordering (a component never goes below 0).
+            {cap !== null && ` The cap of ${cap} applies to the total, whatever the components add up to.`}
           </p>
         </section>
       )}
@@ -162,6 +210,8 @@ export function VulnDebrief({
                   <span>· {r?.host ?? ''} · {r?.title ?? ''}</span>
                   {r?.vulnId ? <span class="mono small">{r.vulnId}</span> : null}
                   {f.mustNotMiss && <span class="badge badge-bad">must-not-miss</span>}
+                  {fg.lesson && <span class="badge">Lesson finding</span>}
+                  {fg.keyMiss !== null && <span class="badge badge-bad">missed key finding</span>}
                   <span class="badge">{tier >= 0 ? `urgency tier ${tier + 1}` : 'no urgency tier'}</span>
                 </div>
                 <dl class="vd-dl">
@@ -196,10 +246,14 @@ export function VulnDebrief({
                       <span class="vd-reason">Missed: {REASON_LABELS[code]} </span>
                     ))}
                     {fg.reasons.contradicting.map((code) => (
-                      <span class="vd-reason text-bad">✗ {REASON_LABELS[code]} (contradicted by the evidence, −0.25 each) </span>
+                      <span class="vd-reason text-bad">✗ {REASON_LABELS[code]} (contradicts the evidence, −0.5) </span>
+                    ))}
+                    {fg.reasons.unneeded.map((code) => (
+                      <span class="vd-reason">− {REASON_LABELS[code]} (not needed here, −0.25) </span>
                     ))}
                     <br />
                     Credit {Math.round(fg.reasons.credit * 100)}%
+                    {fg.reasons.zeroed && ' — no credit: the decision earned nothing, and reasons only qualify a decision'}
                   </dd>
                   <dt>Why</dt>
                   <dd data-field="why">Right because: {reasonText(t.reasons)}</dd>
@@ -218,7 +272,11 @@ export function VulnDebrief({
             );
           })}
         </ol>
-        {g.irrelevantPins > 0 && <p class="faint small">{g.irrelevantPins} of your pins were not among the key findings. The grade tolerates a few, not a blanket pin of every row.</p>}
+        {g.irrelevantPins > 0 && (
+          <p class="faint small">
+            {g.irrelevantPins} of your pins were not evidence for any finding. The grade frees one such pin per evidence point ({g.evidence.length}) and takes a point off each further one, so a blanket pin of every row does not pay.
+          </p>
+        )}
       </section>
 
       {g.overflow.length > 0 && (

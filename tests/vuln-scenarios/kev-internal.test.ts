@@ -82,3 +82,20 @@ describe('T3 twins share their unrelated inputs', () => {
     }
   });
 });
+
+describe('T3 twins present the same pre-submit surface', () => {
+  it('share hint 1 and write the same number of rows per table on every run', () => {
+    const runs = [...RUNS, ...Array.from({ length: 20 }, (_, i) => ({ world: 'vuln-world-0', seed: `wl${i}` })), { world: 'e2e-world', seed: 'e2e' }];
+    for (const run of runs) {
+      const sa = buildFor(kevInternal, world(run.world), run.seed);
+      const sb = buildFor(noKevInternal, world(run.world), run.seed);
+      const label = `${run.world}/${run.seed}`;
+      expect(sa.case.hints[0], `${label}: hint 1`).toBe(sb.case.hints[0]);
+      const a = sa.corpus as Corpus;
+      const b = sb.corpus as Corpus;
+      for (const name of Object.keys(a.tables) as (keyof Corpus['tables'])[]) {
+        expect(a.tables[name].rows.length, `${label}: rows of ${name}`).toBe(b.tables[name].rows.length);
+      }
+    }
+  });
+});

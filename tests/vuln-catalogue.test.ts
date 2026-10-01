@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { createRng } from '../src/core/rng.ts';
 import { DAY } from '../src/core/logs/time.ts';
 import { baseScore, parseVector, severityOf } from '../src/core/vuln/cvss31.ts';
+import { isCoherent, vectorFits, vectorProblem } from '../src/core/vuln/coherence.ts';
 import { formatSimVulnId, isSimVulnId, parseSimVulnId, SIMVULN_ID_PATTERN } from '../src/core/vuln/ids.ts';
 import {
   CATALOGUE_SIZE,
@@ -13,7 +14,12 @@ import {
   SIM_EPSS_ALL,
   SIM_EPSS_LISTED,
   SIM_KEV_COUNT,
+  COMPONENTS,
+  PRODUCTS,
+  SHAPE_DEFS,
   VULN_CLASSES,
+  VULN_CLASS_LABELS,
+  componentText,
   findEntry,
   generateCatalogue,
   isNewlyPublished,
@@ -338,4 +344,169 @@ describe('reference date', () => {
     }
     expect(Math.max(...early.entries.map((e) => e.published))).toBeLessThan(Math.max(...late.entries.map((e) => e.published)));
   });
+});
+
+// Class and vector coherence (WP1f): no entry's class or component contradicts its CVSS vector, as the
+// coherence predicate (src/core/vuln/coherence.ts) defines it. The sweep fails the build on any contradiction.
+describe('class and vector coherence', () => {
+  const SWEEP = 2000;
+
+  it(`every entry of ${SWEEP} (seed, referenceDate) catalogues is coherent`, () => {
+    let checked = 0;
+    const contradictions: string[] = [];
+    for (let i = 0; i < SWEEP; i++) {
+      const referenceDate = MIN_REFERENCE_DATE + ((i * 7919) % 1500) * DAY;
+      const c = generateCatalogue(`coherence-${i}`, referenceDate);
+      for (const e of c.entries) {
+        checked++;
+        if (!isCoherent(e)) contradictions.push(`coherence-${i} ${e.id} ${e.title} ${e.vector}: ${vectorProblem(e.vector, e.vulnClass, `${e.component} ${e.title}`)}`);
+      }
+    }
+    expect(contradictions.slice(0, 5)).toEqual([]);
+    expect(checked).toBe(SWEEP * CATALOGUE_SIZE);
+  }, 120_000);
+
+  it('every entry keeps its band, class label in the title and a component of its class', () => {
+    for (const c of catalogues)
+      for (const e of c.entries) {
+        expect(COMPONENTS[e.vulnClass]).toContain(e.component);
+        expect(e.title.startsWith(VULN_CLASS_LABELS[e.vulnClass])).toBe(true);
+        expect(severityOf(e.base)).toBe(e.severity);
+      }
+  });
+
+  it('every SHAPE_DEFS (shape, class) pair admits at least one component of that class', () => {
+    for (const [body, classes] of SHAPE_DEFS)
+      for (const cls of classes) {
+        const fits = PRODUCTS.flatMap((p) => COMPONENTS[cls].filter((comp) => vectorFits(`CVSS:3.1/${body}`, cls, componentText(cls, p, comp))));
+        expect(fits.length, `${body} ${cls}`).toBeGreaterThan(0);
+      }
+  });
+
+  it('no SHAPE_DEFS pair is incoherent for all components, and every shape keeps a class', () => {
+    for (const [body, classes] of SHAPE_DEFS) {
+      expect(classes.length, body).toBeGreaterThan(0);
+      for (const cls of classes) {
+        const bad = COMPONENTS[cls].filter((comp) => !PRODUCTS.some((p) => vectorFits(`CVSS:3.1/${body}`, cls, componentText(cls, p, comp))));
+        expect(bad.length, `${body} ${cls} has components that never fit: ${bad.join(', ')}`).toBeLessThan(COMPONENTS[cls].length);
+      }
+    }
+  });
+
+  describe('hardened rules (fact-check round)', () => {
+    const V = (body: string): string => `CVSS:3.1/${body}`;
+    const tls = (cls: 'misconfig' | 'info-leak', body: string): boolean => vectorFits(V(body), cls, 'TLS settings Insecure default configuration in Larkspur Portal TLS settings');
+
+    it('a TLS flaw never has an availability impact, high integrity impact or user interaction', () => {
+      expect(tls('misconfig', 'AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H')).toBe(false); // 9.8
+      expect(tls('misconfig', 'AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L')).toBe(false); // 7.3
+      expect(tls('misconfig', 'AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N')).toBe(false); // 6.1 XSS shape
+      expect(tls('misconfig', 'AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:N/A:N')).toBe(false);
+      expect(tls('misconfig', 'AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N')).toBe(true); // 7.5
+      expect(tls('misconfig', 'AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N')).toBe(true); // 5.9
+      expect(tls('misconfig', 'AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N')).toBe(true); // 5.3
+    });
+
+    it('a file share or remote shell misconfiguration needs no user interaction and no scope change; a remote shell is network-bound', () => {
+      const cfg = (comp: string, body: string): boolean => vectorFits(V(body), 'misconfig', `${comp} Insecure default configuration in Larkspur Portal ${comp}`);
+      for (const comp of ['file share permissions', 'remote shell settings']) {
+        expect(cfg(comp, 'AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:N/A:N'), `${comp} UI:R`).toBe(false); // 6.5
+        expect(cfg(comp, 'AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N'), `${comp} UI:R/S:C`).toBe(false); // 6.1 XSS shape
+        expect(cfg(comp, 'AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H'), `${comp} S:C`).toBe(false);
+        expect(cfg(comp, 'AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'), `${comp} plain`).toBe(true);
+      }
+      expect(cfg('remote shell settings', 'AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N')).toBe(false);
+      expect(cfg('remote shell settings', 'AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N')).toBe(false);
+    });
+
+    it('file share permissions need a network vector and a confidentiality or integrity impact', () => {
+      const fs = (body: string): boolean => vectorFits(V(body), 'misconfig', 'file share permissions Insecure default configuration in Larkspur Portal file share permissions');
+      expect(fs('AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N')).toBe(false); // 5.5 local
+      expect(fs('AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N')).toBe(false);
+      expect(fs('AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L')).toBe(false); // 5.3 availability only
+      expect(fs('AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H')).toBe(false);
+      for (const body of [
+        'AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', // 9.8
+        'AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N', // 7.5
+        'AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N', // 6.5
+        'AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L', // 7.3
+        'AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N', // 4.3
+        'AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N', // 5.3
+        'AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:L', // 4.7
+      ]) expect(fs(body), body).toBe(true);
+    });
+
+    it('remote shell settings need at least two of C, I, A impacts', () => {
+      const rs = (body: string): boolean => vectorFits(V(body), 'misconfig', 'remote shell settings Insecure default configuration in Larkspur Portal remote shell settings');
+      for (const body of [
+        'AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N', // 7.5
+        'AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N', // 6.5
+        'AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L', // 5.3
+        'AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N', // 5.3
+        'AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N', // 4.3
+      ]) expect(rs(body), body).toBe(false);
+      for (const body of [
+        'AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', // 9.8
+        'AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H', // 7.2
+        'AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L', // 7.3
+        'AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:L', // 4.7
+      ]) expect(rs(body), body).toBe(true);
+    });
+
+    it('a database listener is network-bound and needs no user interaction and no scope change; the catalogue lists it instead of remote shell settings', () => {
+      const dl = (body: string): boolean => vectorFits(V(body), 'misconfig', 'database listener settings Insecure default configuration in Larkspur Portal database listener settings');
+      expect(dl('AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N')).toBe(false);
+      expect(dl('AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N')).toBe(false);
+      expect(dl('AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N')).toBe(true);
+      expect(COMPONENTS.misconfig).toContain('database listener settings');
+      expect(COMPONENTS.misconfig).not.toContain('remote shell settings');
+    });
+
+    it('rce needs no user interaction unless a user loads or opens attacker content', () => {
+      const ui = 'AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H';
+      for (const comp of ['deserialization endpoint', 'template engine', 'file-upload handler', 'update service', 'request parser'])
+        expect(vectorFits(V(ui), 'rce', `${comp} Remote code execution in Larkspur Portal ${comp}`), comp).toBe(false);
+      for (const comp of ['plugin loader', 'scripting console', 'document preview handler', 'project file importer'])
+        expect(vectorFits(V(ui), 'rce', `${comp} Remote code execution in Larkspur Portal ${comp}`), comp).toBe(true);
+      expect(vectorFits(V('AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'), 'rce', 'template engine Remote code execution in Larkspur Portal template engine')).toBe(true);
+    });
+
+    it('rce may be local where a user opens attacker content: a console, a document preview handler, a project file importer', () => {
+      const local = 'AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H';
+      for (const comp of ['scripting console', 'document preview handler', 'project file importer'])
+        expect(vectorFits(V(local), 'rce', `${comp} Remote code execution in Larkspur Portal ${comp}`), comp).toBe(true);
+      for (const comp of ['template engine', 'file-upload handler', 'update service', 'deserialization endpoint'])
+        expect(vectorFits(V(local), 'rce', `${comp} Remote code execution in Larkspur Portal ${comp}`), comp).toBe(false);
+      expect(COMPONENTS.rce).toEqual(expect.arrayContaining(['document preview handler', 'project file importer']));
+    });
+
+    it('an info-leak never changes scope on an error handler or a log viewer, and no catalogue shape pairs them', () => {
+      const sc = 'AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N';
+      for (const comp of ['error handler', 'log viewer'])
+        expect(vectorFits(V(sc), 'info-leak', `${comp} Information disclosure in Larkspur Portal ${comp}`), comp).toBe(false);
+      for (const [body, classes] of SHAPE_DEFS) if (body.includes('/S:C/')) expect(classes, body).not.toContain('info-leak');
+    });
+  });
+
+  it('no single (class, component) pair exceeds about twice the mean share of its class over the sweep', () => {
+    const SHARE_SWEEP = 600;
+    const pairs = new Map<string, number>();
+    const perClass = new Map<string, number>();
+    for (let i = 0; i < SHARE_SWEEP; i++) {
+      const c = generateCatalogue(`share-${i}`, MIN_REFERENCE_DATE + ((i * 7919) % 1500) * DAY);
+      for (const e of c.entries) {
+        pairs.set(`${e.vulnClass}/${e.component}`, (pairs.get(`${e.vulnClass}/${e.component}`) ?? 0) + 1);
+        perClass.set(e.vulnClass, (perClass.get(e.vulnClass) ?? 0) + 1);
+      }
+    }
+    const heavy: string[] = [];
+    for (const [cls, list] of Object.entries(COMPONENTS)) {
+      const mean = (perClass.get(cls) ?? 0) / list.length; // the class's mean count per component
+      for (const comp of list) {
+        const ratio = (pairs.get(`${cls}/${comp}`) ?? 0) / mean;
+        if (ratio > 2.25) heavy.push(`${cls}/${comp} ${ratio.toFixed(2)}x`);
+      }
+    }
+    expect(heavy).toEqual([]);
+  }, 120_000);
 });

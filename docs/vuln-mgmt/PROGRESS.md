@@ -45,11 +45,25 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   fixed in one round); reviewer gate FAIL once (a Help near-miss example was reversed, fixed inline), re-gate PASS with sign-off on
   every outside-list file. README table count updated.
 
+- **WP1f — Grading and catalogue hardening** (2026-10-01). Lesson gate (ADR-22, DESIGN §5.8): lesson findings
+  (`FindingSpec.lesson`) and must-not-miss findings are key; a missed key finding caps the case at 60 and the debrief leads with it
+  (uncapped sum shown); must-not-miss left open −5; a decision worth 0 earns no schedule or reason credit; unneeded code −0.25,
+  contradicting −0.5; vuln pins: free = evidence points, no cap, own scan rows neutral (opt-in in `grading/shared.ts`, SOC output
+  byte-identical: 3,200 graded SOC submissions vs HEAD). Build errors: no lesson finding, real key finding without `slaLatest`, no
+  evidence point. Catalogue: only coherent class/component/vector entries (predicate moved to `coherence.ts`, tightened after
+  three fact-checker vetoes; `classes.ts`); 2,000-catalogue sweep and a concentration test. "Quorvane" → "Dunmarrow"; T3 twins
+  share a neutral hint 1 and write equal row counts (background noise on a shared rng); reserved-domain guardrail scan (world org
+  domains and citation hosts exempt pending NEEDS-HUMAN-CHECK 4); CS0-003 titles NEEDS-HUMAN-CHECK 3 (PDF encrypted).
+  `tests/vuln-hardening.test.ts`, every template × 20 runs (percent): shotgun max 53 / 57 / 55 / 40, only-the-lesson-wrong max 60
+  for every lesson finding, ideal min 100, lesson right + slips min 88 / 88 / 90 / 94 (kev / nokev / stale / backport); before:
+  shotgun up to 72.8 and lesson-wrong up to 97.2. 29 files / 728 tests (+5 opt-in), build ok, e2e 28/28 (system Chrome). Process:
+  probe harness + three competing mechanisms + two judges; pre-gate review and two verified fix rounds; reviewer gate PASS (first
+  attempt), fact-checker PASS.
+
 ## In progress
-- None. Next session starts WP1f.
+- None. Next session starts WP2.
 
 ## Next
-- WP1f — Grading and catalogue hardening (added 2026-09-30)
 - WP2 — Content batch A (twins T1, T2, T4, T5)
 - WP3 — Content batch B (twins T6, T7, T8, T11) + tier 3 (T9, T10)
 - WP4 — Stats and study integration
@@ -229,6 +243,41 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   comments) and `pull-requests: write` as in the action's official example; before, it finished green in seconds without reading the
   diff; (3) WP1f starts in a fresh session.
 
+- 2026-10-01 (coordinator, before WP1f): session start found PLAN, PROGRESS and repo in agreement (WP0–WP1e committed and merged,
+  no hardening test); branch clean, in sync with origin and `main` (f13ec50); baseline 28 files / 655 tests (+1 expected fail,
+  4 opt-in). The human's five WP1f decisions were already recorded (2026-09-30 entry above, ADR-20/21, PLAN WP1f/WP1e); no other
+  open question was left for the coordinator.
+- WP1f acceptance readings (the criteria do not define these terms; flagged here, not guessed silently): **lesson finding** =
+  the finding(s) the template's `lesson` text is about, now explicit data (`FindingSpec.lesson`; in twins `findings[0]`, verified
+  on every run; the stale-scan and backport-fp lesson texts also name the sibling decoy, so it is flagged too — pre-gate review);
+  "only the lesson finding wrong" is tried for each lesson finding in turn; **targeted misconception** = the twin's truth for the
+  headline (decision, schedule, reasons, place in the order), else a flip: a false positive trusted (patch at the SLA-table
+  schedule), a real finding dismissed as a false positive; **every reason code** = only three count, so the shotgun is
+  tried with the full vocabulary in order, the common-code spam set and the case's three most-required codes, and the bound holds
+  for the best; **every row pinned** = all corpus rows, or the vuln tables plus DeviceInfo; **ideal** = the perfect answer pinning
+  every row of every evidence point plus each finding's own scan row (perfect itself stays 100); **minor slips** = one other finding
+  one step earlier, one required code dropped, one evidence point unpinned, one adjacent swap, one hint, two irrelevant pins, all at
+  once; **fails** = below the 70 pass mark on every template × 20 runs. Written into DESIGN §5.8.
+- WP1f mechanism (ADR-22): three candidates (A: arithmetic, the human's starting rules plus a lesson weight of half the case; B:
+  lesson gate; C: per-finding composite) were built as scratch graders and measured with a shared probe harness on every template
+  × 20 runs; all met the four bounds; two judges (learner fairness, robustness) split C vs B. Chosen: **B plus grafts** — a missed
+  key finding (lesson or must-not-miss) caps the case at 60; must-not-miss left open (FP, unscheduled, past `slaLatest`) −5; a
+  decision worth 0 earns no schedule or reason credit; unneeded code −0.25, contradicting −0.5; vuln pins: free = evidence points,
+  no cap, own scan rows neutral. Baseline before WP1f: S1 max 70.4 / 72.8 / 70.4 / 59.0 and S2 max 95.9 / 97.2 / 88.0 / 87.8
+  (kev / nokev / stale / backport). The human's starting mechanism alone left S2 at 70.9 / 97.2 / 88.0 / 87.8 (measured).
+- WP1f inline (coordinator): `FindingSpec.lesson?` in `model.ts`; `lesson: true` on the four headline lesson findings (one line
+  each in `kev-internal.ts` ×2, `stale-scan.ts`, `backport-fp.ts`), so the implementer and the scenario-author could start in
+  parallel; after the pre-gate review two more on the stale-scan and backport-fp decoys (six in all); after the gate, `Fragment`
+  keys in `VulnDebrief.tsx` (reviewer note).
+- WP1f pre-gate review (5 lenses, a skeptic per finding; 22 confirmed ≈ 13 distinct, 5 refuted) and rulings: the decoys named by
+  the stale-scan and backport-fp lesson texts are lesson findings (dismissing the real Critical decoy passed at 84–86); the lesson
+  emergency clause is dropped (a draft capped a cautious emergency patch on a real next-window decoy; nokev's over-reaction is
+  two steps and stays caught); left open applies only when the truth schedule is not `none`; hardening bounds use the percent
+  the pass decision uses; S2 runs per lesson finding. Two fix rounds, each verified; the fact-checker vetoed new catalogue pairings
+  three times (TLS with availability impact; misconfig components with UI:R, AV:L or single-impact shapes), each fixed and re-passed.
+- WP1f facts: "Quorvane" → **"Dunmarrow"** (fact-checker web sweep: only fictional-world mentions, no company, product,
+  trademark or domain; six other candidates rejected). The CS0-003 objectives PDF is encrypted (NEEDS-HUMAN-CHECK 3). The world's
+  org domains are registered Microsoft fictitious-company domains, not reserved names, shared with SOC (NEEDS-HUMAN-CHECK 4).
 - 2026-10-01 (human, during WP1f): subagents run at **`effort: high`** (ADR-23): seven agent files, `explorer` (haiku) excluded,
   models unchanged. WP1f's design, build, catalogue and content stages ran at the session effort; the pre-gate review (paused by
   the human) and everything after it run at high.
@@ -238,33 +287,33 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   template writes controls (WP2, T5/T6; unit tests cover the gate branch); the query engine still knows the six vuln tables in SOC
   sessions (empty results, a did-you-mean could name one); a "Query this finding in the console" button was dropped (WP6
   candidate); devtools on one's own profile shows the template id of an earlier attempt of the same seed; SQL mode has no
-  autocomplete popup in either mode (pre-existing; the SQL schema map is inert); Help's "with a missing or wrong control it earns
-  half" should start "When mitigate is the answer" (WP1f item 8). Twin-telling first hint and twin `VulnIntel` row counts: WP1f
-  item 9.
+  autocomplete popup in either mode (pre-existing; the SQL schema map is inert). (Help's mitigate sentence, the twin-telling first
+  hint and the twin `VulnIntel` row counts were fixed in WP1f.)
 - `tests/helpers/vuln-scenario-check.ts` covers build, structure, corpus integrity, synthetic guardrails, determinism (per run since
   WP1d), solvability (optionally every evidence row) and (since WP1c) grading: perfect = 100, empty = 0.
 - The builder accepts templates whose perfect answer scores below 100: must-not-miss outside the top k of `idealOrder`; ideal
   emergency + next-window over capacity; truth schedule later than `slaLatest`; more than 3 distinct required codes; mitigate
-  without a `mitigation` list; no evidence point. `checkVulnGrading` catches each of these for every template, and
-  `checkVulnStructure` rejects a false positive whose schedule is not `none` (WP1d); build-time checks are optional.
-- **Catalogue class/vector pairing (WP1a; scheduled in WP1f, human 2026-09-30):** 26 % of generated catalogue entries have a class/component
-  their vector contradicts (`catalogue.ts` SHAPE_DEFS pairs e.g. AV:L shapes with `rce`, PR:L/H with `auth-bypass`, AV:L with `sqli`).
-  WP1d templates filter and re-describe entries through the coherence predicate in `templates/common.ts`, so no case shows one, but
-  every new template depends on that filter. A catalogue fix (pair classes with the shapes the predicate allows) is outside WP1d.
-- **Grading headroom (DESIGN §5; scheduled in WP1f, human 2026-09-30):** extra reason codes cost nothing (§5.4), a false
-  positive scheduled standard-cycle earns 0.5 (§5.3), the irrelevant-pin penalty is capped at 5 so pinning every row earns about 10 of
-  15 evidence points (§5.5), and the schedule component is an unweighted mean. The generic guard (C14, strategies a/b/c/e/f with and
-  without reason spam) keeps table-blind strategies < 70 on every template; the one measured pass is `vm-nokev-internal` answered from
-  the SLA table with reason spam and every row pinned: 72.2–72.8 on every seed (in nokev the SLA-table answer is right on 3 of 4
-  findings by design). A learner who gets only the lesson finding wrong, with the targeted misconception, still passes (76–94). No
-  template change can close this under §5. Options: weight the schedule by finding weight; treat a must-not-miss or decider
-  schedule miss like a dismissal; free pins = number of evidence points.
+  without a `mitigation` list. `checkVulnGrading` catches each of these for every template, and `checkVulnStructure` rejects a
+  false positive whose schedule is not `none` (WP1d). Since WP1f the builder itself rejects a case with no lesson finding, a real
+  key finding without `slaLatest`, or no evidence point.
 - Minor, from the last verifier (not blocking): `vectorProblem` does not know the product kind (an AV:L "scripting console" RCE on a
   web app passes; only background rows can show it, worklist rows must match `WORKLIST_SHAPES`); some appliance low-band shapes are
   local DoS ("certificate handler", AV:L); the "3 shapes per band" test counts across kinds; the twins' FS01 login-failure row and
   APP01 certificate row differ beyond FindingId (outside the worklist).
-- Twins share their worklist rows (VulnId, host, CVSS, FirstSeen, DetectedVersion) but not their background rows: the scan writer's
-  rng is seeded by template id (WP1b). Accepted; changing the seed would alter `scenario.ts`.
+- Twins share their worklist rows (VulnId, host, CVSS, FirstSeen, DetectedVersion) and, since WP1f, their background rows (host,
+  vulnerability, run) and row counts per table; FindingId, DetectedVersion, Evidence and FirstSeen/LastSeen of background rows
+  still differ (the scan writer's rng is seeded by template id, WP1b), which no single session can see. Accepted.
+- WP1f, minor (not blocking): the fact-checker's shape notes — rce 9.6 (UI:R, S:C) on plugin loader / scripting console fits
+  scope change poorly; the sqli S:C shapes (9.6, 7.7, 6.4) assume the database is a separate authority; the auth-bypass and
+  misconfig 6.1 shape (UI:R, S:C) is XSS-shaped on session handler / password reset / management interface; misconfig 7.3
+  (C:L/I:L/A:L) on default credentials understates the usual impact. `vectorProblem` still does not know the product kind.
+- WP1f, accepted by the pre-gate review (not defects under §5): each T3 twin alone passes a blanket policy that matches its own
+  truth (nokev: SLA table + `low-exploitability`, 74.8; kev: emergency for everything, 75.6) — the pair catches it (each policy is
+  gated on the other twin); dismissing a real non-key finding still passes when the rest is right (stale-scan's Critical 9.8,
+  73.7: −26 points, not Sim-KEV listed, so not must-not-miss). WP2/WP3 authors: make every finding whose dismissal must fail a
+  key finding. nokev's shotgun margin is the thinnest (S1 57 %); more decoys would widen it.
+- WP1f hardening S4: the "two irrelevant pins" slip costs nothing because free pins = evidence points (≥ 2 in every template); the
+  test asserts the two pins are irrelevant, so a template with one evidence point would exercise the penalty.
 - WP1a re-review (minor, non-blocking): CVSS tests check little beyond the 18 oracle rows (15/15 environmental, temporal and parser
   mutants survive; add about 40 golden vectors); catalogue tests don't pin the Sim-EPSS anchor tables or `KEV_LEGACY`; `toMetrics`
   doesn't validate metric objects (NaN → "critical"); `fixedVersion` is set when `vendorFix` is false (the scan writer blanks it).

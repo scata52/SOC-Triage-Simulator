@@ -76,6 +76,10 @@ export interface FindingSpec {
   truth: FindingTruth;
   weight: number;
   mustNotMiss?: boolean;
+  // The finding (or findings) the template's lesson text is about; in a twin
+  // pair, findings[0]. Lesson and must-not-miss findings are the key findings
+  // the lesson gate judges (DESIGN section 5.8).
+  lesson?: boolean;
   evidence: EvidenceSpec[];
 }
 

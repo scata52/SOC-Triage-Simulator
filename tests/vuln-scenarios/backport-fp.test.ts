@@ -22,7 +22,7 @@ it('the headline is a backported fix, the decoy is not', () => {
     const df = f.find((r) => r.FindingId === decoy.findingId)!;
     expect(rows(c, 'ScanRuns').find((r) => r.ScanRunId === hf.ScanRunId)!.Method).toBe('Unauthenticated');
     expect(df.DetectedVersion).toBe(hf.DetectedVersion);
-    const soft = (h: Row) => rows(c, 'SoftwareInventory').find((r) => r.DeviceName === h.DeviceName && r.Product === 'Quorvane httpd')!;
+    const soft = (h: Row) => rows(c, 'SoftwareInventory').find((r) => r.DeviceName === h.DeviceName && r.Product === 'Dunmarrow httpd')!;
     expect(soft(hf).PackageSource).toBe('distro');
     expect(release(soft(hf).Version)).toBeGreaterThan(release(soft(df).Version));
     const patch = rows(c, 'PatchHistory').find((r) => r.DeviceName === hf.DeviceName && String(r.Description).includes(String(hf.VulnId)))!;
@@ -84,7 +84,7 @@ it('the web server product shares no word with a catalogue product; the banner-o
   const run = vulnRuns(1, 1)[0];
   const b = buildFor(backportFp, world(run.world), run.seed);
   const c = b.corpus as Corpus;
-  const web = words('Quorvane httpd');
+  const web = words('Dunmarrow httpd');
   const others = new Set(generateCatalogue('p6', Date.parse(String(b.now))).entries.flatMap((e) => words(e.product)));
   expect(web.filter((w) => others.has(w))).toEqual([]);
   const head = b.case.findings[0];

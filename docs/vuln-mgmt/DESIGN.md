@@ -77,7 +77,7 @@ interface VulnTemplate {
 }
 interface VulnCaseSpec {
   briefing: string; attachments?: Attachment[];
-  findings: FindingSpec[];    // each: findingId, row: RowRef, truth: FindingTruth, weight, mustNotMiss?, evidence: EvidenceSpec[]
+  findings: FindingSpec[];    // each: findingId, row: RowRef, truth: FindingTruth, weight, mustNotMiss?, lesson?, evidence: EvidenceSpec[]
   constraints: { windows: Window[]; slaDays: Record<SlaClass, number>; capacityPerWindow: number };
   idealOrder: string[];       // findingIds, most urgent first; lists every tiered finding, relevance never rising
   tiers: string[][];          // urgency tiers 1–3 in order (§5.2); a finding in no tier is noise/FP/accepted (relevance 0)
@@ -100,6 +100,10 @@ Clarified 2026-09-29 (WP1c, coordinator): `tiers` is required because §5.2 grad
 give relevance to more than three ranked findings; `slaLatest` exists because the SLA that applies is policy, not a function of
 the finding row (the T3 decider scores CVSS 7.5, High, yet has the 3-day SLA), and the calendar has no fixed date for "standard
 cycle". Build-time checks: at most 3 tiers, disjoint, FP/accept truths untiered, must-not-miss findings tiered.
+Clarified 2026-10-01 (WP1f, ADR-22): `FindingSpec.lesson` marks the finding or findings the template's `lesson` text is about (in a
+twin pair, `findings[0]`, the headline, the same vulnerability in both twins); lesson and must-not-miss findings are the case's *key
+findings* (§5.8). Further build-time checks: at least one lesson finding, `slaLatest` on every real key finding (truth not
+`false-positive`), at least one evidence point per case.
 Seeded generation as today: `buildVulnScenario({worldSeed, templateId, seed})` → deterministic spec + corpus.
 
 ### 2.3 Case sizes
@@ -174,19 +178,23 @@ Reason: same philosophy and helpers, different components; keeps "perfect = 100,
 | evidence | 15 | pinned rows satisfying evidence points |
 Free-text stakeholder note: rubric keyword hits → coaching + XP bonus only (as today). Reason: keyword grading of prose
 is gameable; judgment is graded through structured choices + evidence.
+Lesson gate (§5.8, WP1f): a missed key finding caps the case at 60, below the pass mark, whatever the components add up to.
+Coherence (WP1f): a finding whose decision earns 0 earns 0 for its schedule and its reasons (they qualify a decision).
 
 ### 5.1 Decisions (40)
 - Finding weight `w` (default 1; must-not-miss 3; noise 0.5). Earned = 40 × Σ(w·credit)/Σw.
 - credit: exact or in `alsoAccept` = 1. Near-miss matrix (row = truth, col = given) = 0.5:
   patch↔mitigate (when truth is patch and a real control is chosen that covers the path), accept↔mitigate,
   transfer↔accept, and truth avoid → given patch (fixes this finding but keeps the attack surface). Truth patch → given avoid = 0
-  (removes a component the business needs). Everything else 0. **false-positive given on a real must-not-miss = 0 and −5 (cap −10)**:
-  dismissing a real exploited vuln is the costly mistake (mirrors SOC `mustNot`).
+  (removes a component the business needs). Everything else 0. **A real must-not-miss finding left open costs −5 (cap −10)**:
+  dismissing a real exploited vuln is the costly mistake (mirrors SOC `mustNot`). WP1f: *left open* means given `false-positive`,
+  or, when its truth schedule is not `none`, left unscheduled or scheduled later than its `slaLatest`; a must-not-miss schedule
+  miss counts like a dismissal (a finding that needs no change has no schedule to miss). The decision
+  credit itself follows the matrix (a late patch keeps its patch credit); a left-open finding is also a missed key finding (§5.8).
 - `mitigate` requires a control from the finding's acceptable list; wrong control → 0.5.
 - Clarified (WP1c): `mitigate` with no control counts as a wrong control. The patch→mitigate near miss needs a control from
   `mitigation` (on a patch finding the list names the controls that cover the path), else 0; accept↔mitigate needs none. The −5
-  applies when `false-positive` is given on a must-not-miss finding whose truth is not FP; it is taken inside the 40 points
-  (floor 0). Σw = 0 → 0.
+  applies to a left-open must-not-miss finding whose truth is not FP; it is taken inside the 40 points (floor 0). Σw = 0 → 0.
 
 ### 5.2 Ordering (20)
 - Relevance per finding from its tier (tier 1 = 3, 2 = 2, 3 = 1, noise/FP = 0). Score = 20 × nDCG(given order).
@@ -205,6 +213,8 @@ is gameable; judgment is graded through structured choices + evidence.
   than `slaLatest` (when the template gives it) 0; exact 1; emergency on a real finding (truth not FP) whose truth is not
   emergency 0.5, also when that truth is `none` (accept, transfer); otherwise ordinal. Then capacity: among equal relevance the learner's lower-ranked assignment overflows
   first (unranked lowest), then the later finding in case order.
+- WP1f: a finding whose decision earns 0 (wrong or missing) scores 0 for its schedule whatever the rules above give: a window
+  only means something for the right kind of action. Near misses and wrong controls (0.5) keep their schedule credit.
 
 ### 5.4 Justification reason codes (15)
 Fixed vocabulary (checkbox chips per finding, ≤ 3): `known-exploited`, `high-exploit-probability`, `public-exploit`,
@@ -212,28 +222,42 @@ Fixed vocabulary (checkbox chips per finding, ≤ 3): `known-exploited`, `high-e
 `credentialed-confirmed`, `banner-only`, `backported-fix`, `stale-scan`, `pending-reboot`, `duplicate-root-cause`,
 `vendor-responsibility`, `approved-exception`, `no-vendor-fix`, `low-exploitability`, `sla-deadline`, `change-freeze`,
 `unused-component`.
-Score per finding = |given ∩ required| / |required| − 0.25 × |given ∩ contradicting|, clamped 0..1; weighted like decisions.
-Each template lists `required` and `contradicting` codes per finding (e.g., `stale-scan` contradicts a real finding).
+Score per finding (WP1f) = |given ∩ required| / min(|required|, 3) − 0.25 × |unneeded| − 0.5 × |given ∩ contradicting|,
+clamped 0..1; weighted like decisions. *Unneeded* = counted codes that are neither required nor contradicting. So a code the
+finding does not require never raises its score: a true but unneeded code costs a quarter, a code the evidence contradicts costs
+half. Each template lists `required` and `contradicting` codes per finding (e.g., `stale-scan` contradicts a real finding).
 Clarified (WP1c): only the first three distinct codes count. A finding with no required codes scores 1 when it has a decision
-(SOC's restraint rule), else 0, before the contradiction penalty.
+(SOC's restraint rule), else 0, before the deductions. WP1f: a finding whose decision earns 0 scores 0 for its reasons (they
+justify a decision). Was (WP1c): |given ∩ required| / |required| − 0.25 × |given ∩ contradicting|, unneeded codes free.
 
 ### 5.5 Evidence (15)
-Exactly the SOC mechanism: `EvidenceSpec` with RowRefs; pin any row → point; hints −20% of this component each;
-4 free extra pins, then −1 per irrelevant pin (cap −5). The points are every evidence spec of every finding.
-Rounding (WP1c): components to one decimal (evidence to whole points, as SOC); score = their sum; percent = rounded score.
+The SOC mechanism: `EvidenceSpec` with RowRefs; pin any row → point; hints −20% of this component each. The points are every
+evidence spec of every finding. Pin rules differ from SOC (WP1f; SOC keeps 4 free extra pins and the −5 cap): as many free extra
+pins as the case has evidence points, then −1 per further irrelevant pin with no cap but the component's floor of 0; a worklist
+finding's own scan row (its `VulnFindings` row) is never irrelevant. Reason: with a cap of 5, pinning every row still earned 10
+of 15.
+Rounding (WP1c): components to one decimal (evidence to whole points, as SOC); score = their sum (capped by §5.8); percent =
+rounded score.
 
 ### 5.6 Worked examples (T3 case `vm-kev-internal`, 4 findings)
-Findings: F1 Sim-KEV-listed remote information disclosure on app server (CVSS 7.5, the T3 headline vector of §6.2; must-not-miss, w3, tier1, emergency, reasons {known-exploited, public-exploit});
+Findings: F1 Sim-KEV-listed remote information disclosure on app server (CVSS 7.5, the T3 headline vector of §6.2; must-not-miss, lesson, w3, tier1, emergency, `slaLatest` emergency, reasons {known-exploited, public-exploit});
 F2 medium TLS config (w1, tier3, standard, reasons {low-exploitability}); F3 stale high on file server already patched
 (w1, FP, none, {stale-scan}); F4 high on dev box, Sim-EPSS 0.004 (w1, tier2, next-window, {low-exploitability}).
-Σw = 6. Evidence points: 3 (Sim-KEV row, PatchHistory row for F3, DeviceInfo for F4).
+Σw = 6. Evidence points: 3 (Sim-KEV row, PatchHistory row for F3, DeviceInfo for F4). Key findings (§5.8): F1.
+Recomputed 2026-10-01 for WP1f (was: sort-by-CVSS 57.3, dismiss-F1 "≈ 45").
 - **Perfect**: 40 + 20 + 10 + 15 + 15 = **100**.
-- **Sort-by-CVSS analyst**: decisions all "patch" → F1 1·3, F2 1, F3 0, F4 1 → 40×5/6 = 33.3. Order F3,F1,F4,F2 by score:
-  nDCG = 0.698 (linear gain / log2(pos+2), as `prioritisation()` in `shift/score.ts`) → 14.0; F1 in top 2 → no must-not-miss penalty.
-  Schedule: F1 next-window (SLA 3 days breached → 0), F3 scheduled (should be none → 0) → 10×(0+1+0+1)/4 = 5. Reasons none → 0.
-  Evidence 1/3 → 5. **Total = 57.3.** (First draft said nDCG ≈ 0.86 / total ≈ 60.5; recomputed 2026-09-28.)
-- **Dismisses F1 as FP**: decisions 40×3/6 = 20 − 5 = 15; ordering loses must-not-miss 4; rest depends on the submission,
-  typically **≈ 45**. Debrief leads with F1. (Only the decisions and must-not-miss parts are exact.)
+- **Sort-by-CVSS analyst**: decisions all "patch" → F1 1·3, F2 1, F3 0, F4 1 → 40×5/6 = 33.3, and F1 at next-window is past its
+  3-day SLA, so it is left open: −5 → 28.3. Order F3,F1,F4,F2 by score: nDCG = 0.698 (linear gain / log2(pos+2), as
+  `prioritisation()` in `shift/score.ts`) → 14.0; F1 in top 2 → no must-not-miss ordering charge. Schedule: F1 next-window (SLA
+  3 days breached → 0), F3 scheduled (should be none → 0; its decision earns 0 anyway) → 10×(0+1+0+1)/4 = 5. Reasons none → 0.
+  Evidence 1/3 → 5. **Total = 52.3**; F1 is a missed key finding, so the cap of 60 applies but does not bind.
+- **Dismisses F1 as FP** (everything else perfect, F1 unranked, no reasons): decisions 40×3/6 = 20 − 5 = 15; ordering nDCG
+  0.553 → 11.1 − 4 (must-not-miss outside the top 2) = 7.1; schedule 7.5 (F1's decision earns 0); justification 7.5; evidence 15
+  (10 without the Sim-KEV pin). **Total = 52.1**, and F1 is a missed key finding, so no variant of it passes. Debrief leads with F1.
+- **Answers F1 like its twin** (patch, standard cycle, ranked second, the twin's reason `low-exploitability`; everything else
+  perfect): decisions 40 − 5 (left open: past its SLA) = 35; ordering nDCG 0.922 → 18.4; schedule 7.5; justification 7.5 (F1:
+  0 of 2 required, `low-exploitability` contradicts the listing); evidence 15. Sum 83.4 → **capped at 60** (missed key finding:
+  later than its SLA). Before WP1f this answer scored about 92 and passed.
 - **Empty submission**: 0 (grader must return 0; tested).
 
 Clarified 2026-09-29 (WP1d, coordinator): the first draft called F1 an "RCE", but the T3 headline vector (`C:H/I:N/A:N`) scores a
@@ -245,6 +269,49 @@ maps to a hardening baseline, 2.4).
 
 ### 5.7 Pass mark and XP
 Pass (SRS quality) 70% as SOC. XP = score × `DIFFICULTY_MULTIPLIER` + rubric bonus, identical formula to SOC so ranks stay comparable.
+A missed key finding (§5.8) caps the score at 60, so the case cannot pass; XP uses the capped score.
+
+### 5.8 Lesson gate and hardening (WP1f, ADR-22)
+*Key findings* are the lesson findings (`FindingSpec.lesson`, at least one per case) and the must-not-miss findings. A key
+finding is **missed** when either holds:
+- **Decision**: on a lesson finding, anything but full decision credit (the truth or an `alsoAccept`; `mitigate` needs a
+  covering control), because the lesson turns on this choice; on a must-not-miss finding that is not a lesson finding, a
+  decision that earns 0 (a near miss such as a covering control on a patch finding still handles the risk).
+- **Schedule**, only when the truth schedule is not `none`: unset, later than `slaLatest`, or two or more steps from the truth
+  (an emergency change for a standard-cycle finding is two steps: the over-reaction the T3 B twin teaches). On a must-not-miss
+  finding that is not a lesson finding, an emergency change never gates, however far from the truth: it keeps §5.3's half
+  credit (must-not-miss guards against delay, not over-reaction). One step off within the SLA, an emergency change for a
+  next-window finding included, is a slip: half schedule credit, no gate. Capacity overflow and ordering never trigger the gate.
+  Clarified in the WP1f pre-gate review: a draft also gated any unneeded emergency on a lesson finding; that capped a cautious
+  emergency patch on a real decoy whose lesson is "this one is real", which the case does not teach, and the T3 twin is caught by
+  the two-step clause anyway.
+- A finding whose decision earns 0 shows the schedule verdict `no-decision` when the coherence rule removed credit it had.
+
+If any key finding is missed, score = min(sum of components, 60). The grade keeps the uncapped sum and each missed finding with
+its reason; the debrief leads with them ("Capped at 60 (pass 70; 83.4 before the cap): F1, the finding this case turns on, was
+scheduled later than its SLA allows."). Perfect = 100 and empty = 0 are unchanged. Reason: under the WP1c rules a learner who got
+only the lesson finding wrong passed every slice template (76–97), and no weighting fixes that at tier-3 size; a cap holds
+whatever the case size, weights or number of deciders, and a late or dismissed Sim-KEV finding stays decisive in large cases.
+
+Template authors: flag only the finding(s) the lesson text names (keep it to 1–3); set `slaLatest` on every real key finding;
+put every decision that should pass on a key finding into `alsoAccept` (near misses fail the gate); make twin lesson findings
+differ by decision, by two or more steps, or across the SLA (a one-step difference within the SLA, an emergency change for a
+next-window finding included, is a slip and is not caught; the hardening S2 test fails such a pair).
+
+**Hardening tests** (`tests/vuln-hardening.test.ts`, every template × the standard runs) define done for the grader; the strategies:
+1. *Shotgun* — patch everything, the SLA-table schedule (CVSS class from first detection, no Sim-KEV rule), every reason code (in
+   vocabulary order, the common-code spam set, and the case's three most-required codes), ordered by that deadline or by CVSS,
+   every row pinned (all tables, or the vuln tables plus DeviceInfo): **< 70**.
+2. *Only the lesson finding wrong* — for each lesson finding in turn, the perfect answer except that finding, answered with the
+   targeted misconception (in a twin pair, the headline gets the twin's truth and place in the order; any other lesson finding is
+   flipped: a false positive is trusted — patch at the SLA-table schedule — and a real finding is dismissed as a false positive
+   and left out of the order); reasons the misconception's, the true ones or none; pins with or without that finding's
+   evidence: **< 70**.
+3. *Ideal* — the perfect answer pinning every row of every evidence point and every finding's own scan row: **≥ 90** (perfect
+   stays 100).
+4. *Lesson right, minor slips* — key findings perfect; one other finding one step earlier, one required code dropped, one
+   evidence point unpinned, two adjacent other findings swapped, one hint, two irrelevant pins: **≥ 70**.
+Bounds 1, 2 and 4 are checked on the percent the pass decision uses (`Math.round(score)`), not the one-decimal score.
 
 ## 6. Data model and generator
 

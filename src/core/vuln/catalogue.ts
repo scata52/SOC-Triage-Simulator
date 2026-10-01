@@ -12,18 +12,11 @@ import { createRng, type Rng } from '../rng.ts';
 import { DAY } from '../logs/time.ts';
 import { baseScore, severityOf, type CvssSeverity } from './cvss31.ts';
 import { formatSimVulnId } from './ids.ts';
+import { vectorFits } from './coherence.ts';
+import { VULN_CLASSES, VULN_CLASS_LABELS, type VulnClass } from './classes.ts';
 
-export type VulnClass = 'rce' | 'sqli' | 'auth-bypass' | 'info-leak' | 'dos' | 'misconfig';
-export const VULN_CLASSES: readonly VulnClass[] = ['rce', 'sqli', 'auth-bypass', 'info-leak', 'dos', 'misconfig'];
-
-export const VULN_CLASS_LABELS: Record<VulnClass, string> = {
-  rce: 'Remote code execution',
-  sqli: 'SQL injection',
-  'auth-bypass': 'Authentication bypass',
-  'info-leak': 'Information disclosure',
-  dos: 'Denial of service',
-  misconfig: 'Insecure default configuration',
-};
+// The class vocabulary lives in classes.ts (so coherence.ts can use it without a cycle); re-exported unchanged.
+export { VULN_CLASSES, VULN_CLASS_LABELS, type VulnClass };
 
 // CVSS severity band of an entry (the catalogue has no "none" entries).
 export type CatalogueBand = Exclude<CvssSeverity, 'none'>;
@@ -140,51 +133,52 @@ export function sampleSimEpss(rng: Rng, options: SimEpssOptions = {}): number {
 // Vector shapes by impact profile. Weights favour the shapes most common among
 // real-world scores (base 7.5, 6.5, 8.8, 7.8, 9.8, 5.3). The severity band of
 // each shape comes from the calculator, never from a hand-typed label.
-type ShapeDef = readonly [body: string, classes: readonly VulnClass[], weight: number];
+export type ShapeDef = readonly [body: string, classes: readonly VulnClass[], weight: number];
 
-const SHAPE_DEFS: readonly ShapeDef[] = [
+export const SHAPE_DEFS: readonly ShapeDef[] = [
   // 9.0-10.0
   ['AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', ['rce', 'sqli', 'auth-bypass', 'misconfig'], 8], // 9.8
-  ['AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H', ['rce', 'auth-bypass'], 1], // 9.9
+  ['AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H', ['rce'], 1], // 9.9
   ['AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N', ['sqli', 'auth-bypass'], 2], // 9.1
   ['AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H', ['rce'], 1], // 9.6
-  ['AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N', ['sqli', 'auth-bypass'], 1], // 9.6
+  ['AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N', ['sqli'], 1], // 9.6
   ['AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H', ['rce'], 1], // 10.0
   // 7.0-8.9
   ['AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N', ['info-leak', 'sqli', 'misconfig'], 5], // 7.5
   ['AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H', ['dos'], 6], // 7.5
-  ['AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H', ['rce', 'sqli', 'auth-bypass'], 5], // 8.8
+  ['AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H', ['rce', 'sqli'], 5], // 8.8
   ['AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H', ['rce'], 3], // 8.8
   ['AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H', ['rce'], 3], // 7.8
-  ['AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H', ['rce', 'auth-bypass', 'misconfig'], 3], // 7.8
+  ['AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H', ['rce', 'misconfig'], 3], // 7.8
   ['AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H', ['rce', 'auth-bypass'], 1], // 8.1
   ['AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H', ['rce', 'misconfig'], 1], // 7.2
-  ['AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N', ['info-leak', 'sqli'], 1], // 7.7
+  // info-leak is not paired with S:C: a scope change needs a crossed security authority, which no info-leak component here has
+  ['AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N', ['sqli'], 1], // 7.7
   ['AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N', ['sqli', 'auth-bypass'], 1], // 8.2
   ['AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L', ['auth-bypass', 'misconfig'], 1], // 7.3
   // 4.0-6.9
   ['AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N', ['info-leak', 'sqli', 'misconfig'], 5], // 6.5
   ['AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:N/A:N', ['info-leak', 'misconfig'], 3], // 6.5
-  ['AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', ['info-leak', 'misconfig', 'auth-bypass'], 2], // 6.1
+  ['AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N', ['misconfig', 'auth-bypass'], 2], // 6.1
   ['AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L', ['dos', 'misconfig'], 5], // 5.3
   ['AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N', ['info-leak', 'misconfig'], 5], // 5.3
-  ['AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N', ['auth-bypass', 'misconfig'], 2], // 4.3
+  ['AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N', ['misconfig'], 2], // 4.3
   ['AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H', ['dos'], 3], // 5.5
-  ['AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N', ['info-leak', 'misconfig'], 2], // 5.5
-  ['AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:L', ['rce', 'misconfig'], 1], // 4.2
-  ['AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:L/A:N', ['sqli', 'auth-bypass'], 1], // 6.4
+  ['AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N', ['misconfig'], 2], // 5.5
+  ['AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:L', ['misconfig'], 1], // 4.2
+  ['AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:L/A:N', ['sqli'], 1], // 6.4
   ['AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H', ['dos'], 1], // 5.9
-  ['AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N', ['auth-bypass', 'sqli'], 2], // 5.4
+  ['AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N', ['sqli'], 2], // 5.4
   ['AV:L/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:H', ['rce'], 1], // 6.7
-  ['AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:L', ['rce', 'misconfig'], 1], // 4.7
+  ['AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:L', ['misconfig'], 1], // 4.7
   // 0.1-3.9
   ['AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N', ['info-leak', 'misconfig'], 3], // 3.1
-  ['AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N', ['info-leak', 'misconfig'], 3], // 3.3
+  ['AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N', ['misconfig'], 3], // 3.3
   ['AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:L', ['dos'], 2], // 3.3
-  ['AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N', ['info-leak'], 1], // 2.2
-  ['AV:P/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N', ['info-leak', 'misconfig'], 1], // 2.4
-  ['AV:L/AC:L/PR:H/UI:N/S:U/C:N/I:L/A:N', ['auth-bypass', 'misconfig'], 1], // 2.3
-  ['AV:L/AC:H/PR:H/UI:N/S:U/C:L/I:L/A:N', ['auth-bypass', 'sqli'], 1], // 3.0
+  // dropped, no class fits: AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N (2.2)
+  // dropped, no class fits: AV:P/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N (2.4)
+  ['AV:L/AC:L/PR:H/UI:N/S:U/C:N/I:L/A:N', ['misconfig'], 1], // 2.3
+  // dropped, no class fits: AV:L/AC:H/PR:H/UI:N/S:U/C:L/I:L/A:N (3.0)
 ];
 
 interface Shape {
@@ -212,12 +206,12 @@ function feasibleClasses(band: CatalogueBand): VulnClass[] {
 
 // ---- Fictional names ------------------------------------------------------
 
-interface ProductDef {
+export interface ProductDef {
   vendor: string;
   product: string;
 }
 
-const PRODUCTS: readonly ProductDef[] = [
+export const PRODUCTS: readonly ProductDef[] = [
   { vendor: 'Quillon Software', product: 'Larkspur Portal' },
   { vendor: 'Ashgrove Labs', product: 'Ironbark Wiki' },
   { vendor: 'Ravenmere Systems', product: 'Wrenwick Relay' },
@@ -244,14 +238,27 @@ const PRODUCTS: readonly ProductDef[] = [
   { vendor: 'Wexcombe Cloud', product: 'Kestrelmoor Telemetry Agent' },
 ];
 
-const COMPONENTS: Record<VulnClass, readonly string[]> = {
-  rce: ['template engine', 'file-upload handler', 'update service', 'plugin loader', 'deserialization endpoint', 'scripting console'],
+export const COMPONENTS: Record<VulnClass, readonly string[]> = {
+  rce: ['template engine', 'file-upload handler', 'update service', 'plugin loader', 'deserialization endpoint', 'scripting console', 'document preview handler', 'project file importer'],
   sqli: ['search endpoint', 'report filter', 'login form', 'export module', 'API query parameter', 'audit viewer'],
   'auth-bypass': ['session handler', 'SSO callback', 'password reset flow', 'API token check', 'admin console', 'license service'],
   'info-leak': ['debug endpoint', 'backup file exposure', 'error handler', 'directory listing', 'metrics endpoint', 'log viewer'],
   dos: ['request parser', 'certificate handler', 'compression module', 'queue worker', 'protocol negotiator', 'image renderer'],
-  misconfig: ['default credentials', 'TLS settings', 'permissions template', 'management interface', 'cross-origin policy', 'installer profile'],
+  misconfig: ['default credentials', 'TLS settings', 'permissions template', 'management interface', 'cross-origin policy', 'installer profile', 'file share permissions', 'database listener settings'],
 };
+
+// Titles read "<class label> in <product> <component>"; coherence is judged on the component and the title.
+const titleOf = (cls: VulnClass, product: ProductDef, component: string): string => `${VULN_CLASS_LABELS[cls]} in ${product.product} ${component}`;
+export const componentText = (cls: VulnClass, product: ProductDef, component: string): string => `${component} ${titleOf(cls, product, component)}`;
+
+// Memoised coherence of one (vector, class, product, component): the candidate scan runs it for every slot.
+const fitCache = new Map<string, boolean>();
+function fits(vector: string, cls: VulnClass, product: ProductDef, component: string): boolean {
+  const key = `${vector}|${cls}|${product.product}|${component}`;
+  let ok = fitCache.get(key);
+  if (ok === undefined) fitCache.set(key, (ok = vectorFits(vector, cls, componentText(cls, product, component))));
+  return ok;
+}
 
 const CLASS_WEIGHT: Record<VulnClass, number> = { rce: 3, sqli: 2, 'auth-bypass': 2, 'info-leak': 2, dos: 2, misconfig: 2 };
 
@@ -355,13 +362,17 @@ export function generateCatalogue(seed: string | number, referenceDate: number):
     vectorRng.pickWeighted(shapesFor(bands[slot], cls).map((s) => ({ value: s.vector, weight: s.weight }))),
   );
 
-  // 6. Names: a unique (product, component) per class, so titles are unique.
+  // 6. Names: a unique (product, component) per class, so titles are unique. The
+  // component must fit the vector (coherence.ts), so no entry contradicts itself.
   const nameRng = root.fork('names');
   const usedNames = new Set<string>();
-  const names = classes.map((cls) => {
+  const names = classes.map((cls, slot) => {
     const candidates: { product: ProductDef; component: string }[] = [];
     for (const product of PRODUCTS)
-      for (const component of COMPONENTS[cls]) if (!usedNames.has(`${cls}/${product.product}/${component}`)) candidates.push({ product, component });
+      for (const component of COMPONENTS[cls])
+        if (!usedNames.has(`${cls}/${product.product}/${component}`) && fits(vectors[slot], cls, product, component))
+          candidates.push({ product, component });
+    if (candidates.length === 0) throw new Error(`catalogue: no coherent component for ${cls} with ${vectors[slot]}`);
     const pick = nameRng.pick(candidates);
     usedNames.add(`${cls}/${pick.product.product}/${pick.component}`);
     return pick;
@@ -410,7 +421,7 @@ export function generateCatalogue(seed: string | number, referenceDate: number):
       vendor: product.vendor,
       product: product.product,
       component,
-      title: `${VULN_CLASS_LABELS[classes[slot]]} in ${product.product} ${component}`,
+      title: titleOf(classes[slot], product, component),
       vector: vectors[slot],
       base,
       severity: bands[slot],
