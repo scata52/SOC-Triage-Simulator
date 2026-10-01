@@ -229,6 +229,10 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   comments) and `pull-requests: write` as in the action's official example; before, it finished green in seconds without reading the
   diff; (3) WP1f starts in a fresh session.
 
+- 2026-10-01 (human, during WP1f): subagents run at **`effort: high`** (ADR-23): seven agent files, `explorer` (haiku) excluded,
+  models unchanged. WP1f's design, build, catalogue and content stages ran at the session effort; the pre-gate review (paused by
+  the human) and everything after it run at high.
+
 ## Known issues
 - WP1e follow-ups: Stats ignores vuln attempts until WP4; the control picker with a non-empty ControlInventory has no e2e test until a
   template writes controls (WP2, T5/T6; unit tests cover the gate branch); the query engine still knows the six vuln tables in SOC

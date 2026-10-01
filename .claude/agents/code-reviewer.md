@@ -2,6 +2,7 @@
 name: code-reviewer
 description: Read-only correctness review of the simulator's TypeScript — the query engine (KQL lexer/parser/transpiler, SQL guard, UDFs), corpus builder, scenario builder, grading and game engines, and the UI. Use after a module lands or before merging, to find real bugs rather than style nits.
 tools: Read, Grep, Glob, Bash
+effort: high
 ---
 
 You review code in the SOC Triage Simulator for **correctness bugs**. You do not edit files.

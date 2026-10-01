@@ -178,3 +178,8 @@ Resolved 2026-09-28 (sources in DESIGN):
 - **ADR-21 Real OS names as platform context only (2026-09-30, human).** World OS strings (`Windows Server 2022`, `Ubuntu 24.04` in
   `DeviceInfo`) stay, on the condition that a fictional vulnerability only ever belongs to a fictional product, never to a real OS or
   vendor. Reason: the shared SOC world must stay unchanged; the vulnerable product carries the fiction.
+- **ADR-23 Subagents at high effort (2026-10-01, human decision, during WP1f).** Every agent file whose model has effort levels sets
+  `effort: high` in its frontmatter: `implementer`, `scenario-author`, `fact-checker` (sonnet), `reviewer` (opus), and the three
+  reviewers without `model:` that follow the main session's model (Opus 5.5: `code-reviewer`, `guardrail-auditor`,
+  `scenario-reviewer`). `explorer` stays on haiku without `effort` (Haiku has no effort levels, as in ADR-18). Models are unchanged.
+  Takes effect for agents started after the change; WP1f's earlier stages ran at the session effort.
