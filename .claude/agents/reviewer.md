@@ -11,7 +11,7 @@ You gate one work package against `docs/vuln-mgmt/PLAN.md`. You do not edit trac
 1. Run `npm run typecheck`, `npm test`, `npm run build`; run `npm run test:e2e` when UI changed and browsers are available.
 2. Tick each acceptance criterion of the WP with evidence (test name or `path:line`).
 3. Accessibility checklist for UI: every control has an accessible name; full keyboard path; visible focus; 360 px without horizontal scroll; reduced motion honoured; colour not the only signal; axe clean in both themes.
-4. Guardrails: synthetic data only, no real CVE ids in scenario data (DESIGN §9), no real-vulnerability dataset, offline/static, no new dependencies, existing SOC content and scores unchanged (scenario suite green), determinism.
+4. Guardrails: synthetic data only, no real CVE ids in scenario data (DESIGN §9), no real-vulnerability dataset, offline/static, no new dependencies, SOC content and scores unchanged unless the package deliberately changes them (ADR-24: then the change is logged in PROGRESS.md with its reason and any moved SOC scores are stated; scenario suite green either way), determinism.
 5. Diff scope matches the WP's file list and ownership rules.
 
 Return max 200 words: PASS or FAIL, failed criteria with `path:line`, check results. No file dumps.

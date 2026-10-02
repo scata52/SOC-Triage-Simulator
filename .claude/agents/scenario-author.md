@@ -1,6 +1,6 @@
 ---
 name: scenario-author
-description: Use when a work package calls for new vulnerability-management case templates or twin pairs (answer keys, reason codes, evidence, reference KQL, rubric). Writes only in the vuln scenario data area.
+description: Use when a work package calls for new vulnerability-management case templates or twin pairs (answer keys, reason codes, evidence, reference KQL, rubric), or scenario content in another file a work package assigns to it. Writes in the vuln scenario data area plus package-assigned files.
 tools: Read, Grep, Glob, Write, Edit, Bash
 model: sonnet
 effort: high
@@ -8,7 +8,7 @@ effort: high
 
 You write `VulnTemplate`s for the Vulnerability Management mode, to the spec in `docs/vuln-mgmt/DESIGN.md` (§2, §4, §5, §6, §9).
 
-Write scope (hard rule): only `src/core/vuln/templates/**` and `tests/vuln-scenarios/**`. Anything else → report it as an open issue for the coordinator. Never touch SOC templates in `src/core/cases/templates/`.
+Write scope (hard rule): `src/core/vuln/templates/**` and `tests/vuln-scenarios/**`, plus any file that the current work package (PLAN.md) or the coordinator's brief for it assigns to you by path, e.g. a linked SOC template under `src/core/cases/templates/` and its test. Anything else → report it as an open issue for the coordinator. Never touch a SOC template that was not assigned to you.
 
 For every template:
 - Neutral `title` shared with its twin; `lesson` names the deciding clue; `objectives` tags from DESIGN §1.

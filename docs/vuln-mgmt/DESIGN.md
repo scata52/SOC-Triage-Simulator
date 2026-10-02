@@ -513,11 +513,12 @@ Decision (2026-09-28): **fictional only for v1; no real-vulnerability reference 
     guaranteed unregistered, and is never rendered as a clickable link. Documentation citations (case `references`) are the second
     exception. `tests/vuln-guardrails.test.ts` enforces this for vuln-mode data (real domains only in allowlisted benign columns,
     reserved names everywhere else) and `e2e/vuln.spec.ts` checks that vuln screens link only in-app routes and citation hosts. SOC
-    data is outside this test; its attacker-role domains were checked and reported (PROGRESS Known issues), not changed.
+    data is outside this test; its attacker-role domains were checked and reported (PROGRESS Known issues), not changed. Since
+    2026-10-03 SOC content may change for quality (PLAN ADR-24), so bringing them under this rule is open work, not a human decision.
 
 ## 10. Non-goals and risks
-Non-goals: real scanner file import (Nessus/Qualys XML); CVSS v4.0 calculator; live feeds; i18n; backend; editing existing SOC
-templates (except adding one new continuity template).
+Non-goals: real scanner file import (Nessus/Qualys XML); CVSS v4.0 calculator; live feeds; i18n; backend. (Editing existing SOC
+templates was a non-goal until 2026-10-03; since then SOC content may change for quality, PLAN ADR-24.)
 
 CVSS version (verified 2026-09-28): the CS0-003 objectives name no CVSS version, but objective 2.3 lists **Scope** among the metrics to
 interpret. Scope exists in v3.x only; v4.0 replaced it with separate vulnerable-system / subsequent-system impacts and added Attack

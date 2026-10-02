@@ -257,3 +257,14 @@ Resolved 2026-09-28 (sources in DESIGN):
   reviewers without `model:` that follow the main session's model (Opus 5.5: `code-reviewer`, `guardrail-auditor`,
   `scenario-reviewer`). `explorer` stays on haiku without `effort` (Haiku has no effort levels, as in ADR-18). Models are unchanged.
   Takes effect for agents started after the change; WP1f's earlier stages ran at the session effort.
+- **ADR-24 SOC content may change for quality (2026-10-03, human decision).** The guardrail "existing SOC content and scores
+  unchanged" is replaced (CLAUDE.md): SOC content and output may change when that raises the quality of the overall product. Each
+  such change is deliberate (never a side effect of vuln work), reviewer-checked and logged in PROGRESS.md with its reason; one that
+  moves existing SOC scores says so. Vuln packages still prove "no side effect" where they promise it (e.g. WP5's no-hook identity). The reviewer's
+  guardrail list (`.claude/agents/reviewer.md`) and DESIGN §10's non-goal were updated to match.
+  First use: the authorised-pentest case's claims about other sources (WP5 known issue), reworded the same day.
+- **ADR-25 scenario-author scope covers package-assigned files (2026-10-03, human decision).** `.claude/agents/scenario-author.md`
+  and CLAUDE.md: besides `src/core/vuln/templates/**` and `tests/vuln-scenarios/**`, the scenario-author writes any file the
+  current package (PLAN.md) or the coordinator's brief assigns to it by path (e.g. a linked SOC template); never an unassigned SOC
+  template. Reason: in WP5 it declined the two files PLAN assigned to it, once, because its definition named only the vuln area.
+  Model and effort unchanged.

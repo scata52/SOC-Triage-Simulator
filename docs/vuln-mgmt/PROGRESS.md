@@ -468,10 +468,30 @@ Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, 
   template area) although it had written them under PLAN's assignment in round 0; it accepted again when the prompt quoted
   PLAN WP5. If a later package assigns SOC-side content, quote that line.
 
+- 2026-10-03 (human, after WP4–WP5 were merged via PR #9): two decisions, applied the same day on
+  `chore/vuln-mgmt-decisions-2026-10-03`, without starting WP6.
+  1. **SOC content and output may change when that raises the overall product's quality** (ADR-24; CLAUDE.md guardrail
+     replaced). Such changes must be deliberate, reviewer-checked and logged here with the reason. A change that moves existing
+     SOC scores must say so.
+     - First use: `ops-authorized-pentest` (`src/core/cases/templates/ops.ts`). Four strings claimed that no other source
+       touched the public web app: the external evidence label, the 'Anything from other sources?' step, the 'sources' rubric
+       text and explanation paragraph 2.
+     - They now say what is always true: the engagement covers its two named sources; any other source is outside it, normally
+       background, and one that attacks gets its own alert and its own triage. That is also the better lesson.
+     - Truth, evidence rows, indicators, hints and rubric keywords are unchanged, so SOC scores do not move. Only those case
+       texts changed.
+     - Fixes the WP5 known issue (a WEB01 hook in the same shift contradicted the case).
+     - The other SOC items in Known issues (the "Quillon" registrar, attacker-role domains) are no longer blocked on a human
+       decision. They are left for a package.
+  2. **scenario-author scope** (ADR-25): `.claude/agents/scenario-author.md` and CLAUDE.md now let it write files a package
+     assigns to it by path. Model and effort are unchanged.
+  Reviewer check: FAIL once, because `.claude/agents/reviewer.md` and DESIGN §10 still stated the old rule. Both were updated, and
+  a pentest sentence ("raises its own alert") that sat against the case's "attacker hiding in the noise" warning was reworded.
+  Pentest grades vs `main`: 84 grades (3 worlds × 4 seeds × 7 verdicts), 0 differences.
+
 ## Known issues
-- WP5 (not blocking): in a WEB01-hooked shift that also contains `ops-authorized-pentest`, that SOC case's "no piggybacking
-  attacker" sentence and its "Anything from other sources?" query are contradicted by the hook's attacker (SOC content unchanged;
-  filtering the plan would break "plan + exactly one item"). The hook's routine-client sessions can come from a laptop that
+- WP5 (not blocking): (fixed 2026-10-03, ADR-24: the authorised-pentest case no longer claims that no other attacker exists, so
+  a WEB01 hook in the same shift no longer contradicts it). The hook's routine-client sessions can come from a laptop that
   another alert in the shift treats as a foothold (seen once in 756 shifts: one extra row in that case's query). The hook alert
   is always a true positive with no twin (ADR-14 v1). Additive effects on other cases' queries (an extra Change ticket, extra
   svc-scan logons, a one-off scan ticket next to the twin's standing approval) leave their answer keys true. A must-not-miss
@@ -503,13 +523,14 @@ Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, 
   change if a single-template type is registered; `VulnDebrief.tsx:245` could guard the "Missed" codes line when enough codes
   matched (no template triggers it); T4's hint 2 names the three clue tables.
 - SOC registrar list `src/core/synth/domains.ts:155` contains "Quillon Domains"; "Quillon" is a real company (fact-checker,
-  2026-10-02). SOC content stays unchanged: a human decision.
+  2026-10-02). Since 2026-10-03 (ADR-24) the coordinator may rename it; not done yet (candidate for WP6/WP7).
 - SOC attacker-role domains do not meet DESIGN §9 rule 10 (checked 2026-10-02, reported, SOC output unchanged as the human asked):
   every one comes from `attackerDomain()` (`src/core/synth/domains.ts:120-142`; random labels under real TLDs: `SUSPICIOUS_TLDS`
   .top/.xyz/… at :80, `GENERIC_TLDS` .com/.net/.org/.io/… at :81, lookalike `.com/.net/.co`), called by `src/core/cases/infra.ts:83`
   and `src/core/logs/noise/email.ts:81,91`. In 300 practice builds (25 templates × 3 worlds × 4 seeds): 132 distinct truth domains
   and 4,020 logged ones, none reserved. No template hard-codes an attacker domain, and none is rendered as a link. Fixing it changes
-  every SOC case: a human decision.
+  every SOC case's generated domains; since 2026-10-03 (ADR-24) that is the coordinator's call, not a human decision. Not done yet
+  (candidate for WP7, with a SOC test like the vuln one).
 - Vuln domain test, minor (reviewer, 2026-10-02): its bare-token file-extension list includes real TLDs (`.zip`, `.sh`, `.py`, `.md`,
   `.so`), so a bare token such as `c2.zip` would pass; URL and e-mail hosts are checked without it, and no such token occurs today.
 - WP1e follow-ups: (Stats and study include vuln attempts since WP4); (the control-picker e2e with a non-empty ControlInventory landed in WP2);

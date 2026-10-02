@@ -9,7 +9,7 @@ Design: `docs/vuln-mgmt/DESIGN.md`. Plan: `docs/vuln-mgmt/PLAN.md`. State: `docs
 ### Roles and delegation
 The main session is the **coordinator** (run it on Opus: `/model opus`): plans, delegates, integrates, commits, decides. It does small edits inline (a few lines, docs, PROGRESS.md, wiring one import) instead of delegating.
 - `explorer` (haiku, read-only): "where/how does X work" questions.
-- `scenario-author`: vuln templates and twin pairs; writes only `src/core/vuln/templates/**` and `tests/vuln-scenarios/**`.
+- `scenario-author`: vuln templates and twin pairs; writes `src/core/vuln/templates/**` and `tests/vuln-scenarios/**`, plus files a package assigns to it by path (e.g. a SOC template).
 - `implementer`: one work package of engine/grader/schema/UI/tests; may edit docs only in `docs/vuln-mgmt/PROGRESS.md`.
 - `fact-checker` (read-only + web): exam mapping and any real vulnerability data; can veto a scenario.
 - `reviewer` (gate): every package; not done until it returns PASS.
@@ -23,7 +23,7 @@ Every subagent returns: what changed, files touched, check results, open issues 
 - Update `docs/vuln-mgmt/PROGRESS.md` after every package: Done / In progress / Next / Decisions / Known issues.
 
 ### File ownership
-- `src/core/vuln/templates/**`, `tests/vuln-scenarios/**` → scenario-author.
+- `src/core/vuln/templates/**`, `tests/vuln-scenarios/**` → scenario-author (plus files a package assigns to it by path).
 - Other `src/**`, `tests/**`, `e2e/**` → implementer, per package file list.
 - `docs/vuln-mgmt/DESIGN.md`, `PLAN.md`, `CLAUDE.md`, `.claude/agents/**` → coordinator only.
 - Never run two agents on the same file at the same time; sequence them.
@@ -35,6 +35,6 @@ One logical commit per package, conventional message (`feat(vuln): ...`, `test(v
 A fresh session reads `CLAUDE.md`, `docs/vuln-mgmt/PROGRESS.md`, and only the next work package in PLAN.md. Nothing else until the package requires it.
 
 ### Guardrails
-Synthetic data only; scenario data fully fictional (`SIMVULN-YYYY-NNNNN` ids, Sim-KEV/Sim-EPSS feeds) and no real-vulnerability dataset in v1; the "no real CVE id" test covers scenario data (DESIGN §9); offline static site; no new dependencies; keyboard, screen reader, 360 px, reduced motion; existing SOC content and scores unchanged; CI green.
+Synthetic data only; scenario data fully fictional (`SIMVULN-YYYY-NNNNN` ids, Sim-KEV/Sim-EPSS feeds) and no real-vulnerability dataset in v1; the "no real CVE id" test covers scenario data (DESIGN §9); offline static site; no new dependencies; keyboard, screen reader, 360 px, reduced motion; CI green. SOC content and output may change when that raises the quality of the overall product (human decision 2026-10-03); every such change is deliberate (never a side effect), reviewer-checked, and logged in PROGRESS.md with its reason; a change that moves existing SOC scores says so.
 
 Do not enable experimental agent teams.
