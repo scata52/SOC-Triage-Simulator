@@ -98,6 +98,15 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 - Owner: scenario-author; fact-checker + scenario-reviewer. Deps: WP1f.
 - Acceptance: 6 new templates (completing T1, T2; T4 both; T5 both), all harness checks, fact-checker PASS, each twin's `lesson` names the clue.
 - Tests: `tests/vuln-scenarios/batch-a.test.ts`.
+- As built (2026-10-02): templates `exposed-edge.ts` (T4), `waf.ts` (T5), B sides in `backport-fp.ts` / `stale-scan.ts`, shared
+  policy rows and the template-local `freezeFirst` calendar in `common.ts`; tests `batch-a`, `exposed-edge`, `waf` (+ updated
+  `backport-fp`, `stale-scan`, `data-rules`: C4 holds mitigate truths to the compensating-control row, K5 exempts the T4 exposure
+  clue and the T1/T2 mirrored sibling). Outside the list, reviewer sign-off on each: implementer — `e2e/vuln.spec.ts`
+  (control picker with a non-empty ControlInventory, WP1e follow-up; library tier test) and `tests/vuln-worklist.test.ts` (the
+  one-template case type is built from a one-element list now that every registered type is a twin pair); coordinator inline —
+  vendor renames in `src/core/vuln/catalogue.ts` (+ `common.ts`, `waf.ts`) after the fact-checker found real companies:
+  "Quillon Software" → "Velmarrow Software", "Quillon Forms" → "Velmarrow Forms", "Larkfield Software" → "Dravenholt Software",
+  and the name guard in `tests/vuln-catalogue.test.ts`; the compensating-control row's recording sentence in `common.ts`.
 
 ## WP3 — Content batch B (twins T6, T7, T8, T11) + tier 3 (T9, T10)
 - Owner: scenario-author. Deps: WP2. Acceptance/tests as WP2 plus 2 tier-3 cases with ≥ 15 findings and capacity squeeze; T11 exercises the `avoid` decision; `tests/vuln-scenarios/batch-b.test.ts`.

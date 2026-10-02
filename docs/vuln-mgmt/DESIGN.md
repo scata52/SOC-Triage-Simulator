@@ -165,6 +165,20 @@ Each pair: same `title`, same headline finding and base score; one clue differs.
 T1–T8 satisfy the "≥ 8 pairs" requirement; T9–T10 are ordering/triage twins for tier 2–3; T11 covers the "avoid" principle of 2.5.
 WP1 slice uses **T3** (cleanest signal, exercises the intel table and scheduling).
 
+Clarified 2026-10-02 (WP2, coordinator): the org policy (shared attachment) gains two rows. *Severity class* comes from the
+base score in the scan store (an environmental score does not change the class). *Compensating control*: a control that
+blocks the vulnerable path (ControlInventory, block mode, covering this vulnerability on this host; FirewallLogs or the WAF's
+own records confirm it) satisfies the deadline only while in effect and ends when the permanent fix is deployed; the finding is
+recorded as `mitigate` naming the control, scheduled for the window of the permanent fix (the next window); no vendor fix →
+risk exception. This is what makes T4-B and T5-A ("mitigate → patch next-window") derivable from written policy, since twins
+share the headline's FirstSeen. T4: the deciding clue is the ACL's mode and its log confirmation (block + management-VLAN-only
+traffic in B; detect-only + allowed internet sessions in A); exposure is corroborating context (`internet-exposed` in A).
+`patch` is not accepted on a mitigate twin (A's emergency patch would otherwise be a one-step slip there and pass). T5: both
+twins use a calendar in which a freeze runs from the case date and the next window is the first after it (template-local;
+other cases keep the standard calendar); B's WAF rule is the same rule in detect mode. T1-B / T2-B mirror the sibling host:
+the A side's real sibling becomes the B side's false positive (backported / stale), so each twin keeps one false positive and
+one real finding on the two look-alike hosts and the same row counts; the headline is still the twin finding.
+
 ## 5. Grading model (100 points per vuln case)
 Decision: **new grader `gradeVulnCase` in `src/core/vuln/grade.ts`**, reusing the ordinal-partial-credit helper,
 evidence pin scoring (any row satisfies a point), hint penalty, `DIFFICULTY_MULTIPLIER`, and the shift nDCG function.

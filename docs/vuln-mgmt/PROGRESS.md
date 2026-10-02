@@ -1,6 +1,6 @@
 # PROGRESS — Vulnerability Management
 
-Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
+Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, #6, #7 from `feat/vuln-mgmt-wp1`).
 
 ## Done
 - **WP0 — Kickoff and progress file** (2026-09-28). Baseline on `main` @ 849adce: `npm run typecheck` ok, `npm test` 16 files / 233 tests
@@ -60,12 +60,27 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   probe harness + three competing mechanisms + two judges; pre-gate review and two verified fix rounds; reviewer gate PASS (first
   attempt), fact-checker PASS.
 
+- **WP2 — Content batch A** (2026-10-02). Six templates complete T1, T2, T4 and T5: `vm-backport-real` (T1-B, tier 2, 9
+  findings; the sibling web server mirrors, so each twin keeps one false positive), `vm-fresh-scan` (T2-B, tier 1, 5; update
+  installed before the scan, reboot pending), `vm-exposed-edge` / `vm-segmented` (T4, tier 1, 4; detect-only ACL and allowed
+  internet sessions vs block-mode ACL with management-VLAN-only traffic, environmental 8.8 in the explanation),
+  `vm-waf-covers` / `vm-waf-bypass` (T5, tier 2, 8; same WAF rule in block vs detect mode, template-local freeze-first calendar).
+  Shared policy rows: severity class from the base score; compensating control (record `mitigate` naming the control, the
+  permanent fix in the next window). Tests: `batch-a` (per pair: registration, title/difficulty/headline, §5.8 difference,
+  clue present A vs B, lesson names its clue, identical pre-submit surface incl. hint 1 and row counts), `exposed-edge`, `waf`,
+  updated `backport-fp`, `stale-scan`, `data-rules` (C4 mitigate rule, K5 exemptions); e2e: control picker with a non-empty
+  ControlInventory (keyboard, gate, axe in both themes, 360/320 px) and the library tier test. Vendor renames (real companies).
+  32 files / 971 tests (+11 opt-in), build ok, e2e 32/32. Hardening over 200 seeds: S1 max 69.4 (exposed-edge; others ≤ 66),
+  S2 max 60 for every lesson finding, S3 100, S4 min ≥ 88. Process: brief checked by the fact-checker; four sequential authors;
+  pre-gate review 2 rounds × 5 lenses with a skeptic per finding (41 → 31 kept, 7 blocking; 20 → 11 kept, 3 blocking), every
+  author/implementer fix verified; coordinator fixes (policy recording sentence, renames, a wording fix); reviewer gate PASS
+  (first attempt), fact-checker PASS.
+
 ## In progress
-- None. Next session starts WP2.
+- None. WP3 starts next.
 
 ## Next
-- WP2 — Content batch A (twins T1, T2, T4, T5)
-- WP3 — Content batch B (twins T6, T7, T8, T11) + tier 3 (T9, T10)
+- WP3 — Content batch B (twins T6, T7, T8, T11) + tier 3 (T10 twins with T9 inside; human decision 2026-10-02)
 - WP4 — Stats and study integration
 - WP5 — Continuity hook (vuln → SOC)
 - WP6 — Polish
@@ -302,7 +317,59 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
      step that fails the job when no bot comment was posted. The action only runs a workflow identical to the default branch's, so
      the pull request carrying this change shows the check red; it is proven on the next pull request.
 
+- 2026-10-02 (coordinator, before WP2): session start found PLAN, PROGRESS and repo in agreement (WP0–WP1f committed and merged
+  to `main` via PR #7, bae599d; no WP2 file: no `batch-a.test.ts`, templates T3 ×2, `vm-stale-scan`, `vm-backport-fp` only). Local
+  `main` was behind `origin/main` and was fast-forwarded; work goes on `feat/vuln-mgmt-wp2-wp3` (human: a separate branch, not
+  `main`). Baseline 29 files / 729 tests (+5 opt-in), build ok. No open question was left for the coordinator. This session does
+  WP2 and WP3 only. Rulings in the WP2 authoring brief (fact-checker PASS-WITH-CHANGES on the brief, all changes applied):
+  1. **Compensating-control policy row** (shared `policyAttachments`): DESIGN §4's T4-B / T5-A "mitigate → patch next-window"
+     cannot be derived from the written policy today (twins share FirstSeen, so the A side's emergency deadline binds the B side
+     too). New row: a control that blocks the vulnerable path (ControlInventory, block mode, covering this vulnerability on this
+     host; FirewallLogs or WAF logs confirm it) satisfies the deadline only while in effect and ends when the permanent fix is
+     deployed; the fix goes in the next maintenance window; no vendor fix → risk exception. No existing template writes
+     ControlInventory rows, so no existing truth changes (attachment text gains rows). Second row (fact-checker): the severity
+     class comes from the CVSS base score in the scan store, so an environmental score cannot be read into the class table.
+  2. **T4-B truth** `mitigate` with the verified ACL, next-window; `patch` is not in `alsoAccept` (A's emergency patch would be a
+     one-step slip on B and pass, failing hardening S2). Headline not Sim-KEV-listed (a listing puts B on the 3-day clock); B's
+     host is not internet-exposed (fact-checker: else the clues contradict). Environmental 8.8 (`MAV:A`) is explanation only.
+  3. **T5 calendar**: "fix needs code release after freeze" + "patch next-window" is read as: in both twins the freeze comes
+     before the next window, which is the first window after it (template-local calendar variant; the shared calendar and the
+     other templates are unchanged). B uses WAF detect mode (provable in ControlInventory); `avoid` only if the data shows the
+     feature can be switched off.
+  4. Tiers: T4 tier 1, T5 tier 2, T1-B tier 2 and T2-B tier 1 (as their A sides). Objectives: T4 `2.3, 2.5, 4.1` (no 2.1:
+     segmentation is taught as a control), T5 `2.3, 2.4, 2.5, 4.1`, B sides as their A sides. The fact-checker could not re-read
+     the CS0-003 PDF to confirm "compensating control" under 2.5; DESIGN §1 records that mapping as verified on 2026-09-28
+     (rule 8), so it is not a new NEEDS-HUMAN-CHECK.
+  5. Outside WP2's list: the control-picker e2e test with a non-empty ControlInventory (WP1e follow-up tied to the first template
+     that writes controls) is added by the implementer in `e2e/vuln.spec.ts`; logged in PLAN.
+- 2026-10-02 (human, asked during WP2): **WP3 tier-3 scope.** PLAN says "2 tier-3 cases (T9, T10)" while DESIGN §4 lists T9 as one
+  ordering case and T10 as a twin pair (3 cases). Decision: the 2 tier-3 cases are the T10 twin pair (`vm-dup-plugins` /
+  `vm-distinct`, same title and headline, one clue differs), and both contain T9's ordering pattern (Critical on a dev box vs
+  Medium on the payments database, payments first). No separate `vm-dev-crit` / `vm-prod-med` templates.
+- WP2 pre-gate (coordinator rulings on the items the review left to the coordinator; workflow: 4 sequential authors, e2e,
+  2 review rounds × 5 lenses with a skeptic per finding: round 1 41 findings / 31 kept (7 blocking), round 2 20 / 11 (3 blocking),
+  all author/implementer-owned ones fixed and verified):
+  1. "patch, next-window" on the vm-segmented / vm-waf-covers headline is capped at 60 (near miss on a lesson finding). Fair only
+     if the policy says how to record a verified control: the compensating-control row now says to record the finding as
+     `mitigate` naming the control, scheduled for the permanent fix's window (DESIGN §4 clarification). Kept the cap.
+  2. **T1-B / T2-B mirror the sibling host** (WEBLX02 / FS02 become the B side's false positive): accepted (DESIGN §4
+     clarification); each twin keeps one false positive and one real finding on the look-alike hosts, so neither twin is a
+     "patch everything" case; `data-rules` K5 exempts exactly those hosts (`MIRROR_CLUE`), and the T4 exposure flag
+     (`EXPOSURE_CLUE`).
+  3. T4/T5 exposure and FirewallLogs "never change an answer" (red team, minor): by the written policy the control's mode and
+     its log confirmation decide; exposure corroborates (`internet-exposed` required in A). Recorded, not changed.
+  4. Vendor names: the fact-checker found real companies named "Quillon" and "Larkfield Software"; renamed (PLAN WP2 as built).
+     The SOC registrar list (`src/core/synth/domains.ts:155`, "Quillon Domains") is SOC content and stays unchanged (Known issues).
+
 ## Known issues
+- WP2, minor (reviewer / pre-gate, not blocking): `vm-exposed-edge` shotgun S1 max is 69.4 (structural: the same over 200
+  seeds; the naive emergency patch is right on A's headline, and the twin `vm-segmented` holds it to 47.9) — any reweight or new
+  finding there needs a decoy to keep the margin; `data-rules` K5 exempts whole SoftwareInventory/PatchHistory rows of the two
+  mirrored hosts (batch-a pins the specifics); the vuln-worklist assertion "every registered case type is a twin pair" must
+  change if a single-template type is registered; `VulnDebrief.tsx:245` could guard the "Missed" codes line when enough codes
+  matched (no template triggers it); T4's hint 2 names the three clue tables.
+- SOC registrar list `src/core/synth/domains.ts:155` contains "Quillon Domains"; "Quillon" is a real company (fact-checker,
+  2026-10-02). SOC content stays unchanged: a human decision.
 - SOC attacker-role domains do not meet DESIGN §9 rule 10 (checked 2026-10-02, reported, SOC output unchanged as the human asked):
   every one comes from `attackerDomain()` (`src/core/synth/domains.ts:120-142`; random labels under real TLDs: `SUSPICIOUS_TLDS`
   .top/.xyz/… at :80, `GENERIC_TLDS` .com/.net/.org/.io/… at :81, lookalike `.com/.net/.co`), called by `src/core/cases/infra.ts:83`
@@ -311,8 +378,8 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   every SOC case: a human decision.
 - Vuln domain test, minor (reviewer, 2026-10-02): its bare-token file-extension list includes real TLDs (`.zip`, `.sh`, `.py`, `.md`,
   `.so`), so a bare token such as `c2.zip` would pass; URL and e-mail hosts are checked without it, and no such token occurs today.
-- WP1e follow-ups: Stats ignores vuln attempts until WP4; the control picker with a non-empty ControlInventory has no e2e test until a
-  template writes controls (WP2, T5/T6; unit tests cover the gate branch); the query engine still knows the six vuln tables in SOC
+- WP1e follow-ups: Stats ignores vuln attempts until WP4; (the control-picker e2e with a non-empty ControlInventory landed in WP2);
+  the query engine still knows the six vuln tables in SOC
   sessions (empty results, a did-you-mean could name one); a "Query this finding in the console" button was dropped (WP6
   candidate); devtools on one's own profile shows the template id of an earlier attempt of the same seed; SQL mode has no
   autocomplete popup in either mode (pre-existing; the SQL schema map is inert). (Help's mitigate sentence, the twin-telling first

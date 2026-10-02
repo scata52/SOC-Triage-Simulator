@@ -82,12 +82,17 @@ export interface Calendar {
   constraints: VulnConstraints;
 }
 
-export function buildCalendar(now: number): Calendar {
+// `freezeFirst` (T5, template-local): a change freeze is in effect from the case date and ends on the day the next window
+// falls on, so the next window is the first one after the freeze (a code release cannot go in before it). The standard
+// calendar, the one every other template uses, is unchanged.
+export function buildCalendar(now: number, opts: { freezeFirst?: boolean } = {}): Calendar {
   const today = dayStart(now);
   const at = (days: number): ChangeWindow['start'] => today + days * DAY + WINDOW_START_HOUR * HOUR;
   const next: ChangeWindow = { id: 'next', label: 'Next scheduled maintenance window', start: at(NEXT_WINDOW_DAYS), end: at(NEXT_WINDOW_DAYS) + WINDOW_HOURS * HOUR };
   const cycle: ChangeWindow = { id: 'cycle', label: 'Monthly standard patch cycle', start: at(CYCLE_DAYS), end: at(CYCLE_DAYS) + WINDOW_HOURS * HOUR };
-  const freeze: ChangeWindow = { id: 'freeze', label: 'Finance period-close freeze', start: today + FREEZE_START_DAYS * DAY, end: today + (FREEZE_START_DAYS + FREEZE_LENGTH_DAYS) * DAY };
+  const freeze: ChangeWindow = opts.freezeFirst
+    ? { id: 'freeze', label: 'Finance period-close freeze', start: today, end: today + NEXT_WINDOW_DAYS * DAY }
+    : { id: 'freeze', label: 'Finance period-close freeze', start: today + FREEZE_START_DAYS * DAY, end: today + (FREEZE_START_DAYS + FREEZE_LENGTH_DAYS) * DAY };
   return { today, next, cycle, freeze, constraints: { windows: [next, cycle], freezes: [freeze], slaDays: { ...SLA_DAYS }, capacityPerWindow: CAPACITY_PER_WINDOW } };
 }
 
@@ -104,6 +109,7 @@ export function policyAttachments(orgName: string, cal: Calendar): Attachment[] 
         ['Deadline clock', 'Counted from the day a finding is first detected, unless a rule below says otherwise.'],
         ['Scan store', 'The scan store keeps one row per finding: FirstSeen is the first detection; ScanRunId and LastSeen are the latest run that saw it. A finding that a later run re-tested and no longer saw is closed (Status Fixed).'],
         ['When a deadline is due', 'A deadline is due by the end of its day (23:59 UTC) on the deadline date; a change window that ends by then meets it.'],
+        ['Severity class', 'From the CVSS base score shown in the scan store (the CvssBase column of VulnFindings); an environmental or temporal score does not change it.'],
         ['Critical (CVSS 9.0 to 10.0)', `${SLA_DAYS.critical} days`],
         ['High (CVSS 7.0 to 8.9)', `${SLA_DAYS.high} days`],
         ['Medium (CVSS 4.0 to 6.9)', `${SLA_DAYS.medium} days`],
@@ -113,6 +119,7 @@ export function policyAttachments(orgName: string, cal: Calendar): Attachment[] 
         ['Capacity', `${CAPACITY_PER_WINDOW} emergency and next-window changes per window; the rest wait for the following window.`],
         ['Dismissed findings', 'A finding shown not to exist (for example already fixed) needs no change; note why and ask for a rescan.'],
         ['Risk exception', 'An approved, unexpired risk exception allows accept until its expiry date; re-assess at expiry.'],
+        ['Compensating control', "A control that blocks the vulnerable path (ControlInventory shows it in block mode covering this vulnerability on this host; FirewallLogs or the WAF's own records confirm it) satisfies the deadline only while it stays in effect, and ends when the permanent fix is deployed. Record such a finding as mitigate, naming the control; its schedule is the window of the permanent fix, the next maintenance window. If no vendor fix exists, raise a risk exception."],
       ],
       caption: 'Simulated policy of a fictional organisation.',
     },
@@ -132,20 +139,30 @@ export function policyAttachments(orgName: string, cal: Calendar): Attachment[] 
 // ---- tickets ----------------------------------------------------------------
 
 // The change tickets a real service desk would show: the two windows, the
-// freeze and unrelated changes (never about the deciders). All in Tickets.
-export function writeChangeTickets(ctx: VulnContext, cal: Calendar): void {
+// freeze and unrelated changes (never about the deciders). All in Tickets. Returns the rows
+// of the next window, the standard cycle and the freeze, for a template that pins them.
+export function writeChangeTickets(ctx: VulnContext, cal: Calendar): { next: RowRef<'Tickets'>; cycle: RowRef<'Tickets'>; freeze: RowRef<'Tickets'> } {
   const { log, rng, now } = ctx;
   const admin = ctx.pick.person({ dept: 'IT', working: false });
   const make = (title: string, scope: string, start: number, end: number, details: string, status: 'Approved' | 'Scheduled' = 'Approved') =>
     log.ticket({ TicketId: log.nextTicketId('CHG'), Type: 'Change', Title: title, Requester: admin.upn, AssignedTo: 'IT Infrastructure', Status: status, Created: now - rng.int(3, 20) * DAY, WindowStart: start, WindowEnd: end, Scope: scope, Details: details });
-  make(`${WINDOW_TITLE_PREFIX} next scheduled maintenance window`, 'Production servers', cal.next.start, cal.next.end, 'Approved routine window. Emergency and next-window patches are booked here; capacity is two changes.', 'Scheduled');
-  make(`${WINDOW_TITLE_PREFIX} monthly standard patch cycle`, 'All servers', cal.cycle.start, cal.cycle.end, 'Monthly standard patch cycle for all managed servers.', 'Scheduled');
-  make(`${FREEZE_TITLE_PREFIX} finance period close`, 'All production', cal.freeze.start, cal.freeze.end, `No planned production changes from ${ymd(cal.freeze.start)} 00:00 until ${ymd(cal.freeze.end)} 00:00. Approved emergency changes only.`);
-  const soon = (d: number, h: number) => dayStart(now) + d * DAY + h * HOUR;
-  make('Replace UPS batteries in the server room', 'Server room', soon(3, 7), soon(3, 9), 'Facilities work; no server impact expected.');
-  make('Rotate the guest wireless passphrase', 'Guest wireless', soon(2, 17), soon(2, 18), 'Routine quarterly rotation.');
-  make('Renew the intranet certificate', 'Intranet portal', soon(4, 6), soon(4, 7), 'Certificate renewal; brief reload of the reverse proxy.');
-  make('Add storage shelf to the backup array', 'Backup infrastructure', soon(6, 18), soon(6, 22), 'Capacity extension approved by the storage owner.');
+  const next = make(`${WINDOW_TITLE_PREFIX} next scheduled maintenance window`, 'Production servers', cal.next.start, cal.next.end, 'Approved routine window. Emergency and next-window patches are booked here; capacity is two changes.', 'Scheduled');
+  const cycle = make(`${WINDOW_TITLE_PREFIX} monthly standard patch cycle`, 'All servers', cal.cycle.start, cal.cycle.end, 'Monthly standard patch cycle for all managed servers.', 'Scheduled');
+  const freeze = make(`${FREEZE_TITLE_PREFIX} finance period close`, 'All production', cal.freeze.start, cal.freeze.end, `No planned production changes from ${ymd(cal.freeze.start)} 00:00 until ${ymd(cal.freeze.end)} 00:00. Approved emergency changes only.`);
+  // An unrelated change is never planned inside the freeze: with a calendar whose freeze reaches the next days (T5) it moves to
+  // the same hours of the day the freeze ends; with the standard calendar nothing overlaps and nothing moves.
+  const soon = (d: number, h: number, hEnd: number): [number, number] => {
+    const start = dayStart(now) + d * DAY + h * HOUR;
+    const end = dayStart(now) + d * DAY + hEnd * HOUR;
+    if (end <= cal.freeze.start || start >= cal.freeze.end) return [start, end];
+    const shift = cal.freeze.end - dayStart(now) - d * DAY;
+    return [start + shift, end + shift];
+  };
+  make('Replace UPS batteries in the server room', 'Server room', ...soon(3, 7, 9), 'Facilities work; no server impact expected.');
+  make('Rotate the guest wireless passphrase', 'Guest wireless', ...soon(2, 17, 18), 'Routine quarterly rotation.');
+  make('Renew the intranet certificate', 'Intranet portal', ...soon(4, 6, 7), 'Certificate renewal; brief reload of the reverse proxy.');
+  make('Add storage shelf to the backup array', 'Backup infrastructure', ...soon(6, 18, 22), 'Capacity extension approved by the storage owner.');
+  return { next, cycle, freeze };
 }
 
 // ---- which product belongs on which host -------------------------------------
@@ -154,22 +171,22 @@ export function writeChangeTickets(ctx: VulnContext, cal: Calendar): void {
 // template adds, could plausibly run. A learner browsing VulnFindings should not
 // meet a print server product on a file server.
 const VENDOR_OF: Record<string, string> = {
-  'Larkspur Portal': 'Quillon Software',
+  'Larkspur Portal': 'Velmarrow Software',
   'Ironbark Wiki': 'Ashgrove Labs',
   'Wrenwick Relay': 'Ravenmere Systems',
-  'Foxglove Helpdesk': 'Larkfield Software',
+  'Foxglove Helpdesk': 'Dravenholt Software',
   'Sablecrest Gateway': 'Tallowfield Networks',
   'Tamarind Backup': 'Brackenridge Data',
   'Copperfield Print Server': 'Ferrowick Industries',
   'Marrowgate Proxy': 'Tallowfield Networks',
-  'Quillon Forms': 'Quillon Software',
+  'Velmarrow Forms': 'Velmarrow Software',
   'Ombrelune Files': 'Ombrelune Digital',
   'Harrowgate Directory Sync': 'Harrowgate Tech',
   'Pinecrest Dashboards': 'Pinecrest Analytics',
   'Vantorn Build Runner': 'Vantorn Corp',
   'Wexcombe Object Store': 'Wexcombe Cloud',
   'Brackenridge DB Console': 'Brackenridge Data',
-  'Thistledown CMS': 'Larkfield Software',
+  'Thistledown CMS': 'Dravenholt Software',
   'Cinderpath Scheduler': 'Ferrowick Industries',
   'Dunmore Badge Manager': 'Harrowgate Tech',
   'Elderfen Chat Server': 'Ravenmere Systems',
@@ -180,13 +197,13 @@ const VENDOR_OF: Record<string, string> = {
   'Kestrelmoor Telemetry Agent': 'Wexcombe Cloud',
 };
 const FILES = ['Ombrelune Files', 'Tamarind Backup', 'Wexcombe Object Store'];
-const APPS = ['Larkspur Portal', 'Quillon Forms', 'Foxglove Helpdesk', 'Pinecrest Dashboards', 'Hollowmere Reporting', 'Thistledown CMS', 'Elderfen Chat Server', 'Ivorygate Payments Adapter', 'Dunmore Badge Manager'];
+const APPS = ['Larkspur Portal', 'Velmarrow Forms', 'Foxglove Helpdesk', 'Pinecrest Dashboards', 'Hollowmere Reporting', 'Thistledown CMS', 'Elderfen Chat Server', 'Ivorygate Payments Adapter', 'Dunmore Badge Manager'];
 const HOST_PRODUCTS: Record<string, readonly string[]> = {
   FS01: FILES,
   FS02: FILES,
   PRINT01: ['Copperfield Print Server'],
   APP01: APPS,
-  WEB01: ['Larkspur Portal', 'Thistledown CMS', 'Quillon Forms', 'Marrowgate Proxy'],
+  WEB01: ['Larkspur Portal', 'Thistledown CMS', 'Velmarrow Forms', 'Marrowgate Proxy'],
   SQL01: ['Brackenridge DB Console', 'Pinecrest Dashboards', 'Hollowmere Reporting'],
   BUILD01: ['Vantorn Build Runner', 'Cinderpath Scheduler', 'Ironbark Wiki'],
   DEVBOX01: ['Vantorn Build Runner', 'Ironbark Wiki', 'Cinderpath Scheduler', 'Brackenridge DB Console'],
@@ -564,7 +581,7 @@ export const PRODUCT_KINDS: Readonly<Record<string, ProductKind>> = {
   'Larkspur Portal': 'web-app',
   'Ironbark Wiki': 'web-app',
   'Foxglove Helpdesk': 'web-app',
-  'Quillon Forms': 'web-app',
+  'Velmarrow Forms': 'web-app',
   'Pinecrest Dashboards': 'web-app',
   'Thistledown CMS': 'web-app',
   'Elderfen Chat Server': 'web-app',
@@ -734,11 +751,13 @@ export function withFix(entry: CatalogueEntry, rng: Rng): CatalogueEntry {
 // and DeviceId come from the shared stream (the scan writer's own stream is
 // seeded by template id, so it would differ). The address is the first free one
 // of the shared sequence, and the world is the same for both twins.
-export function scopeSharedHost(ctx: VulnContext, input: Omit<ScopeHostInput, 'ip'>, label: string): string {
+// `subnet` picks the address range (default: the DMZ for an exposed host, the servers subnet otherwise); an
+// appliance such as an edge gateway sits in the management range whichever way its exposure is set.
+export function scopeSharedHost(ctx: VulnContext, input: Omit<ScopeHostInput, 'ip'>, label: string, subnet?: 'servers' | 'dmz' | 'mgmt'): string {
   const rng = sharedRng(ctx, `host/${label}`);
   const site = ctx.world.sites.find((x) => x.id === (input.site ?? ctx.world.sites[0].id)) ?? ctx.world.sites[0];
   const taken = new Set(ctx.log.rowsOf('DeviceInfo').map((r) => String(r.IPAddress ?? '')));
-  const third = input.exposed ? SUBNETS.dmz : SUBNETS.servers;
+  const third = SUBNETS[subnet ?? (input.exposed ? 'dmz' : 'servers')];
   let ip = '';
   for (let attempt = 0; attempt < 1000 && ip === ''; attempt++) {
     const candidate = `${site.prefix}.${third}.${rng.int(5, 250)}`;
@@ -785,14 +804,15 @@ export interface ContradictionFacts {
   exposed?: boolean; // the host's DeviceInfo ExposedToInternet (omit only if the case never uses the code)
   criticality?: string; // the host's DeviceInfo Criticality (a Low one proves 'critical-asset' false)
   exception?: boolean; // an exception ticket names this finding
-  control?: boolean; // a ControlInventory row covers this finding
+  control?: boolean; // a ControlInventory row in block mode covers this finding (a detect-mode row does not count)
 }
 
 // Every code the visible data proves false for a finding, less the codes the
 // truth requires (a code is never both): a package-level check is never
 // banner-only, a banner-only one is never credentialed-confirmed, the vendor fix
-// exists or not, the host is exposed or not, an exception ticket or a control
-// row exists or not. Never a code a careful analyst could truthfully cite.
+// exists or not, the host is exposed or not, an exception ticket exists or not,
+// a block-mode control covers it or not (a detect-mode row proves the control is not verified, a covering block one
+// proves 'does not cover' false). Never a code a careful analyst could truthfully cite.
 export function contradictionsFor(entry: CatalogueEntry, facts: ContradictionFacts, required: readonly ReasonCode[] = []): ReasonCode[] {
   const out: ReasonCode[] = [];
   if (facts.real) out.push('stale-scan');
@@ -812,6 +832,7 @@ export function contradictionsFor(entry: CatalogueEntry, facts: ContradictionFac
   if (!entry.knownExploited && entry.epss < 0.1) out.push('high-exploit-probability');
   if (facts.exception === false) out.push('approved-exception');
   if (facts.control === false) out.push('compensating-control-verified');
+  if (facts.control === true) out.push('control-not-covering');
   return [...new Set(out)].filter((c) => !required.includes(c));
 }
 

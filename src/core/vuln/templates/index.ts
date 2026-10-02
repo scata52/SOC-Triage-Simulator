@@ -4,7 +4,9 @@
 
 import type { VulnTemplate } from '../model.ts';
 import { kevInternal, noKevInternal } from './kev-internal.ts';
-import { staleScan } from './stale-scan.ts';
-import { backportFp } from './backport-fp.ts';
+import { freshScan, staleScan } from './stale-scan.ts';
+import { backportFp, backportReal } from './backport-fp.ts';
+import { exposedEdge, segmented } from './exposed-edge.ts';
+import { wafBypass, wafCovers } from './waf.ts';
 
-export const VULN_CASE_TEMPLATES: readonly VulnTemplate[] = [kevInternal, noKevInternal, staleScan, backportFp];
+export const VULN_CASE_TEMPLATES: readonly VulnTemplate[] = [kevInternal, noKevInternal, staleScan, freshScan, backportFp, backportReal, exposedEdge, segmented, wafCovers, wafBypass];

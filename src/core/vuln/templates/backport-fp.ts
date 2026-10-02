@@ -1,4 +1,4 @@
-// Template vm-backport-fp (T1, A side; the B side comes in WP2). A non-credentialed
+// Templates vm-backport-fp (T1, A side) and vm-backport-real (T1, B side). A non-credentialed
 // (banner-only) scan reports a Critical remote code execution on a Linux web
 // server from the upstream version in the banner. The distribution packages
 // the component with the fix backported: SoftwareInventory shows a distro
@@ -10,14 +10,20 @@
 // decoy is a Sim-KEV-listed finding on a file server whose fix was installed
 // after the credentialed run, with a newer run whose login to that host failed
 // (so nothing re-tested it): stale, not an emergency.
+// The B side (vm-backport-real) has the same worklist, hosts, runs, background and
+// briefing. The one clue that differs is on the headline host: the web server there
+// is built from source (PackageSource source-built) at the upstream version, and
+// PatchHistory has only an unrelated OS security update, no advisory naming the
+// vulnerability. The banner-only scan is accurate: patch by emergency change.
 
-import { DAY, iso } from '../../logs/time.ts';
+import { DAY, iso, MIN } from '../../logs/time.ts';
 import { sampleSimEpss, simEpssPercentile, type CatalogueEntry } from '../catalogue.ts';
 import type { FindingSpec, VulnCaseSpec, VulnContext, VulnTemplate } from '../model.ts';
 import { versionBelow, type WrittenFinding } from '../scan-writer.ts';
 import {
   addBackgroundNoise,
-  backdateInstall,
+  installedBefore,
+  scopeSharedHost,
   type ShapeWant,
   shaped,
   shapedOn,
@@ -59,10 +65,11 @@ const BUGFIX = 'DXBA';
 const WEB_PRODUCT = 'Dunmarrow httpd';
 const WEB_SERVER_RCE = /^(request parser|chunked transfer decoder|URL rewrite module)$/;
 const WEB_VENDOR = 'Dovrenix Linux (distribution package)';
+const SOURCE_VENDOR = 'Dunmarrow project (built from source)';
 
 const quiet = (e: CatalogueEntry): boolean => !e.knownExploited && e.vendorFix;
 
-function build(ctx: VulnContext): VulnCaseSpec {
+function build(ctx: VulnContext, real: boolean): VulnCaseSpec {
   const { log, now, world } = ctx;
   const { scan, catalogue } = ctx.vuln;
   const cal = buildCalendar(now);
@@ -71,9 +78,24 @@ function build(ctx: VulnContext): VulnCaseSpec {
   const free = () => catalogue.entries.filter((e) => !used.has(e.id));
 
   // ---- runs: an older banner-only run, a credentialed run, a newer partial credentialed run
-  const bannerRun = scan.run({ method: 'Unauthenticated', started: now - 4 * DAY, targetsPlanned: 12, targetsScanned: 12 });
-  const credRun = scan.run({ method: 'Credentialed', started: now - 3 * DAY, targetsPlanned: 12, targetsScanned: 10 });
-  const newRun = scan.run({ method: 'Credentialed', started: now - 1 * DAY, targetsPlanned: 4, targetsScanned: 3 });
+  // Run ids, durations, "last seen" times, installed versions and install dates come from the shared stream, so the twins'
+  // ScanRuns rows and worklist rows are identical (only FindingIds are writer-generated).
+  const runRng = sharedRng(ctx, 'scan-runs');
+  const bannerId = `SCN-${runRng.int(1000, 2999)}`;
+  const credId = `SCN-${runRng.int(3000, 5999)}`;
+  const newId = `SCN-${runRng.int(6000, 9999)}`;
+  const bannerRun = scan.run({ id: bannerId, durationMin: runRng.int(45, 180), method: 'Unauthenticated', started: now - 4 * DAY, targetsPlanned: 12, targetsScanned: 12 });
+  const credRun = scan.run({ id: credId, durationMin: runRng.int(45, 180), method: 'Credentialed', started: now - 3 * DAY, targetsPlanned: 12, targetsScanned: 10 });
+  const newRun = scan.run({ id: newId, durationMin: runRng.int(45, 180), method: 'Credentialed', started: now - 1 * DAY, targetsPlanned: 4, targetsScanned: 3 });
+  const lastSeen = (run: typeof bannerRun, label: string): number => run.started + sharedRng(ctx, `last-seen/${label}`).int(1, Math.max(1, Math.round((run.finished - run.started) / MIN))) * MIN;
+  const versionOf = (label: string, e: CatalogueEntry): string => {
+    const r = sharedRng(ctx, `version/${label}`);
+    return e.vendorFix ? versionBelow(r, e.fixedVersion) : `${r.int(1, 9)}.${r.int(0, 12)}.${r.int(0, 9)}`;
+  };
+  // The inventory row of a worklist finding, installed before its first detection (and before `notAfter`).
+  const install = (label: string, host: string, e: CatalogueEntry, version: string, firstSeen: number, notAfter: number = firstSeen): void => {
+    scan.software({ host, product: e.product, vendor: e.vendor, version, installedOn: installedBefore(ctx, label, firstSeen, notAfter) });
+  };
 
   // A quiet entry published before it is first seen (else dated so it was known by then), placed on the host and
   // shaped from the worklist table to what the case needs; a brand re-names its product first.
@@ -122,42 +144,56 @@ function build(ctx: VulnContext): VulnCaseSpec {
   const exEntry: CatalogueEntry = { ...choose({ min: 4, max: 6.9, network: true }, now - 130 * DAY, lower('ex'), 'PRINT01'), vendorFix: false, fixedVersion: '' };
 
   // ---- scope: two Linux web servers of a fictional distribution
-  scan.scopeHost({ name: HEAD_HOST, role: 'Intranet web server (customer portal backend)', os: DISTRO, owner: 'Web Platform', criticality: 'High' });
-  scan.scopeHost({ name: DECOY_HOST, role: 'Intranet web server (reporting portal)', os: DISTRO, owner: 'Web Platform', criticality: 'Medium' });
+  scopeSharedHost(ctx, { name: HEAD_HOST, role: 'Intranet web server (customer portal backend)', os: DISTRO, owner: 'Web Platform', criticality: 'High' }, 'weblx01');
+  scopeSharedHost(ctx, { name: DECOY_HOST, role: 'Intranet web server (reporting portal)', os: DISTRO, owner: 'Web Platform', criticality: 'Medium' }, 'weblx02');
 
-  // ---- headline: banner says the upstream version, the package carries the fix
-  const advisory = `${ADVISORY}-${iso(now).slice(0, 4)}:${rng.int(1000, 9999)}`;
-  const headF = scan.finding(bannerRun, { host: HEAD_HOST, entry: head, port: 443, installedVersion: fixedPkg, bannerVersion, packageSource: 'distro', firstSeen: bannerRun.started });
-  const headSoft = scan.software({ host: HEAD_HOST, product: WEB_PRODUCT, vendor: WEB_VENDOR, version: fixedPkg, source: 'distro', installedOn: fixedAt });
-  const headPatch = log.patch({
-    DeviceName: HEAD_HOST,
-    PatchId: advisory,
-    Description: `${DISTRO} security update ${advisory}: ${WEB_PRODUCT} ${fixedPkg}. The advisory changelog lists ${head.id} (fix backported; the upstream version string does not change).`,
-    InstalledOn: fixedAt,
-    RebootPending: false,
-    Result: 'Installed',
-  });
-
-  // ---- decoy: same banner, same package, pre-fix release
-  const decoyF = scan.finding(bannerRun, { host: DECOY_HOST, entry: head, port: 443, installedVersion: oldPkg, bannerVersion, packageSource: 'distro', firstSeen: bannerRun.started });
-  const decoySoft = scan.software({ host: DECOY_HOST, product: WEB_PRODUCT, vendor: WEB_VENDOR, version: oldPkg, source: 'distro', installedOn: now - 60 * DAY });
-  log.patch({
-    DeviceName: DECOY_HOST,
-    PatchId: `${BUGFIX}-${iso(now).slice(0, 4)}:${rng.int(1000, 9999)}`,
-    Description: `${DISTRO} bugfix update: ${WEB_PRODUCT} ${oldPkg} (packaging fixes only; no security advisory)`,
-    InstalledOn: now - 60 * DAY,
-    RebootPending: false,
-    Result: 'Installed',
-  });
+  // ---- the two web servers. The mirror of the twins: A has the headline as the distro package that carries the fix
+  // (a false positive) and its sibling at a pre-fix release (real); B has the headline built from source at the upstream
+  // version (real: the banner is accurate, nothing was backported) and the sibling as the fixed distro package. The
+  // case therefore holds one false positive and one real emergency on these hosts either way (capacity is two
+  // emergency or next-window changes, and the Sim-KEV finding takes the other).
+  type Variant = 'fixed' | 'old' | 'source';
+  const headVariant: Variant = real ? 'source' : 'fixed';
+  const sibVariant: Variant = real ? 'fixed' : 'old';
+  const yr = iso(now).slice(0, 4);
+  const advisoryNos = [rng.int(1000, 9999), rng.int(1000, 9999)]; // drawn on both sides: the shared stream stays in step
+  const webServer = (host: string, variant: Variant, label: string, no: number) => {
+    const pkg = variant === 'fixed' ? fixedPkg : variant === 'old' ? oldPkg : bannerVersion;
+    const f = scan.finding(bannerRun, { host, entry: head, port: 443, installedVersion: pkg, bannerVersion, packageSource: variant === 'source' ? 'source-built' : 'distro', firstSeen: bannerRun.started, lastSeen: lastSeen(bannerRun, label) });
+    const installedOn = variant === 'fixed' ? fixedAt : variant === 'old' ? now - 60 * DAY : now - 40 * DAY;
+    const soft = scan.software({ host, product: WEB_PRODUCT, vendor: variant === 'source' ? SOURCE_VENDOR : WEB_VENDOR, version: pkg, source: variant === 'source' ? 'source-built' : 'distro', installedOn });
+    const patchId = variant === 'old' ? `${BUGFIX}-${yr}:${no}` : `${ADVISORY}-${yr}:${no}`;
+    const patch = log.patch({
+      DeviceName: host,
+      PatchId: patchId,
+      Description:
+        variant === 'fixed'
+          ? `${DISTRO} security update ${patchId}: ${WEB_PRODUCT} ${pkg}. The advisory changelog lists ${head.id} (fix backported; the upstream version string does not change).`
+          : variant === 'old'
+            ? `${DISTRO} bugfix update: ${WEB_PRODUCT} ${pkg} (packaging fixes only; no security advisory)`
+            : `${DISTRO} security update ${patchId}: kernel, TLS library and shell packages (operating system packages only).`,
+      InstalledOn: variant === 'old' ? now - 60 * DAY : fixedAt,
+      RebootPending: false,
+      Result: 'Installed',
+    });
+    return { f, soft, patch, patchId, pkg };
+  };
+  const headW = webServer(HEAD_HOST, headVariant, 'head', advisoryNos[0]);
+  const decoyW = webServer(DECOY_HOST, sibVariant, 'decoy', advisoryNos[1]);
+  const headF = headW.f;
+  const decoyF = decoyW.f;
+  const fixedW = real ? decoyW : headW; // the distro package at the fixed release
+  const advisory = fixedW.patchId;
 
   // ---- must-not-miss: Sim-KEV on the internet-exposed public website, credentialed scan
-  const kevF = scan.finding(credRun, { host: PUBLIC_HOST, entry: kevEntry, port: 443, firstSeen: kevFirstSeen });
+  const kevF = scan.finding(credRun, { host: PUBLIC_HOST, entry: kevEntry, port: 443, firstSeen: kevFirstSeen, lastSeen: lastSeen(credRun, 'kev'), installedVersion: versionOf('kev', kevEntry) });
+  install('kev', PUBLIC_HOST, kevEntry, versionOf('kev', kevEntry), kevFirstSeen);
   const kevIntel = scan.intel(kevEntry);
   const publicDevice = log.deviceRef(PUBLIC_HOST);
   const webOwner = String(publicDevice.row.Owner);
 
   // ---- decoy of the must-not-miss: Sim-KEV listed, but fixed after the run and never re-tested
-  const staleF = scan.finding(credRun, { host: STALE_HOST, entry: kevDecoyEntry, firstSeen: credRun.started });
+  const staleF = scan.finding(credRun, { host: STALE_HOST, entry: kevDecoyEntry, firstSeen: credRun.started, lastSeen: lastSeen(credRun, 'stale'), installedVersion: versionOf('stale', kevDecoyEntry) });
   const stalePatchedAt = credRun.started + 1 * DAY;
   scan.software({ host: STALE_HOST, product: kevDecoyEntry.product, vendor: kevDecoyEntry.vendor, version: kevDecoyEntry.fixedVersion, installedOn: stalePatchedAt });
   const stalePatch = log.patch({
@@ -170,21 +206,21 @@ function build(ctx: VulnContext): VulnCaseSpec {
   });
 
   // ---- noise with clear truths
-  const sqlF = scan.finding(credRun, { host: 'SQL01', entry: sqlEntry, firstSeen: now - 30 * DAY });
-  const appF = scan.finding(credRun, { host: 'APP01', entry: appEntry, firstSeen: now - 10 * DAY });
-  const buildF = scan.finding(credRun, { host: 'BUILD01', entry: buildEntry, firstSeen: now - 3 * DAY });
-  const jumpF = scan.finding(credRun, { host: 'JUMP01', entry: jumpEntry, firstSeen: now - 50 * DAY });
+  const sqlF = scan.finding(credRun, { host: 'SQL01', entry: sqlEntry, firstSeen: now - 30 * DAY, lastSeen: lastSeen(credRun, 'sql'), installedVersion: versionOf('sql', sqlEntry) });
+  const appF = scan.finding(credRun, { host: 'APP01', entry: appEntry, firstSeen: now - 10 * DAY, lastSeen: lastSeen(credRun, 'app'), installedVersion: versionOf('app', appEntry) });
+  const buildF = scan.finding(credRun, { host: 'BUILD01', entry: buildEntry, firstSeen: now - 3 * DAY, lastSeen: lastSeen(credRun, 'build'), installedVersion: versionOf('build', buildEntry) });
+  const jumpF = scan.finding(credRun, { host: 'JUMP01', entry: jumpEntry, firstSeen: now - 50 * DAY, lastSeen: lastSeen(credRun, 'jump'), installedVersion: versionOf('jump', jumpEntry) });
 
   // the detected versions were installed on or before first detection (and before the exception ticket)
   const installs: [string, string, CatalogueEntry, number][] = [['sql', 'SQL01', sqlEntry, now - 30 * DAY], ['app', 'APP01', appEntry, now - 10 * DAY], ['build', 'BUILD01', buildEntry, now - 3 * DAY], ['jump', 'JUMP01', jumpEntry, now - 50 * DAY]];
-  for (const [label, host, e, first] of installs) backdateInstall(ctx, label, host, e.product, first);
+  for (const [label, host, e, first] of installs) install(label, host, e, versionOf(label, e), first);
 
   // ---- accepted risk with a valid, time-boxed exception (a network flaw: the print VLAN limits who can reach it)
-  const exF = scan.finding(credRun, { host: 'PRINT01', entry: exEntry, firstSeen: now - 120 * DAY });
+  const exF = scan.finding(credRun, { host: 'PRINT01', entry: exEntry, firstSeen: now - 120 * DAY, lastSeen: lastSeen(credRun, 'ex'), installedVersion: versionOf('ex', exEntry) });
   const approvedAt = now - 100 * DAY;
   const expires = now + 45 * DAY;
   const exTicket = writeRiskException(ctx, exEntry, 'PRINT01', 'print VLAN', approvedAt, expires);
-  backdateInstall(ctx, 'ex', 'PRINT01', exEntry.product, now - 120 * DAY, approvedAt);
+  install('ex', 'PRINT01', exEntry, versionOf('ex', exEntry), now - 120 * DAY, approvedAt);
 
   // ---- noise: the worklist hosts get none (their runs are older than the newest), the two runs' lists are disjoint
   addBackgroundNoise(
@@ -197,7 +233,7 @@ function build(ctx: VulnContext): VulnCaseSpec {
     [head, kevEntry, kevDecoyEntry, sqlEntry, appEntry, buildEntry, jumpEntry, exEntry],
     { worklistSize: 9, extraNonWorklist: 1 }, // the login-failure row
   );
-  writeUnrelatedPatches(ctx, ['SCCM01', 'BKP01', 'DC01'], 2);
+  writeUnrelatedPatches(ctx, ['SCCM01', 'BKP01', 'DC01'], 2, sharedRng(ctx, 'unrelated-patches'));
   writeChangeTickets(ctx, cal);
   const authFailure = writeAuthFailure(ctx, newRun, STALE_HOST); // after every other write to the newer run
   sizeRunToHosts(ctx, newRun);
@@ -205,50 +241,83 @@ function build(ctx: VulnContext): VulnCaseSpec {
   const spec = (w: WrittenFinding, over: Pick<FindingSpec, 'truth' | 'weight' | 'evidence'> & Partial<FindingSpec>): FindingSpec => ({ findingId: w.findingId, row: w.row, ...over });
   const facts = (host: string, over: Partial<ContradictionFacts> = {}): ContradictionFacts => ({ real: true, packageBasis: true, ...hostFacts(ctx, host), exception: false, control: false, ...over });
   const decoyDeadline = slaDeadline('critical', bannerRun.started);
-  const findings: FindingSpec[] = [
-    spec(headF, {
-      truth: {
-        decision: 'false-positive',
-        schedule: 'none',
-        reasons: ['backported-fix', 'banner-only'],
-        contradicting: contradictionsFor(head, facts(HEAD_HOST, { real: false, packageBasis: false, fixedBeforeScan: true }), ['backported-fix', 'banner-only']),
+  type Web = ReturnType<typeof webServer>;
+  type Part = Pick<FindingSpec, 'truth' | 'weight' | 'evidence'> & Partial<FindingSpec>;
+  // the distro package at the fixed release, with the advisory that names the vulnerability: a false positive
+  const fixedSpec = (host: string, w: Web): Part => ({
+    truth: {
+      decision: 'false-positive',
+      schedule: 'none',
+      reasons: ['backported-fix', 'banner-only'],
+      contradicting: contradictionsFor(head, facts(host, { real: false, packageBasis: false, fixedBeforeScan: true }), ['backported-fix', 'banner-only']),
+    },
+    weight: 1,
+    lesson: true,
+    evidence: [
+      {
+        id: 'distro-package-release',
+        label: `${host} runs the distribution package at a release that carries the fix`,
+        why: `SoftwareInventory shows ${WEB_PRODUCT} ${w.pkg} (PackageSource distro). The banner only shows the upstream ${bannerVersion}, below the upstream fix ${head.fixedVersion}, because a distribution backports fixes without changing that string.`,
+        rows: [w.soft],
       },
-      weight: 1,
-      lesson: true,
-      evidence: [
-        {
-          id: 'distro-package-release',
-          label: `${HEAD_HOST} runs the distribution package at a release that carries the fix`,
-          why: `SoftwareInventory shows ${WEB_PRODUCT} ${fixedPkg} (PackageSource distro). The banner only shows the upstream ${bannerVersion}, below the upstream fix ${head.fixedVersion}, because a distribution backports fixes without changing that string.`,
-          rows: [headSoft],
-        },
-        {
-          id: 'advisory-names-the-vuln',
-          label: `The installed security update's advisory lists ${head.id}`,
-          why: `A release bump alone proves nothing. PatchHistory names ${advisory}, installed ${ymd(fixedAt)} with no reboot pending, and its changelog lists ${head.id}.`,
-          rows: [headPatch],
-        },
-        {
-          id: 'banner-only-scan',
-          label: 'The finding came from a non-credentialed, banner-only scan',
-          why: 'The scan run was non-credentialed: it read the version from the service banner and did not inspect installed packages or backports. The finding row itself says so in its Evidence: the version came from the banner.',
-          rows: [bannerRun.row, headF.row],
-        },
-      ],
-    }),
-    spec(decoyF, {
-      truth: { decision: 'patch', schedule: 'emergency', slaLatest: 'emergency', reasons: ['sla-deadline'], contradicting: [...contradictionsFor(head, facts(DECOY_HOST, { packageBasis: false }), ['sla-deadline']), 'backported-fix'] },
-      weight: 1,
-      lesson: true,
-      evidence: [
-        {
-          id: 'pre-fix-release',
-          label: `${DECOY_HOST} has the same banner but the package is still at a pre-fix release`,
-          why: `SoftwareInventory shows ${WEB_PRODUCT} ${oldPkg}, an older release than ${fixedPkg}, and PatchHistory has only a bugfix update with no advisory naming ${head.id}. The finding is real. First detected ${ymd(bannerRun.started)}, its 7-day Critical deadline (${ymd(decoyDeadline)}, end of day) falls before the next window (${ymd(cal.next.start)}): emergency change.`,
-          rows: [decoySoft],
-        },
-      ],
-    }),
+      {
+        id: 'advisory-names-the-vuln',
+        label: `The installed security update's advisory lists ${head.id}`,
+        why: `A release bump alone proves nothing. PatchHistory names ${w.patchId}, installed ${ymd(fixedAt)} with no reboot pending, and its changelog lists ${head.id}.`,
+        rows: [w.patch],
+      },
+      {
+        id: 'banner-only-scan',
+        label: 'The finding came from a non-credentialed, banner-only scan',
+        why: 'The scan run was non-credentialed: it read the version from the service banner and did not inspect installed packages or backports. The finding row itself says so in its Evidence: the version came from the banner.',
+        rows: [bannerRun.row, w.f.row],
+      },
+    ],
+  });
+  const realTruth = (host: string): FindingSpec['truth'] => ({ decision: 'patch', schedule: 'emergency', slaLatest: 'emergency', reasons: ['sla-deadline'], contradicting: [...contradictionsFor(head, facts(host, { packageBasis: false }), ['sla-deadline']), 'backported-fix'] });
+  // the sibling at a pre-fix distro release, no advisory: real
+  const oldSpec = (host: string, w: Web): Part => ({
+    truth: realTruth(host),
+    weight: 1,
+    lesson: true,
+    evidence: [
+      {
+        id: 'pre-fix-release',
+        label: `${host} has the same banner but the package is still at a pre-fix release`,
+        why: `SoftwareInventory shows ${WEB_PRODUCT} ${w.pkg}, an older release than ${fixedPkg}, and PatchHistory has only a bugfix update with no advisory naming ${head.id}. The finding is real. First detected ${ymd(bannerRun.started)}, its 7-day Critical deadline (${ymd(decoyDeadline)}, end of day) falls before the next window (${ymd(cal.next.start)}): emergency change.`,
+        rows: [w.soft],
+      },
+    ],
+  });
+  // built from source at the upstream version, no advisory: real
+  const sourceSpec = (host: string, w: Web): Part => ({
+    truth: realTruth(host),
+    weight: 1,
+    lesson: true,
+    evidence: [
+      {
+        id: 'source-built-at-upstream-version',
+        label: `${host} runs the web server built from source, at the vulnerable upstream version`,
+        why: `SoftwareInventory shows ${WEB_PRODUCT} ${bannerVersion} with PackageSource source-built, below the upstream fix ${head.fixedVersion}. A source build is not managed by the distribution, so no backport reaches it: the version in the banner is the version that is installed.`,
+        rows: [w.soft],
+      },
+      {
+        id: 'no-advisory-names-the-vuln',
+        label: `No installed update names ${head.id}`,
+        why: `PatchHistory shows only ${w.patchId}, an operating system update (kernel, TLS library, shell) installed ${ymd(fixedAt)}. Its description does not mention ${WEB_PRODUCT} or ${head.id}, so it did not touch the web server.`,
+        rows: [w.patch],
+      },
+      {
+        id: 'banner-only-scan-is-accurate',
+        label: 'The banner-only scan is accurate here',
+        why: `The scan run was non-credentialed and read the version from the banner (${bannerVersion}), but that is also the installed version: nothing was backported, so the finding stands. First detected ${ymd(bannerRun.started)}, its 7-day Critical deadline (${ymd(decoyDeadline)}, end of day) falls before the next window (${ymd(cal.next.start)}): emergency change.`,
+        rows: [bannerRun.row, w.f.row],
+      },
+    ],
+  });
+  const findings: FindingSpec[] = [
+    spec(headF, real ? sourceSpec(HEAD_HOST, headW) : fixedSpec(HEAD_HOST, headW)),
+    spec(decoyF, real ? fixedSpec(DECOY_HOST, decoyW) : oldSpec(DECOY_HOST, decoyW)),
     spec(kevF, {
       truth: { decision: 'patch', schedule: 'emergency', slaLatest: 'emergency', reasons: ['known-exploited', 'internet-exposed'], contradicting: contradictionsFor(kevEntry, facts(PUBLIC_HOST), ['known-exploited', 'internet-exposed']) },
       weight: 3,
@@ -309,12 +378,17 @@ function build(ctx: VulnContext): VulnCaseSpec {
     attachments: policyAttachments(world.org.name, cal),
     findings,
     constraints: cal.constraints,
-    idealOrder: [ids.kev, ids.decoy, ids.build, ids.sql, ids.app, ids.jump],
-    tiers: [[ids.kev], [ids.decoy]],
+    // the one real emergency among the web servers is the headline in B and its sibling in A
+    idealOrder: [ids.kev, real ? ids.head : ids.decoy, ids.build, ids.sql, ids.app, ids.jump],
+    tiers: [[ids.kev], [real ? ids.head : ids.decoy]],
     hints: [
       'How did the scanner learn the version of the web server component: from the service banner or from the installed packages?',
-      `Compare the banner-based scan with SoftwareInventory and PatchHistory for ${HEAD_HOST} and ${DECOY_HOST}. A distribution can fix a flaw without changing the upstream version string. For every Sim-KEV finding, also check PatchHistory and whether a later run re-tested the host.`,
-      `${HEAD_HOST} has the distro package at a release whose security advisory names the vulnerability id: dismiss it. ${DECOY_HOST} has the same banner but an older release with no such advisory: emergency change. The Sim-KEV finding on the public website is real and exposed. The Sim-KEV finding on ${STALE_HOST} was fixed after its run and the newer run could not log in: dismiss it and ask for a rescan.`,
+      real
+        ? `Compare the banner-based scan with SoftwareInventory and PatchHistory for ${HEAD_HOST} and ${DECOY_HOST}: how was each web server installed (PackageSource), and does any update name the vulnerability id? A distribution can fix a flaw without changing the upstream version string, but only for its own packages. For every Sim-KEV finding, also check PatchHistory and whether a later run re-tested the host.`
+        : `Compare the banner-based scan with SoftwareInventory and PatchHistory for ${HEAD_HOST} and ${DECOY_HOST}. A distribution can fix a flaw without changing the upstream version string. For every Sim-KEV finding, also check PatchHistory and whether a later run re-tested the host.`,
+      real
+        ? `${HEAD_HOST} runs the web server built from source at the vulnerable upstream version, and its only update is for operating system packages: the banner is accurate, emergency change. ${DECOY_HOST} has the same banner but the distro package at a release whose security advisory names the vulnerability id: dismiss it. The Sim-KEV finding on the public website is real and exposed. The Sim-KEV finding on ${STALE_HOST} was fixed after its run and the newer run could not log in: dismiss it and ask for a rescan.`
+        : `${HEAD_HOST} has the distro package at a release whose security advisory names the vulnerability id: dismiss it. ${DECOY_HOST} has the same banner but an older release with no such advisory: emergency change. The Sim-KEV finding on the public website is real and exposed. The Sim-KEV finding on ${STALE_HOST} was fixed after its run and the newer run could not log in: dismiss it and ask for a rescan.`,
     ],
     solution: [
       {
@@ -330,12 +404,16 @@ function build(ctx: VulnContext): VulnCaseSpec {
       {
         title: 'What package release is actually installed?',
         kql: `SoftwareInventory\n| where DeviceName in ("${HEAD_HOST}", "${DECOY_HOST}", "${PUBLIC_HOST}")\n| project DeviceName, Product, Version, PackageSource, InstalledOn, RecordId`,
-        why: `${HEAD_HOST} has release ${fixedRelease} of ${WEB_PRODUCT} (distro package); ${DECOY_HOST} is still at release ${oldRelease}. ${PUBLIC_HOST} runs the vulnerable version of its own product, with no fixed version installed.`,
+        why: real
+          ? `${HEAD_HOST} runs ${WEB_PRODUCT} ${bannerVersion} (PackageSource source-built), the vulnerable upstream version with no distro release; ${DECOY_HOST} has release ${fixedRelease} of the distro package. ${PUBLIC_HOST} runs the vulnerable version of its own product, with no fixed version installed.`
+          : `${HEAD_HOST} has release ${fixedRelease} of ${WEB_PRODUCT} (distro package); ${DECOY_HOST} is still at release ${oldRelease}. ${PUBLIC_HOST} runs the vulnerable version of its own product, with no fixed version installed.`,
       },
       {
         title: 'Does an update name the vulnerability, and when was it installed?',
         kql: `PatchHistory\n| where DeviceName in ("${HEAD_HOST}", "${DECOY_HOST}", "${STALE_HOST}", "${PUBLIC_HOST}")\n| project DeviceName, PatchId, Description, InstalledOn, RebootPending, Result, RecordId`,
-        why: `Only ${HEAD_HOST}'s security update lists ${head.id}; the other web server's update is a bugfix with no advisory. ${STALE_HOST} has an update naming its Sim-KEV vulnerability, installed after the run. ${PUBLIC_HOST} has none: nothing has been installed there.`,
+        why: real
+          ? `Only ${DECOY_HOST}'s security update lists ${head.id}; ${HEAD_HOST}'s only update covers operating system packages and names no vulnerability. ${STALE_HOST} has an update naming its Sim-KEV vulnerability, installed after the run. ${PUBLIC_HOST} has none: nothing has been installed there.`
+          : `Only ${HEAD_HOST}'s security update lists ${head.id}; the other web server's update is a bugfix with no advisory. ${STALE_HOST} has an update naming its Sim-KEV vulnerability, installed after the run. ${PUBLIC_HOST} has none: nothing has been installed there.`,
       },
       {
         title: 'Which findings are on the Sim-KEV list?',
@@ -365,18 +443,35 @@ function build(ctx: VulnContext): VulnCaseSpec {
     ],
     rubric: [
       { id: 'owner', text: `Names who acts: ${ownerText}.`, keywords: ['owner', ...ownerMap.keys()].map((k) => k.toLowerCase()) },
-      { id: 'risk', text: 'Explains that the banner shows only the upstream version, that the fix was backported on one server, that the vulnerability affecting the public website appears on Sim-KEV (exploitation observed) and unpatched, and that the file server finding is stale.', keywords: ['banner', 'backport', 'known exploited', 'sim-kev', 'internet', 'stale'] },
-      { id: 'action', text: `Dismisses the ${HEAD_HOST} and ${STALE_HOST} findings (and asks for rescans), patches ${DECOY_HOST} and the public website by emergency change, accepts the print server exception.`, keywords: ['dismiss', 'rescan', 'emergency', 'patch', 'accept'] },
+      real
+        ? { id: 'risk', text: 'Explains that the banner shows only the upstream version, that the fix was backported on the distro-package server but that on the source-built one the banner is accurate (nothing was backported), that the vulnerability affecting the public website appears on Sim-KEV (exploitation observed) and unpatched, and that the file server finding is stale.', keywords: ['banner', 'backport', 'source', 'known exploited', 'sim-kev', 'internet', 'stale'] }
+        : { id: 'risk', text: 'Explains that the banner shows only the upstream version, that the fix was backported on one server, that the vulnerability affecting the public website appears on Sim-KEV (exploitation observed) and unpatched, and that the file server finding is stale.', keywords: ['banner', 'backport', 'known exploited', 'sim-kev', 'internet', 'stale'] },
+      real
+        ? { id: 'action', text: `Dismisses the ${DECOY_HOST} and ${STALE_HOST} findings (and asks for rescans), patches ${HEAD_HOST} and the public website by emergency change, accepts the print server exception.`, keywords: ['dismiss', 'rescan', 'emergency', 'patch', 'accept'] }
+        : { id: 'action', text: `Dismisses the ${HEAD_HOST} and ${STALE_HOST} findings (and asks for rescans), patches ${DECOY_HOST} and the public website by emergency change, accepts the print server exception.`, keywords: ['dismiss', 'rescan', 'emergency', 'patch', 'accept'] },
       { id: 'date', text: 'Gives dates or deadlines, ties them to the policy and states when the exception expires.', keywords: ['3 days', '7 days', 'deadline', 'window', 'expire', 'expiry', 'review'] },
     ],
     explanation: [
-      `The scanner reports a Critical ${head.base.toFixed(1)} remote code execution on ${HEAD_HOST}, but it was a non-credentialed scan: the version came from the service banner (${bannerVersion}), which shows the upstream release. The distribution packages the component and backports fixes without changing that string. SoftwareInventory shows the distro package at ${fixedPkg}, and PatchHistory names the security update ${advisory} whose changelog lists ${head.id}. A release bump alone is not proof: it is the advisory naming the vulnerability id for that release that shows the fix. This is a false positive: dismiss the finding and request a credentialed rescan.`,
-      `${DECOY_HOST} shows the same banner, but its package is at ${oldPkg}, an older release, and no advisory names the vulnerability there: the finding is real. First detected ${ymd(bannerRun.started)}, its 7-day Critical deadline (${ymd(decoyDeadline)}, end of day) falls before the next window, so it needs an emergency change.`,
+      real
+        ? `The scanner reports a Critical ${head.base.toFixed(1)} remote code execution on ${HEAD_HOST} from a non-credentialed scan: the version came from the service banner (${bannerVersion}). A banner-only scan can be wrong when a distribution backports a fix, but that needs a distribution package, and here SoftwareInventory shows ${WEB_PRODUCT} ${bannerVersion} with PackageSource source-built: the upstream release itself, below the upstream fix ${head.fixedVersion}. PatchHistory has only ${headW.patchId}, an operating system update that does not name ${head.id} or touch the web server, so no advisory shows a fix, while the sibling web server's distro package does carry one. The banner is accurate and the finding is real. First detected ${ymd(bannerRun.started)}, its 7-day Critical deadline (${ymd(decoyDeadline)}, end of day) falls before the next window (${ymd(cal.next.start)}), so it needs an emergency change; do not dismiss it as a backport.`
+        : `The scanner reports a Critical ${head.base.toFixed(1)} remote code execution on ${HEAD_HOST}, but it was a non-credentialed scan: the version came from the service banner (${bannerVersion}), which shows the upstream release. The distribution packages the component and backports fixes without changing that string. SoftwareInventory shows the distro package at ${fixedPkg}, and PatchHistory names the security update ${advisory} whose changelog lists ${head.id}. A release bump alone is not proof: it is the advisory naming the vulnerability id for that release that shows the fix. This is a false positive: dismiss the finding and request a credentialed rescan.`,
+      real
+        ? `${DECOY_HOST} shows the same banner, but its distro package is at ${fixedPkg}, and PatchHistory names the security update ${advisory} whose changelog lists ${head.id}: the fix is backported there, so that finding is a false positive. Dismiss it and request a credentialed rescan. The two web servers look alike in the scan and differ in how they were installed: only the source build is vulnerable.`
+        : `${DECOY_HOST} shows the same banner, but its package is at ${oldPkg}, an older release, and no advisory names the vulnerability there: the finding is real. First detected ${ymd(bannerRun.started)}, its 7-day Critical deadline (${ymd(decoyDeadline)}, end of day) falls before the next window, so it needs an emergency change.`,
       `The Sim-KEV list includes the vulnerability affecting the public website, meaning exploitation has been observed in the wild, and the website is exposed to the internet. Our own 3-day rule counts from the later of first detection and the listing date, so the deadline falls before the next window: emergency change. The Sim-KEV listing and the public exploit both apply; the listing alone sets the 3-day deadline, and the public exploit adds urgency.`,
       `${STALE_HOST} also has a Sim-KEV-listed finding, but PatchHistory shows the update that addresses it installed after the credentialed run started, no reboot pending, and the newer run's "Authentication failure: local checks not run" row for ${STALE_HOST} shows nothing re-tested it (its finding still carries the credentialed run's ${credRun.id} and its LastSeen). It is no longer valid: remediated after the scan. Close it and request a rescan to confirm.`,
       'The remaining items follow the standard policy: Medium and Low have long deadlines, and the High finding first seen 3 days ago has 30 days, so the standard cycle applies. The print server finding has no vendor fix and an approved, unexpired, time-boxed exception, so accept it and record its expiry.',
     ],
-    pitfalls: [
+    pitfalls: real
+      ? [
+          'Reflexively dismissing every banner-only finding as "probably backported": that only applies to a distribution package, and a source build gets no backport.',
+          `Treating any recent security update on ${HEAD_HOST} as the fix: the one in PatchHistory covers operating system packages and does not name the vulnerability id.`,
+          `Patching both web servers because the scores and banners match: ${DECOY_HOST} has the distro package at the release the advisory names, so it is a false positive and spends no change capacity.`,
+          'Escalating every Sim-KEV finding without reading PatchHistory: one listed vulnerability was already fixed after the scan.',
+          'Ordering by CVSS: the Sim-KEV-listed vulnerability on the exposed website scores below the two Critical findings, yet exploitation has been observed for it, so it goes first.',
+          'Telling the two Criticals apart by the scan or the score: both come from the same banner-only run with the same banner version. The false positive is the one whose distribution package release carries the backported fix that the advisory lists; the other is built from source, at the vulnerable upstream version.',
+        ]
+      : [
       'Trusting the CVSS score and the banner version: a banner-only scan cannot see backported fixes.',
       'Treating a higher package release number as proof of the fix without checking that the advisory lists the vulnerability id.',
       'Dismissing both web servers because one is a false positive: the second host has the same banner but an older package release.',
@@ -388,13 +483,26 @@ function build(ctx: VulnContext): VulnCaseSpec {
   };
 }
 
-export const backportFp: VulnTemplate = {
-  id: 'vm-backport-fp',
+const COMMON: Omit<VulnTemplate, 'id' | 'lesson' | 'build' | 'twin'> = {
   difficulty: 'tier2',
   title: 'Scan review: web servers',
   cysaDomains: ['2.0', '4.0'],
   objectives: ['2.1', '2.2', '2.3', '2.5', '4.1'],
   kind: 'vuln',
+};
+
+export const backportFp: VulnTemplate = {
+  ...COMMON,
+  id: 'vm-backport-fp',
+  twin: 'vm-backport-real',
   lesson: 'The banner-only scan shows the upstream version, but SoftwareInventory (distro package at the fixed release) and the PatchHistory advisory that lists the vulnerability id show the fix is already backported on one server; the sibling server has the same banner and an older release.',
-  build,
+  build: (ctx) => build(ctx, false),
+};
+
+export const backportReal: VulnTemplate = {
+  ...COMMON,
+  id: 'vm-backport-real',
+  twin: 'vm-backport-fp',
+  lesson: 'SoftwareInventory shows the web server built from source (PackageSource source-built) at the vulnerable upstream version, and PatchHistory has no advisory naming the vulnerability id, only an operating system update: the banner-only scan is accurate, nothing was backported, so patch by emergency change. The sibling web server runs the distro package at the fixed release with the advisory (a false positive); the twin swaps the two roles.',
+  build: (ctx) => build(ctx, true),
 };

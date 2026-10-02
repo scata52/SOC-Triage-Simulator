@@ -2,10 +2,12 @@
 // started, no reboot is pending and the newer run could not log in to the host
 // (a visible login-failure row is the only thing it wrote there). The decoy
 // host's later patch is an unrelated operating system rollup.
+// vm-fresh-scan (the B side): the headline's update predates the scan but a reboot is pending and the credentialed
+// evidence shows the old library still loaded; the sibling file server is the stale one.
 import { expect, it } from 'vitest';
 import type { Corpus } from '../../src/core/logs/corpus.ts';
 import { AUTH_FAILURE_TITLE } from '../../src/core/vuln/templates/common.ts';
-import { staleScan } from '../../src/core/vuln/templates/stale-scan.ts';
+import { freshScan, staleScan } from '../../src/core/vuln/templates/stale-scan.ts';
 import { world } from '../helpers/scenario-check.ts';
 import { buildFor, vulnRuns } from '../helpers/vuln-scenario-check.ts';
 
@@ -79,5 +81,48 @@ it('the stale host and the decoy host run different products, and the decoy show
     // the SoftwareInventory rows are alternative evidence for the two points
     const soft = new Set(rows(corpus, 'SoftwareInventory').map((s) => String(s.RecordId)));
     for (const f of [head, decoy]) expect(f.evidence[0].recordIds.some((id) => soft.has(id)), `${run.seed}: inventory row among the evidence alternatives`).toBe(true);
+  }
+}, 600_000);
+
+it('vm-fresh-scan: the update predates the old run, the reboot is pending and the service still loads the old library', () => {
+  for (const run of vulnRuns(20, 20)) {
+    const b = buildFor(freshScan, world(run.world), run.seed);
+    const corpus = b.corpus as Corpus;
+    const [head, sib] = b.case.findings;
+    const finding = rows(corpus, 'VulnFindings').find((r) => r.FindingId === head.findingId)!;
+    const oldRun = rows(corpus, 'ScanRuns').find((r) => r.ScanRunId === finding.ScanRunId)!;
+    const patch = rows(corpus, 'PatchHistory').find((r) => r.DeviceName === finding.DeviceName && String(r.Description).includes(String(finding.VulnId)))!;
+    expect(patch, `${run.seed}: patch row`).toBeDefined();
+    expect(ms(patch.InstalledOn), `${run.seed}: installed before the old run`).toBeLessThan(ms(oldRun.Started));
+    expect(Number(patch.RebootPending), `${run.seed}: reboot pending`).toBe(1);
+    expect(finding.Port, `${run.seed}: package-level finding`).toBeNull();
+    // the finding's DetectedVersion is the running (old) version; the inventory shows the fixed package on disk
+    const intel = rows(corpus, 'VulnIntel').find((r) => r.VulnId === finding.VulnId)!;
+    const soft = rows(corpus, 'SoftwareInventory').find((s) => s.DeviceName === finding.DeviceName && s.Version === intel.FixedVersion)!;
+    expect(soft, `${run.seed}: the fixed package is on disk`).toBeDefined();
+    expect(String(finding.Evidence)).toContain(String(finding.DetectedVersion));
+    expect(finding.DetectedVersion).not.toBe(intel.FixedVersion);
+    // the newer run did not touch the host (a visible gap is not the clue here: the reboot is)
+    expect(rows(corpus, 'VulnFindings').filter((r) => r.DeviceName === finding.DeviceName && r.ScanRunId !== finding.ScanRunId), `${run.seed}: not in the newer run`).toEqual([]);
+    // the sibling is the stale one: updated after the old run started, no reboot pending, login failed in the newer run
+    const sf = rows(corpus, 'VulnFindings').find((r) => r.FindingId === sib.findingId)!;
+    const sp = rows(corpus, 'PatchHistory').find((r) => r.DeviceName === sf.DeviceName && String(r.Description).includes(String(sf.VulnId)))!;
+    expect(ms(sp.InstalledOn)).toBeGreaterThan(ms(oldRun.Started));
+    expect(Number(sp.RebootPending)).toBe(0);
+    const newer = rows(corpus, 'VulnFindings').filter((r) => r.DeviceName === sf.DeviceName && r.ScanRunId !== sf.ScanRunId);
+    expect(newer.map((r) => r.Title)).toEqual([AUTH_FAILURE_TITLE]);
+    expect(b.case.findings[0].truth.contradicting).toContain('stale-scan');
+  }
+}, 600_000);
+
+it('the real Critical is a key finding in both twins (dismissing it as a false positive must trip the lesson gate)', () => {
+  for (const run of vulnRuns(20, 20)) {
+    for (const t of [staleScan, freshScan]) {
+      const s = buildFor(t, world(run.world), run.seed);
+      const crit = s.case.findings.find((f) => f.truth.schedule === 'emergency')!;
+      expect(crit.mustNotMiss, `${t.id} ${run.seed}`).toBe(true);
+      expect(crit.weight, `${t.id} ${run.seed}`).toBe(3);
+      expect(crit.evidence.length, `${t.id} ${run.seed}: evidence point`).toBeGreaterThanOrEqual(1);
+    }
   }
 }, 600_000);

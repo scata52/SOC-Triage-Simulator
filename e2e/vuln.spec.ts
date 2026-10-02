@@ -9,8 +9,14 @@ const PROFILE_RUBRIC = { ...PROFILE, settings: { showRubricLive: true } };
 const CASE = '#/vuln/scan-review-internal-servers/e2e';
 // Its template (spec) order is not FindingId-ascending; tests/vuln-worklist.test.ts pins that.
 const CASE_UNSORTED = '#/vuln/scan-review-web-servers/e2e';
-const TEMPLATE_IDS = ['vm-kev-internal', 'vm-nokev-internal', 'vm-stale-scan', 'vm-backport-fp'];
+const TEMPLATE_IDS = [
+  'vm-kev-internal', 'vm-nokev-internal', 'vm-stale-scan', 'vm-fresh-scan', 'vm-backport-fp',
+  'vm-backport-real', 'vm-exposed-edge', 'vm-segmented', 'vm-waf-covers', 'vm-waf-bypass',
+];
 const LIVE = '[role="status"][aria-live="polite"][aria-atomic="true"]';
+// A case whose seed picks a twin that writes ControlInventory rows: here `vm-segmented` (truth mitigate on the headline,
+// an ACL in block mode covers it). The case page does not name the twin; the test asserts it from the data.
+const CASE_CONTROLS = '#/vuln/scan-review-edge-and-internal-servers/e2e-ctl';
 
 // Decision and schedule answers cycle so that every row of a solved case differs.
 const DECISION_TYPE = ['Patch', 'Mitigate', 'Accept', 'False'];
@@ -196,14 +202,13 @@ test.describe('vulnerability mode', () => {
     await axeStrict(page, 'library');
 
     await page.locator('#vlib-diff').selectOption('tier2');
-    await expect(page.locator('.lib-card')).toHaveCount(1);
-    await expect(page.locator('.lib-card h2')).toHaveText('Scan review: web servers');
+    await expect(page.locator('.lib-card h2')).toHaveText(['Scan review: public web applications and servers', 'Scan review: web servers'].sort());
     await page.getByRole('button', { name: 'Start: Scan review: web servers' }).click();
     await expect(page.locator('.vc-worklist')).toBeVisible({ timeout: 30_000 });
 
     await page.goto('/#/vuln');
     await page.locator('#vlib-diff').selectOption('tier1');
-    await expect(page.locator('.lib-card h2')).toHaveText(['Scan review: file servers', 'Scan review: internal servers'].sort());
+    await expect(page.locator('.lib-card h2')).toHaveText(['Scan review: edge and internal servers', 'Scan review: file servers', 'Scan review: internal servers'].sort());
     await page.locator('.lib-card').first().getByRole('button', { name: /^Start:/ }).click();
     await expect(page.locator('.vc-worklist')).toBeVisible({ timeout: 30_000 });
 
@@ -519,6 +524,102 @@ test.describe('vulnerability mode', () => {
     expect(errors).toEqual([]);
   });
 
+  test('control picker with a non-empty ControlInventory: listed with names, gated until chosen, the covering control is credited, axe clean', async ({ page }) => {
+    test.setTimeout(180_000);
+    const errors = watchErrors(page);
+    await withProfile(page);
+    await openCase(page, CASE_CONTROLS);
+
+    // The twin is asserted from the data the analyst sees: exactly one ACL in block mode covers a vulnerability.
+    await page.locator('#vc-tab-console').click();
+    await runQuery(page, "ControlInventory\n| where Mode == 'block' and isnotempty(CoversVulnId)\n| project ControlId, Target");
+    await expect(page.locator('.results-table tbody tr')).toHaveCount(1);
+    const cells = page.locator('.results-table tbody tr td:not(.col-pin):not(.col-n)');
+    const cover = (await cells.nth(0).innerText()).trim();
+    expect(cover).toMatch(/^CTL-ACL-\d{4}$/);
+    expect(await cells.nth(1).innerText()).toContain('EDGE01');
+
+    // The headline is the finding on the edge appliance; every other row gets a decision that needs no control.
+    const ids = await rowIds(page);
+    const hosts = await Promise.all(ids.map((id) => hostOf(page, id)));
+    const k = hosts.findIndex((h) => h.toUpperCase().startsWith('EDGE01'));
+    expect(k, `a worklist row on EDGE01 in ${hosts.join(', ')}`).toBeGreaterThanOrEqual(0);
+    const head = ids[k];
+    const label = `${head} on ${hosts[k]}`;
+    for (const id of ids) {
+      if (id === head) continue;
+      await page.locator(`#wl-${id}-decision`).selectOption('patch');
+      await page.locator(`#wl-${id}-schedule`).selectOption('standard-cycle');
+    }
+    await pinOne(page);
+    await watchLive(page);
+
+    // Mitigate on the headline by keyboard: the picker appears, named, listing every control of the case.
+    await tabTo(page, page.locator(`#wl-${head}-decision`));
+    await page.keyboard.type('Mitigate');
+    await expect(page.locator(`#wl-${head}-decision`)).toHaveValue('mitigate');
+    await expect(live(page)).toHaveText(`Choose a control for ${label} in the next field.`);
+    await expect(page.locator(`#wl-${head}-control-none`)).toHaveCount(0);
+    const picker = page.getByRole('combobox', { name: `Control for ${label}` });
+    await expect(picker).toBeVisible();
+    await expect(picker).toHaveId(`wl-${head}-control`);
+    await expect(picker).toHaveValue('');
+    const options = await picker.locator('option').allInnerTexts();
+    expect(options[0]).toBe('Choose a control…');
+    expect(options.length, options.join(' | ')).toBe(4);
+    for (const o of options.slice(1)) expect(o).toMatch(/^CTL-ACL-\d{4} \(ACL\)$/);
+    expect(options.some((o) => o.startsWith(`${cover} `)), `${cover} is offered`).toBe(true);
+
+    // The submit gate asks for the control, focuses the picker and announces it, until one is chosen.
+    await tabTo(page, page.locator(`#wl-${head}-schedule`));
+    await page.keyboard.type('Next');
+    await expect(page.locator(`#wl-${head}-schedule`)).toHaveValue('next-window');
+    const submit = page.locator('#vc-submit-btn');
+    await expect(submit).toHaveAttribute('aria-disabled', 'true');
+    await tabTo(page, submit);
+    await page.keyboard.press('Enter');
+    await expect(picker).toBeFocused();
+    await expect(live(page)).toHaveText(`Still needed: control for ${label}.`);
+    await expect(page.locator('.vc-needed button')).toHaveCount(1);
+    await expect(page.locator('#debrief-h')).toHaveCount(0);
+
+    // Before submit, no template id is on the page or in storage, on a twin that writes ControlInventory rows too.
+    const before =
+      (await page.content()) +
+      (await page.evaluate(() => JSON.stringify([Object.entries(sessionStorage), Object.entries(localStorage)])));
+    for (const id of TEMPLATE_IDS) expect(before, id).not.toContain(id);
+
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await axeStrict(page, `case with the control picker open ${scheme}`);
+    }
+
+    // Choose the covering control by keyboard: the gate clears and the submit works.
+    await picker.focus();
+    await page.keyboard.type(cover);
+    await expect(picker).toHaveValue(cover);
+    await expect(page.locator('.vc-needed')).toHaveCount(0);
+    await expect(submit).not.toHaveAttribute('aria-disabled', 'true');
+    await tabTo(page, submit);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#debrief-h')).toBeVisible();
+
+    // The headline's decision is credited, with the control that covers it.
+    const card = page.locator(`li.vd-finding[data-finding-id="${head}"]`);
+    const decision = (await card.locator('dd[data-field="decision"]').innerText()).replace(/\s+/g, ' ');
+    expect(decision).toContain('Yours: Mitigate · Right: Mitigate · Right ');
+    expect(decision).toContain(`Controls that cover it: ${cover} · Yours: ${cover}`);
+    expect(decision).not.toContain('Half');
+    expect((await card.locator('dd[data-field="schedule"]').innerText()).replace(/\s+/g, ' ')).toContain('Yours: Next maintenance window · Right: Next maintenance window · Right');
+    await expect(card.locator('.badge:text-is("missed key finding")')).toHaveCount(0);
+
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await axeStrict(page, `control debrief ${scheme}`);
+    }
+    expect(errors).toEqual([]);
+  });
+
   test('no answer key before submit', async ({ page }) => {
     await withProfile(page, PROFILE_RUBRIC);
     await openCase(page);
@@ -795,6 +896,38 @@ test.describe('vulnerability mode', () => {
         await page.emulateMedia({ colorScheme: 'light' });
       }
       await solveAndSubmit(page);
+      expect(await overflow(page)).toBeLessThanOrEqual(0);
+      expect(errors).toEqual([]);
+    });
+  }
+
+  for (const vp of [
+    { width: 360, height: 740 },
+    { width: 320, height: 640 },
+  ]) {
+    test(`phone width ${vp.width}: control picker open on every card, no horizontal scroll`, async ({ page }) => {
+      test.setTimeout(120_000);
+      const errors = watchErrors(page);
+      await page.setViewportSize(vp);
+      await withProfile(page);
+      await openCase(page, CASE_CONTROLS);
+      await expect(page.locator('table.worklist')).toHaveCount(0);
+      const ids = await rowIds(page);
+      expect(ids.length).toBeGreaterThan(0);
+      for (const id of ids) await page.locator(`#wl-${id}-decision`).selectOption('mitigate');
+      for (const id of ids) {
+        const picker = page.locator(`#wl-${id}-control`);
+        await expect(picker).toBeVisible();
+        const r = (await picker.boundingBox())!;
+        expect(r.x).toBeGreaterThanOrEqual(0);
+        expect(r.x + r.width).toBeLessThanOrEqual(vp.width + 0.5);
+      }
+      expect(await overflow(page)).toBeLessThanOrEqual(0);
+      for (const scheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: scheme });
+        await axeStrict(page, `phone ${vp.width} control pickers open ${scheme}`);
+      }
+      await page.emulateMedia({ colorScheme: 'light' });
       expect(await overflow(page)).toBeLessThanOrEqual(0);
       expect(errors).toEqual([]);
     });

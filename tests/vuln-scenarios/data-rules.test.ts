@@ -259,6 +259,21 @@ describe.each(TEMPLATES.map((t) => [t.id, t] as const))('%s data rules', (_id, t
     each((v) => {
       for (const { f, row } of v.work) {
         if (f.truth.schedule === 'none') continue;
+        // A verified compensating control meets the deadline while it stays in effect (the policy row "Compensating control");
+        // the permanent fix goes in the next window, so slaLatest is the next window and the control row must be in the data.
+        if (f.truth.decision === 'mitigate' && (f.truth.mitigation?.length ?? 0) > 0) {
+          const at = `${v.label}: ${f.findingId}`;
+          const controls = rows(v.corpus, 'ControlInventory').filter((c) => (f.truth.mitigation ?? []).includes(String(c.ControlId)));
+          expect(controls.length, `${at}: the mitigation controls are in ControlInventory`).toBe(f.truth.mitigation!.length);
+          for (const c of controls) {
+            expect(String(c.Mode), `${at}: ${String(c.ControlId)} is enforcing`).toBe('block');
+            expect(String(c.CoversVulnId), `${at}: ${String(c.ControlId)} covers the vulnerability`).toBe(String(row.VulnId));
+            expect(String(c.Target), `${at}: ${String(c.ControlId)} names the host`).toContain(String(row.DeviceName));
+          }
+          expect(f.truth.schedule, `${at}: the permanent fix is in the next window`).toBe('next-window');
+          expect(f.truth.slaLatest, `${at}: slaLatest`).toBe('next-window');
+          continue;
+        }
         const deadline = deadlineOf(v, row);
         const { latest, ends } = slaOf(v, deadline);
         const at = `${v.label}: ${f.findingId}`;
@@ -296,13 +311,14 @@ describe.each(TEMPLATES.map((t) => [t.id, t] as const))('%s data rules', (_id, t
         if (stale && !rebootPending) proven.push('pending-reboot');
         const vulnId = String(row.VulnId);
         const excepted = tickets.some((x) => String(x.Title).startsWith('Risk exception') && JSON.stringify(x).includes(vulnId));
-        const controlled = controls.some((x) => String(x.CoversVulnId) === vulnId);
+        const controlled = controls.some((x) => String(x.CoversVulnId) === vulnId && String(x.Mode) === 'block'); // only an enforcing control covers it
         const exposed = flag(devices.get(String(row.DeviceName))?.ExposedToInternet);
         if (!packageBasis) proven.push('credentialed-confirmed');
         if (!exposed) proven.push('internet-exposed');
         if (flag(intel.VendorFix)) proven.push('no-vendor-fix');
         if (!excepted) proven.push('approved-exception');
         if (!controlled) proven.push('compensating-control-verified');
+        else proven.push('control-not-covering');
         if (!listed && epss < 0.1) proven.push('high-exploit-probability');
         if (String(devices.get(String(row.DeviceName))?.Criticality) === 'Low') proven.push('critical-asset');
         // a false positive whose fix was installed before the scan (not a stale result)
@@ -319,7 +335,8 @@ describe.each(TEMPLATES.map((t) => [t.id, t] as const))('%s data rules', (_id, t
         if (exposed) expect(contra.has('internet-exposed'), `${at}: the host is exposed`).toBe(false);
         if (!flag(intel.VendorFix)) expect(contra.has('no-vendor-fix'), `${at}: no vendor fix exists`).toBe(false);
         if (excepted) expect(contra.has('approved-exception'), `${at}: an exception ticket exists`).toBe(false);
-        if (controlled) expect(contra.has('compensating-control-verified'), `${at}: a control covers it`).toBe(false);
+        if (controlled) expect(contra.has('compensating-control-verified'), `${at}: a block-mode control covers it`).toBe(false);
+        if (!controlled) expect(contra.has('control-not-covering'), `${at}: no block-mode control covers it`).toBe(false);
       }
     });
   });
@@ -488,10 +505,19 @@ describe.each(TEMPLATES.map((t) => [t.id, t] as const))('%s data rules', (_id, t
   });
 });
 
+// Twin pairs whose deciding clue is the exposure of the headline host: its DeviceInfo ExposedToInternet differs.
+const EXPOSURE_CLUE: ReadonlySet<string> = new Set(['vm-exposed-edge']);
+
+// The twin pairs whose two hosts swap roles (T1 web servers, T2 file servers): the deciding clue is how each was installed or updated, so the inventory and
+// update rows of those two hosts, and the truth of the second worklist row (the sibling), differ by design. Capacity (two
+// emergency or next-window changes per window) allows one false positive and one real emergency on the pair, in either order.
+const MIRROR_CLUE: Readonly<Record<string, readonly string[]>> = { 'vm-backport-fp': ['WEBLX01', 'WEBLX02'], 'vm-stale-scan': ['FS01', 'FS02'] };
+
 describe('twin pairs share one world (K5)', () => {
   const pairs = TEMPLATES.filter((t) => t.twin && t.id < t.twin && TEMPLATES.some((x) => x.id === t.twin)).map((t) => [t, TEMPLATES.find((x) => x.id === t.twin)!] as const);
 
   it.each(pairs.map(([a, b]) => [a.id, b.id, a, b] as const))('%s / %s agree on every worklist row and differ only in the headline truth', (_a, _b, a, b) => {
+    const mirror = MIRROR_CLUE[a.id] ?? MIRROR_CLUE[b.id]; // keyed by whichever twin lists it (the ids sort either way)
     for (const run of RUNS) {
       const va = view(a, run);
       const vb = view(b, run);
@@ -499,7 +525,7 @@ describe('twin pairs share one world (K5)', () => {
       va.work.forEach((x, i) => {
         const y = vb.work[i];
         for (const col of ['VulnId', 'DeviceName', 'CvssBase', 'FirstSeen', 'DetectedVersion', 'Title']) expect(x.row[col], `${run.seed}: finding ${i + 1} ${col}`).toEqual(y.row[col]);
-        if (i > 0) expect(x.f.truth, `${run.seed}: finding ${i + 1} truth`).toEqual(y.f.truth);
+        if (i > 0 && !(mirror && i === 1)) expect(x.f.truth, `${run.seed}: finding ${i + 1} truth`).toEqual(y.f.truth);
       });
       // ...and on the shared inputs: the worklist hosts' DeviceInfo, the worklist products' SoftwareInventory rows, their PatchHistory.
       const hostsOf = new Set(va.work.map((x) => String(x.row.DeviceName)));
@@ -507,7 +533,10 @@ describe('twin pairs share one world (K5)', () => {
       const shared = (v: View, table: 'DeviceInfo' | 'SoftwareInventory' | 'PatchHistory') =>
         rows(v.corpus, table)
           .filter((r) => hostsOf.has(String(r.DeviceName)) && (table !== 'SoftwareInventory' || titlesOf(v).some((w) => w.host === r.DeviceName && w.title.includes(` in ${String(r.Product)} `))))
-          .map(({ RecordId: _r, ...rest }) => JSON.stringify(rest))
+          // T1: the installation of the two web servers is the deciding clue (their inventory and update rows may differ).
+          .filter((r) => table === 'DeviceInfo' || !(mirror ?? []).includes(String(r.DeviceName)))
+          // The exposure of the headline host is the deciding clue of a twin pair whose clue it is (T4): the one column that may differ.
+          .map(({ RecordId: _r, ExposedToInternet: exposure, ...rest }) => JSON.stringify(table === 'DeviceInfo' && EXPOSURE_CLUE.has(a.id) && rest.DeviceName === va.work[0].row.DeviceName ? rest : { ...rest, ExposedToInternet: exposure }))
           .sort();
       for (const table of ['DeviceInfo', 'SoftwareInventory', 'PatchHistory'] as const) expect(shared(va, table), `${run.seed}: same ${table} rows on the worklist hosts`).toEqual(shared(vb, table));
       // ...the twins' ScanRuns rows (ids, times, coverage) and the worklist rows' run and last-seen columns are identical.
