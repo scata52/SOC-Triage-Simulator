@@ -282,7 +282,35 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
   models unchanged. WP1f's design, build, catalogue and content stages ran at the session effort; the pre-gate review (paused by
   the human) and everything after it run at high.
 
+- 2026-10-02 (human, after WP1f): decisions on the open items, applied before WP2 (no work package started).
+  1. **CS0-003 objective titles** checked by hand against the official PDF: identical to DESIGN §1; NEEDS-HUMAN-CHECK 3 closed.
+  2. **Domains**: the documented exception is accepted with a rule (DESIGN §9 rule 10; NEEDS-HUMAN-CHECK 4 closed): real registered
+     and service domains only in benign roles; attacker-role domains reserved (or guaranteed unregistered) and never clickable;
+     citations a second exception. Vuln mode is enforced: `tests/vuln-guardrails.test.ts` allows a non-reserved domain only in four
+     benign columns (`IdentityInfo.AccountUpn`, `IdentityInfo.Manager`, `DeviceInfo.Owner`, `Tickets.Requester`) or a citation
+     host in case references, reserved names everywhere else, with a checker self-test; `e2e/vuln.spec.ts` checks that the vuln
+     library, a case page with a query result and the debrief link only in-app routes and citation hosts. No auto-linkification
+     exists in `src/ui`. SOC was checked only (see Known issues).
+  3. **Cap confirmed** (keep the pre-cap score and the debrief lead). The human asked to confirm that it triggers only on
+     must-not-miss findings: it does not — it triggers on every key finding, lesson findings included (DESIGN §5.8); in nokev,
+     stale-scan and backport-fp the lesson findings are not must-not-miss, and a must-not-miss-only cap would let "only the lesson
+     finding wrong" pass at 88–97 (WP1f acceptance 2). Lesson right with minor slips passes: 88 / 88 / 90 / 94 %. Raised with the
+     human, who decided the same day: **keep it** (the cap covers lesson and must-not-miss findings, DESIGN §5.8).
+  4. **Claude Code Review check**: it reviewed nothing because the code-review plugin's command runs every step through subagents
+     and the job allowed no agent tool (PR #6 run: 2 turns, no tool call, no comment, green). Replaced with a direct review prompt
+     and the gh tools (the action's own `pr-review-comprehensive` example), restricted to pull requests into `main`, and a final
+     step that fails the job when no bot comment was posted. The action only runs a workflow identical to the default branch's, so
+     the pull request carrying this change shows the check red; it is proven on the next pull request.
+
 ## Known issues
+- SOC attacker-role domains do not meet DESIGN §9 rule 10 (checked 2026-10-02, reported, SOC output unchanged as the human asked):
+  every one comes from `attackerDomain()` (`src/core/synth/domains.ts:120-142`; random labels under real TLDs: `SUSPICIOUS_TLDS`
+  .top/.xyz/… at :80, `GENERIC_TLDS` .com/.net/.org/.io/… at :81, lookalike `.com/.net/.co`), called by `src/core/cases/infra.ts:83`
+  and `src/core/logs/noise/email.ts:81,91`. In 300 practice builds (25 templates × 3 worlds × 4 seeds): 132 distinct truth domains
+  and 4,020 logged ones, none reserved. No template hard-codes an attacker domain, and none is rendered as a link. Fixing it changes
+  every SOC case: a human decision.
+- Vuln domain test, minor (reviewer, 2026-10-02): its bare-token file-extension list includes real TLDs (`.zip`, `.sh`, `.py`, `.md`,
+  `.so`), so a bare token such as `c2.zip` would pass; URL and e-mail hosts are checked without it, and no such token occurs today.
 - WP1e follow-ups: Stats ignores vuln attempts until WP4; the control picker with a non-empty ControlInventory has no e2e test until a
   template writes controls (WP2, T5/T6; unit tests cover the gate branch); the query engine still knows the six vuln tables in SOC
   sessions (empty results, a did-you-mean could name one); a "Query this finding in the console" button was dropped (WP6

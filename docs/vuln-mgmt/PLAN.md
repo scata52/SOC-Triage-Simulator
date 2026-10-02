@@ -136,22 +136,16 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 ```
 
 ## NEEDS-HUMAN-CHECK
-Open (WP1f, 2026-10-01):
-3. **CS0-003 objective titles 2.1–2.5 and 4.1.** The official PDF (DESIGN §1 link) downloads but is encrypted/password-protected, so
-   the fact-checker could not read it; CompTIA's web page gives only short labels (2.1 "Vulnerability scanning" … 4.1 "Vulnerability
-   management reporting"), which agree with DESIGN §1 but are not the "Given a scenario, …" titles. No mismatch found. A human with
-   the PDF should confirm the six titles verbatim.
-4. **Reserved domain names.** Every vuln-authored string is fictional, but generated output also carries the shared world's org
-   domains: Microsoft's fictitious-company names (`contoso.com`, `fabrikam.com`, … 19 `.com` + `treyresearch.net`,
-   `src/core/synth/orgs.ts`), which are registered real domains, not RFC 2606 reserved names; SOC-only output also uses suspicious
-   real TLDs for attacker domains (`.top`, `.xyz`, … `src/core/synth/domains.ts`) and well-known service domains as log noise
-   (`microsoft.com`, `github.com`, …). Changing any of them changes SOC output (every SOC case), so per WP1f acceptance (6) it goes
-   to the human first. Options: (a) keep them as a documented exception (they are the industry's standard fictitious names, and the
-   SOC lessons on suspicious TLDs and known SaaS domains need real-looking names); (b) move org domains to `<org>.example` app-wide
-   (re-baselines every SOC case); (c) vuln mode only (splits one org into two domains, breaks WP5's vuln → SOC hook). Coordinator
-   recommendation: (a). `tests/vuln-guardrails.test.ts` enforces it for vuln output: every domain is reserved or the world's org
-   domain. Second exemption for the human to accept: case `references` cite real documentation (`first.org`, `cisa.gov`,
-   `comptia.org`, …); they are citations, not generated data, and the test allows only a fixed list of citation hosts there.
+Open: none.
+
+Resolved 2026-10-02 by the human (raised in WP1f):
+3. **CS0-003 objective titles 2.1–2.5 and 4.1**: checked by hand against the official PDF (which the fact-checker could not read: it
+   is encrypted). They match DESIGN §1 word for word; no change.
+4. **Reserved domain names**: the documented exception is accepted, with a rule (DESIGN §9 rule 10). Real registered domains (the
+   shared world's Microsoft sample namespaces such as `contoso.com`) and real service domains appear only in benign or legitimate
+   roles; a domain in an attacker or malicious role is a reserved name (`.example`, `.test`, `.invalid`) or otherwise guaranteed
+   unregistered, and is never a clickable link; documentation citations are a second exception. Vuln-mode data is enforced by test;
+   SOC data was only checked and the non-compliant attacker-role domains reported (PROGRESS Known issues), SOC output unchanged.
 
 Resolved 2026-09-28 by the human:
 1. **Target exam version: CS0-003, confirmed.** CS0-003 (English) retires 2026-12-22 and CS0-004 launched 2026-06-23 (DESIGN §1); the
