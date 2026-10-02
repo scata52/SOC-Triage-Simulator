@@ -1430,3 +1430,31 @@
     margin-top: 4px;
   }
 }
+
+/* Stats: vulnerability decision matrix. The diagonal is marked by a check and hidden text as well as by tint. */
+.matrix th[scope='row'] {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.matrix td {
+  text-align: center;
+}
+.matrix .matrix-group {
+  text-align: center;
+}
+.matrix .matrix-diag {
+  background: var(--accent-bg);
+  font-weight: 600;
+}
+.matrix .matrix-zero:not(.matrix-diag) {
+  color: var(--text-muted);
+}
+
+/* A bar beside its percentage in a table cell has no width of its own (the track is empty): give it room. */
+.table .row > .bar {
+  flex: 1 1 80px;
+  min-width: 60px;
+}

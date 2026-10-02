@@ -126,6 +126,16 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 - Owner: implementer. Deps: WP1e (content can grow in parallel only if files don't overlap).
 - Acceptance: weak objective raises selection weight (unit test); Stats screen axe clean; existing study tests unchanged.
 - Tests: `tests/study.test.ts` additions, `e2e/vuln.spec.ts` stats check.
+- As built (2026-10-02): `study/scheduler.ts` (`SkillKind` `objective`, `StudyTemplate` view, `SOC_STUDY_POOL` default /
+  `FULL_STUDY_POOL` passed by the UI through `StudyOptions.pool`, `studyTemplateById`, exported `studyWeight`), `taxonomy/cysa.ts`
+  (`CYSA_OBJECTIVES`, titles verbatim from DESIGN §1), `vuln/worklist.ts` (`vulnSeedFor`), `state/profile.ts` (vuln SRS card,
+  `verdict` per recorded decision, vuln attempts in study attempts), new `state/vuln-stats.ts`, `ui/lib/cases.ts` (`studyRoute`),
+  `Stats.tsx` (Vulnerability management section: domain 2.0 summary, objectives 2.1–2.5, decision confusion matrix, most common
+  mix-up), `Study.tsx` (objectives card), `Home.tsx`, `CaseScreen.tsx`; tests `study` (appended), `profile`, new `vuln-stats`,
+  `study-route`, `e2e/vuln.spec.ts`. Outside the list, reviewer sign-off on each: `ui/styles/screens.css` (bars inside table rows get
+  a width, which also makes the 0-px bars of the SOC "By category" table visible, display only); the SOC Stats scroll region
+  "Latest cases" renamed "Table of the latest graded cases" (axe `landmark-unique`); three existing `profile` tests updated for
+  the vuln card and `verdict`.
 
 ## WP5 — Continuity hook (vuln → SOC): one alert, upgradeable
 - Goal: per DESIGN §8. Optional `profile.vulnLedger` (cap 50); pure `selectVulnFollowUp(ledger, shiftSeed) → VulnHook | null`; `planShift` takes the result as an optional slot parallel to `campaign` and adds **exactly one** alert from new SOC template `endpoint-known-vuln-exploit` (receives `ctx.vulnHook`); ledger entry marked consumed; debrief links back. No follow-on stages, no campaign state change.

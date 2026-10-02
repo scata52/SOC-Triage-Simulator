@@ -8,7 +8,9 @@ import { startCampaign } from '../src/core/campaign/campaign.ts';
 import { buildVulnScenario } from '../src/core/vuln/scenario.ts';
 import { VULN_POINTS, gradeVulnCase, perfectVulnSubmission } from '../src/core/vuln/grade.ts';
 import { DIFFICULTY_MULTIPLIER } from '../src/core/grading/grade.ts';
-import { studyPlan, nextStudyCase } from '../src/core/study/scheduler.ts';
+import { studyPlan, nextStudyCase, FULL_STUDY_POOL } from '../src/core/study/scheduler.ts';
+import { review } from '../src/core/study/srs.ts';
+import { VULN_TEMPLATES } from '../src/core/vuln/registry.ts';
 import { createRng } from '../src/core/rng.ts';
 import { world } from './helpers/scenario-check.ts';
 
@@ -239,7 +241,7 @@ describe('vulnerability attempts', () => {
         objectives: x.c.objectives,
         evidenceFound: x.grade.evidence.filter((e) => e.found).length,
         evidenceTotal: x.grade.evidence.length,
-        decisions: x.c.findings.map((f) => ({ findingId: f.findingId, truth: f.truth.decision, given: f.truth.decision, mustNotMiss: f.mustNotMiss })),
+        decisions: x.c.findings.map((f) => ({ findingId: f.findingId, truth: f.truth.decision, given: f.truth.decision, mustNotMiss: f.mustNotMiss, verdict: x.grade.findings.find((g) => g.findingId === f.findingId)!.decision.verdict })),
       });
       expect(r.vuln!.evidenceTotal).toBeGreaterThan(0);
       expect(r.vuln!.decisions).toHaveLength(x.c.findings.length);
@@ -259,10 +261,13 @@ describe('vulnerability attempts', () => {
     }
   });
 
-  it('leaves cards, streaks, recent templates and daily flags untouched', () => {
+  it('leaves streaks, recent templates and daily flags untouched, and reviews its own card', () => {
     const p0 = withSocHistory();
     const p1 = recordVulnAttempt(p0, input(0)).profile;
-    expect(p1.cards).toEqual(p0.cards);
+    // the SOC cards are as they were; the vuln template gains a card of its own (keyed by template id)
+    const { [cases[0].c.templateId]: vulnCard, ...otherCards } = p1.cards;
+    expect(otherCards).toEqual(p0.cards);
+    expect(vulnCard).toEqual(review(undefined, cases[0].c.templateId, cases[0].grade.percent, 100));
     expect(p1.streak).toBe(p0.streak);
     expect(p1.bestStreak).toBe(p0.bestStreak);
     expect(p1.recentTemplateIds).toEqual(p0.recentTemplateIds);
@@ -274,12 +279,63 @@ describe('vulnerability attempts', () => {
     expect(recordVulnAttempt(p0, { ...input(0), grade: bad }).profile.streak).toBe(p0.streak);
   });
 
-  it('study plan and suggestion are unchanged by vuln attempts', () => {
+  it('vuln attempts join the study attempts; the default SOC pool ignores their cards', () => {
     const p0 = withSocHistory();
     const p1 = recordVulnAttempt(recordVulnAttempt(p0, input(0, { day: 100 })).profile, input(1, { day: 101 })).profile;
-    expect(asStudyAttempts(p1)).toEqual(asStudyAttempts(p0));
-    expect(studyPlan(p1.cards, asStudyAttempts(p1), 102)).toEqual(studyPlan(p0.cards, asStudyAttempts(p0), 102));
-    expect(nextStudyCase(p1.cards, asStudyAttempts(p1), 102, createRng('vuln-study'))).toEqual(nextStudyCase(p0.cards, asStudyAttempts(p0), 102, createRng('vuln-study')));
+    expect(asStudyAttempts(p1)).toEqual([
+      ...asStudyAttempts(p0),
+      ...cases.map((x, i) => ({ templateId: x.c.templateId, percent: x.grade.percent, day: 100 + i, mode: 'vuln', correct: x.grade.percent >= 70 })),
+    ]);
+    // without the full pool the SOC plan (due list, counts, upcoming) is as it was
+    const a = studyPlan(p0.cards, asStudyAttempts(p0), 102);
+    const b = studyPlan(p1.cards, asStudyAttempts(p1), 102);
+    // (the day streak and the skills do move: vuln days count as study days)
+    expect({ ...b, skills: undefined, weakest: undefined, streak: undefined }).toEqual({ ...a, skills: undefined, weakest: undefined, streak: undefined });
+    expect(b.streak).toBeGreaterThan(a.streak);
+    expect(nextStudyCase(p1.cards, asStudyAttempts(p1), 102, createRng('vuln-study')).templateId.startsWith('vm-')).toBe(false);
+    // with the full pool the vuln cards and attempts count
+    const full = studyPlan(p1.cards, asStudyAttempts(p1), 102, { pool: FULL_STUDY_POOL });
+    expect(full.seen).toBe(a.seen + 2);
+    expect(full.total).toBe(a.total + VULN_TEMPLATES.length);
+  });
+
+  it('a vuln attempt creates its card, a repeat updates it, and each twin has its own', () => {
+    const p1 = recordVulnAttempt(defaultProfile(NOW, w.seed), input(0, { day: 100 })).profile;
+    const id0 = cases[0].c.templateId;
+    expect(Object.keys(p1.cards)).toEqual([id0]);
+    expect(p1.cards[id0]).toMatchObject({ templateId: id0, lastPercent: cases[0].grade.percent, last: 100, reps: 1 });
+    const p2 = recordVulnAttempt(p1, input(0, { day: 101 })).profile;
+    expect(Object.keys(p2.cards)).toEqual([id0]);
+    expect(p2.cards[id0]).toEqual(review(p1.cards[id0], id0, cases[0].grade.percent, 101));
+    expect(p2.cards[id0].last).toBe(101);
+    const p3 = recordVulnAttempt(p2, input(1, { day: 101 })).profile;
+    expect(Object.keys(p3.cards).sort()).toEqual([id0, cases[1].c.templateId].sort());
+    expect(p3.cards[id0]).toEqual(p2.cards[id0]);
+    // a failed attempt lapses the card
+    const bad = recordVulnAttempt(p3, { ...input(0, { day: 105 }), grade: { ...cases[0].grade, percent: 10 } }).profile;
+    expect(bad.cards[id0]).toMatchObject({ lapses: 1, lastPercent: 10 });
+  });
+
+  it('stores the grade verdict of every decision, and coerces old records without it', () => {
+    const r = recordVulnAttempt(defaultProfile(NOW, w.seed), input(0)).record;
+    expect(r.vuln!.decisions.every((d) => d.verdict === 'exact')).toBe(true);
+    // a wrong decision is recorded with its verdict
+    const wrong = { ...cases[0].grade, findings: cases[0].grade.findings.map((f, i) => (i === 0 ? { ...f, decision: { ...f.decision, given: 'accept' as const, verdict: 'wrong' as const } } : f)) };
+    expect(recordVulnAttempt(defaultProfile(NOW, w.seed), { ...input(0), grade: wrong }).record.vuln!.decisions[0]).toMatchObject({ given: 'accept', verdict: 'wrong' });
+    // an old record (before WP4) has no verdict and no card: it loads as it is
+    const p = recordVulnAttempt(withSocHistory(), input(0)).profile;
+    const old = JSON.parse(JSON.stringify(p)) as Profile;
+    for (const a of old.attempts) for (const d of a.vuln?.decisions ?? []) delete d.verdict;
+    old.cards = Object.fromEntries(Object.entries(old.cards).filter(([id]) => !id.startsWith('vm-')));
+    const back = coerceProfile(JSON.parse(JSON.stringify(old)), { now: NOW, tzOffsetMinutes: 0, newWorldSeed: 'x' })!;
+    expect(back).toEqual(old);
+    expect(back.version).toBe(2);
+    const vuln = back.attempts.find((a) => a.mode === 'vuln')!;
+    expect(vuln.vuln!.decisions.every((d) => d.verdict === undefined)).toBe(true);
+    // a profile with no cards field at all (an older v2) still loads with an empty card set
+    const noCards = JSON.parse(JSON.stringify(old)) as Record<string, unknown>;
+    delete noCards.cards;
+    expect(coerceProfile(noCards, { now: NOW, tzOffsetMinutes: 0, newWorldSeed: 'x' })!.cards).toEqual({});
   });
 
   it('SOC component stats ignore vuln records', () => {

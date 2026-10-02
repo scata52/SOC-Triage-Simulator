@@ -4,7 +4,7 @@ import { Icon } from '../components/Icon.tsx';
 import { Bar } from '../components/ui.tsx';
 import { rankFor, nextShiftNumber, startShift, asStudyAttempts } from '../../state/profile.ts';
 import { BUDGETS, type Budget } from '../../core/shift/plan.ts';
-import { studyPlan } from '../../core/study/scheduler.ts';
+import { FULL_STUDY_POOL, studyPlan } from '../../core/study/scheduler.ts';
 import { campaignSummary, nextCampaign } from '../../core/campaign/campaign.ts';
 import { ago, clock, dailySeed, plural, randomSeed } from '../lib/format.ts';
 import { ALERT_TYPES, dailyCase } from '../lib/cases.ts';
@@ -51,7 +51,7 @@ export function Home() {
   const w = world.value;
   const rank = rankFor(p.xp);
   const [budget, setBudget] = useState<Budget>(p.settings.defaultBudget);
-  const plan = studyPlan(p.cards, asStudyAttempts(p), today());
+  const plan = studyPlan(p.cards, asStudyAttempts(p), today(), { pool: FULL_STUDY_POOL });
   const recent = [...p.attempts].reverse().slice(0, 6);
   // Vulnerability attempts are listed under Recent, but the SOC first-run card and accuracy chip stay SOC-only.
   const socAttempts = p.attempts.filter((a) => a.mode !== 'vuln');

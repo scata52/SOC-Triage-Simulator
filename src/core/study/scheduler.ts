@@ -7,7 +7,8 @@ import type { Category, Difficulty, SocCategory, Tactic } from '../types.ts';
 import type { CaseTemplate } from '../cases/model.ts';
 import { ALL_TEMPLATES, CATEGORY_LABELS, templateById } from '../cases/templates/index.ts';
 import { TACTIC_LABELS, TACTIC_ORDER } from '../taxonomy/mitre.ts';
-import { CYSA_DOMAINS, cysaLabel } from '../taxonomy/cysa.ts';
+import { CYSA_DOMAINS, CYSA_OBJECTIVES, cysaLabel, objectiveLabel } from '../taxonomy/cysa.ts';
+import { VULN_TEMPLATES } from '../vuln/registry.ts';
 import { isDue, type Card } from './srs.ts';
 
 export type AttemptMode = 'practice' | 'study' | 'shift' | 'campaign' | 'vuln';
@@ -20,7 +21,7 @@ export interface Attempt {
   correct: boolean; // disposition right
 }
 
-export type SkillKind = 'domain' | 'tactic' | 'category';
+export type SkillKind = 'domain' | 'tactic' | 'category' | 'objective';
 
 export interface Skill {
   kind: SkillKind;
@@ -56,17 +57,65 @@ export function skillTactics(t: CaseTemplate): Tactic[] {
   return twin?.tactics.length ? twin.tactics : t.category === 'vulnmgmt' ? [] : [CATEGORY_TACTIC[t.category]];
 }
 
-function skillKeys(t: CaseTemplate): { kind: SkillKind; key: string }[] {
+// What the scheduler needs to know about a case, whichever registry it comes
+// from. SOC cases train tactics and no objectives; vulnerability cases train
+// objectives and no tactics. Ids are namespaced (`vm-` = vulnerability).
+export interface StudyTemplate {
+  id: string;
+  title: string;
+  difficulty: Difficulty;
+  category: Category;
+  cysaDomains: string[];
+  objectives: string[];
+  tactics: Tactic[];
+  kind: 'soc' | 'vuln';
+}
+
+export const SOC_STUDY_POOL: readonly StudyTemplate[] = ALL_TEMPLATES.map((t) => ({
+  id: t.id,
+  title: t.title,
+  difficulty: t.difficulty,
+  category: t.category,
+  cysaDomains: t.cysaDomains,
+  objectives: [],
+  tactics: skillTactics(t),
+  kind: 'soc' as const,
+}));
+
+// Every case the app can serve: SOC first, then vulnerability management.
+export const FULL_STUDY_POOL: readonly StudyTemplate[] = [
+  ...SOC_STUDY_POOL,
+  ...VULN_TEMPLATES.map((t) => ({
+    id: t.id,
+    title: t.title,
+    difficulty: t.difficulty,
+    category: 'vulnmgmt' as const,
+    cysaDomains: t.cysaDomains,
+    objectives: t.objectives,
+    tactics: [] as Tactic[],
+    kind: 'vuln' as const,
+  })),
+];
+
+const STUDY_BY_ID = new Map(FULL_STUDY_POOL.map((t) => [t.id, t]));
+
+export function studyTemplateById(id: string): StudyTemplate | undefined {
+  return STUDY_BY_ID.get(id);
+}
+
+function skillKeys(t: StudyTemplate): { kind: SkillKind; key: string }[] {
   return [
     ...t.cysaDomains.map((key) => ({ kind: 'domain' as const, key })),
-    ...skillTactics(t).map((key) => ({ kind: 'tactic' as const, key })),
+    ...t.tactics.map((key) => ({ kind: 'tactic' as const, key })),
     { kind: 'category' as const, key: t.category },
+    ...t.objectives.map((key) => ({ kind: 'objective' as const, key })),
   ];
 }
 
 function label(kind: SkillKind, key: string): string {
   if (kind === 'domain') return cysaLabel(key);
   if (kind === 'tactic') return TACTIC_LABELS[key as Tactic] ?? key;
+  if (kind === 'objective') return objectiveLabel(key);
   return CATEGORY_LABELS[key as Category] ?? key;
 }
 
@@ -82,13 +131,15 @@ export function skills(attempts: readonly Attempt[]): Skill[] {
   const tactics = new Set(ALL_TEMPLATES.flatMap(skillTactics));
   for (const t of TACTIC_ORDER) if (tactics.has(t)) touch('tactic', t);
   for (const c of new Set(ALL_TEMPLATES.map((t) => t.category))) touch('category', c);
+  touch('category', 'vulnmgmt');
+  for (const o of CYSA_OBJECTIVES) touch('objective', o.id);
 
   // Newest attempts weigh most.
   // Newest first: by day, then by position (later entries are newer).
   const ordered = attempts.map((a, i) => ({ a, i })).sort((x, y) => y.a.day - x.a.day || y.i - x.i).map((x) => x.a);
   const seenPerSkill = new Map<string, number>();
   for (const at of ordered) {
-    const t = templateById(at.templateId);
+    const t = studyTemplateById(at.templateId);
     if (!t) continue;
     for (const { kind, key } of skillKeys(t)) {
       const a = touch(kind, key);
@@ -121,14 +172,39 @@ export interface StudyOptions {
   exclude?: readonly string[];
   // Don't serve tier-3 cases to a brand-new analyst.
   gateDifficulty?: boolean;
+  // The cases that may be suggested. Default: the SOC pool, so callers that
+  // predate vulnerability management behave exactly as before. The UI passes FULL_STUDY_POOL.
+  pool?: readonly StudyTemplate[];
 }
 
 const DIFFICULTY_GATE: Record<Difficulty, number> = { tier1: 0, tier2: 3, tier3: 8 };
 
+export function skillIndex(all: readonly Skill[]): Map<string, Skill> {
+  return new Map(all.map((s) => [`${s.kind}:${s.key}`, s]));
+}
+
+// How strongly a case is pulled forward: the weakness of the skills it trains,
+// raised for a case you have not met and cut for one you saw recently.
+export function studyWeight(t: StudyTemplate, index: ReadonlyMap<string, Skill>, card: Card | undefined, today: number): { weight: number; weakestKey: Skill } {
+  const keys = skillKeys(t).map(({ kind, key }) => index.get(`${kind}:${key}`)!);
+  // Half the average gap, half the single weakest skill the case trains:
+  // one glaring gap should pull a case forward even if the rest is solid.
+  const minMastery = Math.min(...keys.map((k) => k.mastery));
+  const weakness = 0.5 * (1 - keys.reduce((s, k) => s + k.mastery, 0) / keys.length) + 0.5 * (1 - minMastery);
+  let weight = Math.exp(4 * weakness);
+  if (!card) weight *= 2;
+  else if (card.last === today) weight *= 0.05;
+  else weight *= 0.3;
+  const weakestKey = [...keys].sort((a, b) => a.mastery - b.mastery)[0];
+  return { weight, weakestKey };
+}
+
 export function nextStudyCase(cards: Readonly<Record<string, Card>>, attempts: readonly Attempt[], today: number, rng: Rng, opts: StudyOptions = {}): Suggestion {
   const exclude = new Set(opts.exclude ?? []);
+  const allowed = opts.pool ?? SOC_STUDY_POOL;
+  const inPool = new Set(allowed.map((t) => t.id));
   const due = Object.values(cards)
-    .filter((c) => isDue(c, today) && !exclude.has(c.templateId) && templateById(c.templateId))
+    .filter((c) => isDue(c, today) && !exclude.has(c.templateId) && inPool.has(c.templateId))
     .sort((a, b) => a.due - b.due || a.lastPercent - b.lastPercent || (a.templateId < b.templateId ? -1 : 1));
   if (due.length) {
     const c = due[0];
@@ -136,23 +212,12 @@ export function nextStudyCase(cards: Readonly<Record<string, Card>>, attempts: r
     return { templateId: c.templateId, reason: 'due', detail: overdue > 0 ? `Review overdue by ${overdue} day${overdue === 1 ? '' : 's'} (last score ${c.lastPercent}%).` : `Review due today (last score ${c.lastPercent}%).` };
   }
 
-  const all = skills(attempts);
-  const byId = new Map(all.map((s) => [`${s.kind}:${s.key}`, s]));
+  const index = skillIndex(skills(attempts));
   const gate = opts.gateDifficulty ?? true;
-  const pool = ALL_TEMPLATES.filter((t) => !exclude.has(t.id) && (!gate || attempts.length >= DIFFICULTY_GATE[t.difficulty]));
-  const candidates = (pool.length ? pool : ALL_TEMPLATES.filter((t) => !exclude.has(t.id))).map((t) => {
-    const keys = skillKeys(t).map(({ kind, key }) => byId.get(`${kind}:${key}`)!);
-    // Half the average gap, half the single weakest skill the case trains:
-    // one glaring gap should pull a case forward even if the rest is solid.
-    const minMastery = Math.min(...keys.map((k) => k.mastery));
-    const weakness = 0.5 * (1 - keys.reduce((s, k) => s + k.mastery, 0) / keys.length) + 0.5 * (1 - minMastery);
+  const pool = allowed.filter((t) => !exclude.has(t.id) && (!gate || attempts.length >= DIFFICULTY_GATE[t.difficulty]));
+  const candidates = (pool.length ? pool : allowed.filter((t) => !exclude.has(t.id))).map((t) => {
     const card = cards[t.id];
-    let weight = Math.exp(4 * weakness);
-    if (!card) weight *= 2;
-    else if (card.last === today) weight *= 0.05;
-    else weight *= 0.3;
-    const weakestKey = [...keys].sort((a, b) => a.mastery - b.mastery)[0];
-    return { t, weight, card, weakestKey };
+    return { t, card, ...studyWeight(t, index, card, today) };
   });
   if (!candidates.length) throw new Error('No study candidates');
   const pick = rng.pickWeighted(candidates.map((c) => ({ value: c, weight: c.weight })));
@@ -167,7 +232,7 @@ export interface StudyPlan {
   dueToday: string[];
   overdue: number;
   upcoming: { day: number; count: number }[];
-  weakest: { domain: Skill[]; tactic: Skill[]; category: Skill[] };
+  weakest: { domain: Skill[]; tactic: Skill[]; category: Skill[]; objective: Skill[] };
   skills: Skill[];
   seen: number;
   total: number;
@@ -185,8 +250,10 @@ export function streak(attempts: readonly Attempt[], today: number): number {
   return n;
 }
 
-export function studyPlan(cards: Readonly<Record<string, Card>>, attempts: readonly Attempt[], today: number): StudyPlan {
-  const list = Object.values(cards).filter((c) => templateById(c.templateId));
+export function studyPlan(cards: Readonly<Record<string, Card>>, attempts: readonly Attempt[], today: number, opts: { pool?: readonly StudyTemplate[] } = {}): StudyPlan {
+  const pool = opts.pool ?? SOC_STUDY_POOL;
+  const inPool = new Set(pool.map((t) => t.id));
+  const list = Object.values(cards).filter((c) => inPool.has(c.templateId));
   const due = list.filter((c) => isDue(c, today)).sort((a, b) => a.due - b.due || (a.templateId < b.templateId ? -1 : 1));
   const upcoming = new Map<number, number>();
   for (const c of list) if (c.due > today && c.due <= today + 14) upcoming.set(c.due, (upcoming.get(c.due) ?? 0) + 1);
@@ -195,10 +262,11 @@ export function studyPlan(cards: Readonly<Record<string, Card>>, attempts: reado
     dueToday: due.map((c) => c.templateId),
     overdue: due.filter((c) => c.due < today).length,
     upcoming: [...upcoming].sort((a, b) => a[0] - b[0]).map(([day, count]) => ({ day, count })),
-    weakest: { domain: weakest(all, 'domain', 2), tactic: weakest(all, 'tactic'), category: weakest(all, 'category') },
+    // 'vulnmgmt' is a skill but not an alert category: it never appears among the weakest categories.
+    weakest: { domain: weakest(all, 'domain', 2), tactic: weakest(all, 'tactic'), category: weakest(all.filter((s) => s.key !== 'vulnmgmt'), 'category'), objective: weakest(all, 'objective') },
     skills: all,
-    seen: new Set(attempts.map((a) => a.templateId).filter((id) => templateById(id))).size,
-    total: ALL_TEMPLATES.length,
+    seen: new Set(attempts.map((a) => a.templateId).filter((id) => inPool.has(id))).size,
+    total: pool.length,
     streak: streak(attempts, today),
   };
 }

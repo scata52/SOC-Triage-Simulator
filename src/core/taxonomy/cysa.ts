@@ -24,6 +24,36 @@ export const CYSA_DOMAINS: CysaDomain[] = [
   },
 ];
 
+// The CS0-003 objectives the vulnerability-management mode trains. `title` is the
+// official wording, verbatim (DESIGN §1); `short` is the label for bars and tables.
+export interface CysaObjective {
+  id: string;
+  domain: string;
+  title: string;
+  short: string;
+}
+
+export const CYSA_OBJECTIVES: CysaObjective[] = [
+  { id: '2.1', domain: '2.0', title: 'Given a scenario, implement vulnerability scanning methods and concepts.', short: 'Vulnerability scanning methods' },
+  { id: '2.2', domain: '2.0', title: 'Given a scenario, analyze output from vulnerability assessment tools.', short: 'Assessment tool output' },
+  { id: '2.3', domain: '2.0', title: 'Given a scenario, analyze data to prioritize vulnerabilities.', short: 'Prioritizing vulnerabilities' },
+  { id: '2.4', domain: '2.0', title: 'Given a scenario, recommend controls to mitigate attacks and software vulnerabilities.', short: 'Mitigating controls' },
+  { id: '2.5', domain: '2.0', title: 'Explain concepts related to vulnerability response, handling, and management.', short: 'Vulnerability response and management' },
+  { id: '4.1', domain: '4.0', title: 'Explain the importance of vulnerability management reporting and communication.', short: 'Vulnerability management reporting' },
+];
+
+const OBJECTIVE_MAP = new Map(CYSA_OBJECTIVES.map((o) => [o.id, o]));
+
+export function cysaObjective(id: string): CysaObjective | undefined {
+  return OBJECTIVE_MAP.get(id);
+}
+
+// "2.3 Prioritizing vulnerabilities"
+export function objectiveLabel(id: string): string {
+  const o = OBJECTIVE_MAP.get(id);
+  return o ? `${o.id} ${o.short}` : id;
+}
+
 const DOMAIN_MAP = new Map(CYSA_DOMAINS.map((d) => [d.id, d]));
 
 export function cysaDomain(id: string): CysaDomain | undefined {

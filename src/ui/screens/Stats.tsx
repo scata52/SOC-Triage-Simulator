@@ -1,6 +1,8 @@
 import { profile } from '../store/app.ts';
 import { Bar, Empty } from '../components/ui.tsx';
 import { rankFor, type AttemptRecord } from '../../state/profile.ts';
+import { mixUpSentence, vulnStats, type VulnStats } from '../../state/vuln-stats.ts';
+import { DECISION_LABELS, VULN_PASS_PERCENT } from '../../core/vuln/worklist.ts';
 import { POINTS, type ComponentId } from '../../core/grading/grade.ts';
 import { CATEGORY_LABELS } from '../../core/cases/templates/index.ts';
 import { templateById } from '../../core/cases/templates/index.ts';
@@ -59,12 +61,137 @@ function Trend({ attempts }: { attempts: AttemptRecord[] }) {
   );
 }
 
+const rateColor = (r: number) => (r >= 0.8 ? 'var(--ok)' : r >= 0.55 ? 'var(--warn)' : 'var(--bad)');
+const pct = (r: number) => `${Math.round(r * 100)}%`;
+
+// Vulnerability management: domain 2.0 summary, objectives 2.1-2.5, decision confusion matrix.
+function VulnSection({ stats }: { stats: VulnStats }) {
+  const { summary, objectives, matrix, mixUp } = stats;
+  return (
+    <section class="card" style={{ marginTop: 'var(--space-4)' }} aria-labelledby="vuln-h">
+      <h2 id="vuln-h">Vulnerability management</h2>
+      <p class="faint small">CySA+ domain 2.0. A case counts as passed at a score of {VULN_PASS_PERCENT} or more. A case tagged with several objectives counts in each of their rows.</p>
+      <div class="grid grid-3">
+        {[
+          [num(summary.cases), 'cases graded'],
+          [summary.passRate === null ? '—' : pct(summary.passRate), `passed (${summary.passed} of ${summary.cases})`],
+          [summary.avgScore === null ? '—' : `${Math.round(summary.avgScore)}`, 'average score'],
+        ].map(([v, l]) => (
+          <div class="card stat">
+            <span class="stat-value">{v}</span>
+            <span class="stat-label">{l}</span>
+          </div>
+        ))}
+      </div>
+
+      <h3 class="section-label">Objectives</h3>
+      <div class="table-wrap" tabIndex={0} role="region" aria-label="Results by CySA+ objective">
+        <table class="table">
+          <caption class="visually-hidden">Cases, share passed and average score for each CySA+ vulnerability objective, 2.1 to 2.5</caption>
+          <thead>
+            <tr>
+              <th scope="col">Objective</th>
+              <th scope="col" class="num">
+                Cases
+              </th>
+              <th scope="col">Passed</th>
+              <th scope="col" class="num">
+                Avg score
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {objectives.map((o) => (
+              <tr>
+                <th scope="row" style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text)', fontWeight: 500, whiteSpace: 'normal' }}>
+                  {o.label}
+                  <span class="visually-hidden">. {o.title}</span>
+                </th>
+                {o.passRate === null || o.avgScore === null ? (
+                  <td colSpan={3} class="muted small">
+                    No cases yet
+                  </td>
+                ) : (
+                  <>
+                    <td class="num mono">{o.cases}</td>
+                    <td style={{ minWidth: 160 }}>
+                      <div class="row" style={{ flexWrap: 'nowrap' }}>
+                        <Bar value={o.passRate} label={`${o.label}: ${pct(o.passRate)} passed`} color={rateColor(o.passRate)} />
+                        <span class="mono small">{pct(o.passRate)}</span>
+                      </div>
+                    </td>
+                    <td class="num mono">{Math.round(o.avgScore)}</td>
+                  </>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="section-label">Decision matrix</h3>
+      <p class="small" style={{ marginTop: 0 }}>
+        {mixUpSentence(mixUp, matrix.findings, matrix.wrongControl)}
+      </p>
+      <div class="table-wrap" tabIndex={0} role="region" aria-label="Decision matrix: the right decision against the decision you chose">
+        <table class="table matrix">
+          <caption class="visually-hidden">
+            Number of findings by the right decision (rows) and the decision you chose (columns), over all vulnerability cases. A check mark marks the cells where your decision matched the right one. Cells off the diagonal are mix-ups, unless the case also accepted that decision.
+          </caption>
+          <colgroup>
+            <col />
+          </colgroup>
+          <colgroup span={matrix.givens.length} />
+          <thead>
+            <tr>
+              <th scope="col" rowSpan={2}>
+                Right decision
+              </th>
+              <th scope="colgroup" colSpan={matrix.givens.length} class="matrix-group">
+                Your decision
+              </th>
+            </tr>
+            <tr>
+              {matrix.givens.map((g) => (
+                <th scope="col">{g === null ? 'No decision' : DECISION_LABELS[g]}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {matrix.truths.map((t, r) => (
+              <tr>
+                <th scope="row">{DECISION_LABELS[t]}</th>
+                {matrix.givens.map((g, c) => {
+                  const n = matrix.counts[r][c];
+                  const diag = g === t;
+                  return (
+                    <td class={`num mono${diag ? ' matrix-diag' : ''}${n === 0 ? ' matrix-zero' : ''}`}>
+                      {diag && <span aria-hidden="true">✓ </span>}
+                      {n}
+                      {diag && <span class="visually-hidden"> (matched the right decision)</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="faint small">{num(matrix.findings)} findings in {num(summary.cases)} cases. A ✓ marks the cells where your decision matched the right one.
+        {matrix.alternatives > 0 && ` ${matrix.alternatives} off-diagonal ${matrix.alternatives === 1 ? 'answer was an alternative' : 'answers were alternatives'} the case also accepted and earned full credit.`}
+      </p>
+    </section>
+  );
+}
+
 export function Stats() {
   const p = profile.value;
-  // Vulnerability attempts stay out of the SOC statistics until the stats integration (WP4).
+  // The SOC sections read SOC attempts only; vulnerability attempts have their own section.
   const a = p.attempts.filter((x) => x.mode !== 'vuln');
+  const vuln = vulnStats(p.attempts);
   const rank = rankFor(p.xp);
-  if (a.length === 0 && p.shifts.length === 0) {
+  const hasSoc = a.length > 0 || p.shifts.length > 0;
+  if (!hasSoc && !vuln.hasData) {
     return (
       <div class="page page-narrow">
         <h1>Stats</h1>
@@ -102,6 +229,8 @@ export function Stats() {
         </div>
       </div>
 
+      {hasSoc ? (
+        <>
       <div class="grid grid-4">
         {[
           [num(a.length), 'cases graded'],
@@ -221,7 +350,7 @@ export function Stats() {
         </section>
         <section class="card" aria-labelledby="hist-h">
           <h2 id="hist-h">Latest cases</h2>
-          <div class="table-wrap" tabIndex={0} role="region" aria-label="Latest cases">
+          <div class="table-wrap" tabIndex={0} role="region" aria-label="Table of the latest graded cases">
             <table class="table">
               <caption class="visually-hidden">Latest graded cases</caption>
               <thead>
@@ -251,6 +380,14 @@ export function Stats() {
           </div>
         </section>
       </div>
+        </>
+      ) : (
+        <p class="muted" style={{ marginTop: 'var(--space-4)' }}>
+          No SOC cases yet.
+        </p>
+      )}
+
+      {vuln.hasData && <VulnSection stats={vuln} />}
     </div>
   );
 }

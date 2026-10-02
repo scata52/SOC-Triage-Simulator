@@ -1,6 +1,6 @@
 # PROGRESS — Vulnerability Management
 
-Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, #6, #7 from `feat/vuln-mgmt-wp1`).
+Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, #6, #7, WP2–WP3 via PR #8).
 
 ## Done
 - **WP0 — Kickoff and progress file** (2026-09-28). Baseline on `main` @ 849adce: `npm run typecheck` ok, `npm test` 16 files / 233 tests
@@ -92,12 +92,23 @@ Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, 
   authors, e2e, 2 review rounds × 5 lenses with skeptics (37 → 24 kept, 5 blocking; 25 → 16 kept, 2 blocking), verified fixes;
   coordinator ruling on T10 key findings with a verified fix; reviewer gate PASS (first attempt), fact-checker PASS.
 
+- **WP4 — Stats and study integration** (2026-10-02). Objective skill kind (2.1–2.5, 4.1; titles verbatim from DESIGN §1) and an
+  explicit study pool: `nextStudyCase` / `studyPlan` take `pool` (default the SOC pool, so existing callers and tests behave as
+  before; the UI passes SOC + vuln). Vuln attempts review their own SRS card (keyed by template id, each twin its own card) and join
+  the study attempts; a study pick of a vuln case opens the right twin (`vulnSeedFor`, `studyRoute`). Study shows an objectives card.
+  Stats gains a "Vulnerability management" section: domain 2.0 summary (cases, passed at 70+, average), objectives 2.1–2.5, a
+  decision confusion matrix (right decision × your decision, diagonal marked in text) and the most common mix-up (only decisions
+  without full credit; a wrong control is reported separately). Tests: `study` (appended; existing tests byte-identical),
+  `profile`, `vuln-stats`, `study-route`, e2e stats/study (full axe rule set, both themes, 360/320 px). 40 files / 1,380 tests
+  (+21 opt-in), build ok, e2e 40/40. SOC identity vs HEAD: 7,200 suggestions + 80 plans, 0 mismatches (implementer and reviewer
+  probes). Process: brief with rulings R1–R8; implementer; pre-gate review 5 lenses with a skeptic per finding (10 → 7 kept, none
+  blocking); fix round (F1–F8) verified independently incl. mutations; coordinator fix (off-diagonal wrong-control); reviewer gate
+  PASS (first attempt).
+
 ## In progress
-- None. Next session starts WP4.
+- WP5 — Continuity hook (vuln → SOC): brief written and checked by three critics (rev 2); build next.
 
 ## Next
-- WP4 — Stats and study integration
-- WP5 — Continuity hook (vuln → SOC)
 - WP6 — Polish
 - WP7 — Hardening
 
@@ -399,7 +410,28 @@ Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, 
      2026-10-02 (WP3)"): T7's internal sweep and inventory-plus-failed-login confirmation (ids kept), T8's clue in DeviceInfo
      plus Tickets, T11's scheduled `avoid`, T10's mixed design (only the headline flips).
 
+- 2026-10-02 (coordinator, before WP4): session start found PLAN, PROGRESS and repo in agreement (WP0–WP3 committed and merged
+  to `main` via PR #8, 78c9078; no WP4/WP5 file); `main` clean and in sync with origin; work goes on `feat/vuln-mgmt-wp4-wp5`.
+  Baseline 38 files / 1,353 tests (+21 opt-in), build ok. No open question was left for the coordinator. This session does WP4
+  and WP5 only. WP4 rulings (acceptance readings, no human input needed):
+  1. **Study pool is an option, default SOC.** Acceptance 3 ("existing study tests unchanged") is read literally: those tests call
+     the SOC `templateById` on every suggestion and expect `plan.total = ALL_TEMPLATES.length`, so a vuln id in the default pool
+     would crash them. The UI passes the full pool everywhere (Study, Home, the SOC study "next case"), so vuln cases are in the
+     learner's study pool as DESIGN §8 says; with the SOC pool, suggestions are identical to HEAD (probed).
+  2. **Objective accuracy = share of passed cases** (70+), with the average score beside it; objectives are tagged per template,
+     not per finding, so a decision accuracy per objective does not exist. 4.1 is a study skill but not a Stats row (every vuln case
+     carries it; it would repeat the 2.0 summary).
+  3. **The SOC disposition streak stays SOC-only** ("consecutive right calls" on alerts; a vuln pass is not a disposition); the
+     study day streak counts vuln days (it counts days studied). SOC Stats sections keep reading SOC attempts only.
+  4. **The confusion matrix counts every decided finding**; the mix-up sentence counts only decisions without full credit (an
+     answer the case also accepts is not a mix-up; a mitigate with a non-covering control is reported as a control problem). Each
+     recorded decision now stores the grader's `verdict` (additive; old records fall back to "off the diagonal = mix-up").
+
 ## Known issues
+- WP4 (not blocking): at 360 px the Stats tables (objectives, matrix, SOC "By category") scroll sideways inside their focusable
+  regions now that the bars have a width (the page itself does not scroll); the Study page's own e2e runs the WCAG-tag axe only
+  (the reviewer's full-rule probe was clean); every existing vuln attempt recorded before WP4 has no card until the case is
+  worked again.
 - WP3 gate notes (not blocking): the avoid e2e test has no axe or 360 px pass (UI unchanged); `common.ts` classes the T10
   library product as 'server' in `PRODUCT_KINDS`; the T8 K5 exemption strips 5 DeviceInfo columns of the headline host; T8's
   passive version read of a vendor-hosted tenant is defensible, but some SaaS terms forbid any scanning, so WP6 may reword
@@ -430,7 +462,7 @@ Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, 
   every SOC case: a human decision.
 - Vuln domain test, minor (reviewer, 2026-10-02): its bare-token file-extension list includes real TLDs (`.zip`, `.sh`, `.py`, `.md`,
   `.so`), so a bare token such as `c2.zip` would pass; URL and e-mail hosts are checked without it, and no such token occurs today.
-- WP1e follow-ups: Stats ignores vuln attempts until WP4; (the control-picker e2e with a non-empty ControlInventory landed in WP2);
+- WP1e follow-ups: (Stats and study include vuln attempts since WP4); (the control-picker e2e with a non-empty ControlInventory landed in WP2);
   the query engine still knows the six vuln tables in SOC
   sessions (empty results, a did-you-mean could name one); a "Query this finding in the console" button was dropped (WP6
   candidate); devtools on one's own profile shows the template id of an earlier attempt of the same seed; SQL mode has no

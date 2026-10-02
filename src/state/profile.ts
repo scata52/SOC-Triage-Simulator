@@ -17,6 +17,7 @@ import type { Attempt, AttemptMode } from '../core/study/scheduler.ts';
 import { templateById } from '../core/cases/templates/index.ts';
 import type { VulnComponentId, VulnGrade, VulnSubmission } from '../core/vuln/grade.ts';
 import type { VulnDecision } from '../core/vuln/model.ts';
+import type { VulnDecisionVerdict } from '../core/vuln/grade.ts';
 import type { ResolvedVulnCase } from '../core/vuln/scenario.ts';
 import { VULN_PASS_PERCENT } from '../core/vuln/worklist.ts';
 
@@ -69,12 +70,13 @@ export interface AttemptRecord {
   cysaDomains: string[];
   legacy?: boolean; // migrated from v1 (graded by the v1 rubric)
   // Only on vulnerability cases (mode 'vuln'): the real evidence counts and the per-finding
-  // decisions, for the objective-level stats of a later package.
+  // decisions (the objective stats and the decision confusion matrix read them).
+  // `verdict` is the grade's verdict for the decision; records from before it was stored lack it.
   vuln?: {
     objectives: string[];
     evidenceFound: number;
     evidenceTotal: number;
-    decisions: { findingId: string; truth: VulnDecision; given: VulnDecision | null; mustNotMiss: boolean }[];
+    decisions: { findingId: string; truth: VulnDecision; given: VulnDecision | null; mustNotMiss: boolean; verdict?: VulnDecisionVerdict }[];
   };
 }
 
@@ -167,8 +169,8 @@ export function dayNumber(ms: number, tzOffsetMinutes: number): number {
 }
 
 export function asStudyAttempts(p: Profile): Attempt[] {
-  // Vulnerability attempts stay out of the study plan until the stats package.
-  return p.attempts.filter((a) => a.mode !== 'vuln').map((a) => ({ templateId: a.templateId, percent: a.percent, day: a.day, mode: a.mode, correct: a.dispositionCorrect }));
+  // Vulnerability attempts count too: `correct` is the recorded pass flag.
+  return p.attempts.map((a) => ({ templateId: a.templateId, percent: a.percent, day: a.day, mode: a.mode, correct: a.dispositionCorrect }));
 }
 
 // ---------------------------------------------------------------- transitions
@@ -235,8 +237,10 @@ export interface VulnAttemptInput {
   id?: string;
 }
 
-// A graded vulnerability case: XP joins the shared total and the attempt is
-// recorded, but the SOC streak, study cards, recents and daily flags stay as they are.
+// A graded vulnerability case: XP joins the shared total, the attempt is
+// recorded and its study card is reviewed (one card per template id, so each twin
+// has its own, as SOC twins do). The SOC disposition streak, recents and daily
+// flags stay as they are: a vuln pass is not a disposition.
 export function recordVulnAttempt(p: Profile, input: VulnAttemptInput): { profile: Profile; record: AttemptRecord } {
   const { c, grade: g } = input;
   const record: AttemptRecord = {
@@ -265,10 +269,11 @@ export function recordVulnAttempt(p: Profile, input: VulnAttemptInput): { profil
       objectives: c.objectives,
       evidenceFound: g.evidence.filter((e) => e.found).length,
       evidenceTotal: g.evidence.length,
-      decisions: g.findings.map((f) => ({ findingId: f.findingId, truth: f.decision.truth, given: f.decision.given, mustNotMiss: f.mustNotMiss })),
+      decisions: g.findings.map((f) => ({ findingId: f.findingId, truth: f.decision.truth, given: f.decision.given, mustNotMiss: f.mustNotMiss, verdict: f.decision.verdict })),
     },
   };
-  return { profile: { ...p, xp: p.xp + g.xp, attempts: [...p.attempts, record].slice(-MAX_ATTEMPTS) }, record };
+  const cards = { ...p.cards, [c.templateId]: review(p.cards[c.templateId], c.templateId, g.percent, input.day) };
+  return { profile: { ...p, xp: p.xp + g.xp, attempts: [...p.attempts, record].slice(-MAX_ATTEMPTS), cards }, record };
 }
 
 export function startShift(p: Profile, number: number, budget: Budget, now: number, campaignAlertId?: string): Profile {

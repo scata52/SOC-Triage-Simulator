@@ -7,6 +7,10 @@ import { createRng } from '../../core/rng.ts';
 import type { CaseTemplate } from '../../core/cases/model.ts';
 import { ALL_TEMPLATES, templateById } from '../../core/cases/templates/index.ts';
 import type { Category, Difficulty } from '../../core/types.ts';
+import { VULN_TEMPLATES } from '../../core/vuln/registry.ts';
+import { vulnCaseTypes, vulnSeedFor } from '../../core/vuln/worklist.ts';
+import { studyTemplateById } from '../../core/study/scheduler.ts';
+import type { Route } from '../router.ts';
 
 export interface AlertType {
   slug: string;
@@ -72,4 +76,18 @@ export const DAILY_WORLD = 'daily-world-v2';
 export function dailyCase(seed: string): { slug: string; seed: string } {
   const pool = ALERT_TYPES.filter((a) => !a.hunt);
   return { slug: createRng(`daily:${seed}`).pick(pool).slug, seed };
+}
+
+const VULN_TYPES = vulnCaseTypes(VULN_TEMPLATES);
+
+// The route that opens a study suggestion, whichever kind it is. SOC cases open
+// the study-mode case screen; a vulnerability case opens the vuln case (its
+// attempts are always mode 'vuln', so there is no study flag). `base` seeds the
+// search for a seed whose twin is the suggested one.
+export function studyRoute(templateId: string, base: string): Route {
+  if (studyTemplateById(templateId)?.kind === 'vuln') {
+    const v = vulnSeedFor(VULN_TYPES, templateId, base);
+    if (v) return { name: 'vuln-case', slug: v.slug, seed: v.seed };
+  }
+  return { name: 'case', slug: slugOf(templateId), seed: seedFor(templateId, base), study: true };
 }
