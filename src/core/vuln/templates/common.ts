@@ -99,7 +99,8 @@ export function buildCalendar(now: number, opts: { freezeFirst?: boolean } = {})
 // ---- briefing and attachments ----------------------------------------------
 
 // The policy and calendar as the learner reads them (two key/value attachments).
-export function policyAttachments(orgName: string, cal: Calendar): Attachment[] {
+// `extra` are template-local rows appended to the standard table (identical in both twins of a pair; T6 adds the no-vendor-fix rule).
+export function policyAttachments(orgName: string, cal: Calendar, extra: readonly (readonly [string, string])[] = []): Attachment[] {
   const freezeLast = ymd(cal.freeze.end - DAY);
   return [
     {
@@ -120,6 +121,7 @@ export function policyAttachments(orgName: string, cal: Calendar): Attachment[] 
         ['Dismissed findings', 'A finding shown not to exist (for example already fixed) needs no change; note why and ask for a rescan.'],
         ['Risk exception', 'An approved, unexpired risk exception allows accept until its expiry date; re-assess at expiry.'],
         ['Compensating control', "A control that blocks the vulnerable path (ControlInventory shows it in block mode covering this vulnerability on this host; FirewallLogs or the WAF's own records confirm it) satisfies the deadline only while it stays in effect, and ends when the permanent fix is deployed. Record such a finding as mitigate, naming the control; its schedule is the window of the permanent fix, the next maintenance window. If no vendor fix exists, raise a risk exception."],
+        ...extra.map(([k, v]): [string, string] => [k, v]),
       ],
       caption: 'Simulated policy of a fictional organisation.',
     },
@@ -603,6 +605,8 @@ export const PRODUCT_KINDS: Readonly<Record<string, ProductKind>> = {
   'Tarnwick Inventory Agent': 'agent',
   'Kestrelmoor Telemetry Agent': 'agent',
   'Cinderpath Scheduler': 'agent',
+  'Halbrenn Bench Controller': 'appliance', // T6: a vendor-abandoned lab controller (branded locally, not a catalogue product)
+  'Skerrimoor Secure Transport Library': 'server', // T10: a shared transport library that several services link or bundle (branded locally, not a catalogue product)
 };
 export function productKindOf(product: string): ProductKind {
   const kind = PRODUCT_KINDS[product];

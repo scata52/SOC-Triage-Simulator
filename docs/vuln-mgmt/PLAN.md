@@ -110,6 +110,16 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 
 ## WP3 — Content batch B (twins T6, T7, T8, T11) + tier 3 (T9, T10)
 - Owner: scenario-author. Deps: WP2. Acceptance/tests as WP2 plus 2 tier-3 cases with ≥ 15 findings and capacity squeeze; T11 exercises the `avoid` decision; `tests/vuln-scenarios/batch-b.test.ts`.
+- Reading (human, 2026-10-02): the 2 tier-3 cases are the T10 twin pair, both containing T9's ordering pattern.
+- As built (2026-10-02): templates `legacy.ts` (T6), `scan-method.ts` (T7), `saas.ts` (T8), `unused-service.ts` (T11),
+  `tier3.ts` (T10 with T9); `common.ts` (`policyAttachments` takes template-local extra rows; new products in `PRODUCT_KINDS`);
+  tests `batch-b`, `pair-helpers.ts` (the pair suite moved out of `batch-a`; logic unchanged except the lesson-count bound, which follows DESIGN §5.8 at tier 3), per-template tests, `data-rules`
+  (C4 second mitigate form for a control to apply; C7 counts only an approved unexpired exception and a control whose target
+  names the host; K5 exemptions for the T7 mirror and the T8 hosting columns; an asset-tier deadline hook for the T10 ids).
+  Outside the list, reviewer sign-off on each: implementer — `e2e/vuln.spec.ts` (library tiers incl. Tier 3, a tier-3 case
+  test, the avoid decision) and `tests/helpers/vuln-scenario-check.ts` (DeviceInfo addresses unique and never an egress
+  address, additive); coordinator inline — `tests/vuln-hardening.test.ts` (the lesson-count bound follows DESIGN §5.8: 1–3 at
+  tiers 1–2, at most half the case at tier 3).
 
 ## WP4 — Stats and study integration
 - Goal: objective-level skill kind in `study/scheduler.ts`; Stats shows domain 2.0 / objectives 2.1–2.5 and decision confusion matrix; vuln templates in study pool with SRS cards.

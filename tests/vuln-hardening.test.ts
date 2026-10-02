@@ -349,7 +349,8 @@ describe('every case names its lesson findings', () => {
     for (const v of runsOf(t)) {
       const lessons = v.c.findings.filter((f) => f.lesson);
       expect(lessons.length, `${v.label}: lesson findings`).toBeGreaterThanOrEqual(1);
-      expect(lessons.length, `${v.label}: lesson findings stay few`).toBeLessThanOrEqual(3);
+      // DESIGN 5.8: 1-3 at tiers 1-2; at tier 3 every finding the lesson names and every decider whose dismissal must fail, at most half the case.
+      expect(lessons.length, `${v.label}: lesson findings stay few`).toBeLessThanOrEqual(t.difficulty === 'tier3' ? Math.floor(v.c.findings.length / 2) : 3);
       for (const f of v.c.findings.filter((x) => x.lesson || x.mustNotMiss)) {
         if (f.truth.decision !== 'false-positive') expect(f.truth.slaLatest, `${v.label}: ${f.findingId} slaLatest`).toBeDefined();
       }

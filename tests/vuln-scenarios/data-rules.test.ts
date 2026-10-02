@@ -87,12 +87,28 @@ function slaOf(v: View, deadline: number): { latest: VulnSchedule; ends: number[
   return { latest, ends };
 }
 
-// The deadline of a worklist finding: the Sim-KEV rule when listed, else the SLA of its CVSS class.
+// T10 / T9 (the tier-3 twins): the template-local "Asset tier" policy row moves a deadline one class and never the severity
+// class. A finding on a production system whose Role says it holds payment or customer data is due as the next more severe
+// class would be; one on an isolated non-production host (Role says non-production, isolated, no production data; Criticality
+// Low; not exposed) as the next less severe one. Every other host follows the table.
+const ASSET_TIER: ReadonlySet<string> = new Set(['vm-dup-plugins', 'vm-distinct']);
+const CLASSES = ['critical', 'high', 'medium', 'low'] as const;
+function assetShift(v: View, row: RowObject): -1 | 0 | 1 {
+  if (!ASSET_TIER.has(v.c.templateId)) return 0;
+  const d = rows(v.corpus, 'DeviceInfo').find((x) => x.DeviceName === row.DeviceName);
+  const role = String(d?.Role ?? '').toLowerCase();
+  if (/production/.test(role) && !/non-production/.test(role) && /(payment|customer) data|cardholder data/.test(role)) return -1; // more severe class
+  if (/non-production/.test(role) && /isolated/.test(role) && /no production data/.test(role) && String(d?.Criticality) === 'Low' && !flag(d?.ExposedToInternet)) return 1; // less severe class
+  return 0;
+}
+const shiftedClass = (cls: (typeof CLASSES)[number], shift: -1 | 0 | 1): (typeof CLASSES)[number] => CLASSES[Math.min(CLASSES.length - 1, Math.max(0, CLASSES.indexOf(cls) + shift))];
+
+// The deadline of a worklist finding: the Sim-KEV rule when listed, else the SLA of its CVSS class (moved one class by the asset tier row where it applies).
 function deadlineOf(v: View, row: RowObject): number {
   const intel = v.intel.get(String(row.VulnId))!;
   const first = ms(row.FirstSeen);
   if (flag(intel.KnownExploited)) return endOfDay(Math.max(first, ms(intel.KnownExploitedAdded)) + KEV_SLA_DAYS * DAY);
-  return endOfDay(first + v.c.constraints.slaDays[slaClassOf(Number(row.CvssBase))] * DAY);
+  return endOfDay(first + v.c.constraints.slaDays[shiftedClass(slaClassOf(Number(row.CvssBase)), assetShift(v, row))] * DAY);
 }
 
 // The SLA table alone (no Sim-KEV rule), as a table-blind analyst reads it.
@@ -265,10 +281,22 @@ describe.each(TEMPLATES.map((t) => [t.id, t] as const))('%s data rules', (_id, t
           const at = `${v.label}: ${f.findingId}`;
           const controls = rows(v.corpus, 'ControlInventory').filter((c) => (f.truth.mitigation ?? []).includes(String(c.ControlId)));
           expect(controls.length, `${at}: the mitigation controls are in ControlInventory`).toBe(f.truth.mitigation!.length);
+          // Two forms. In effect (T4, T5): the control names the host. To be applied (T6-B, a vendor with no fix): the control
+          // exists for a segment and does not cover the host yet (its Evidence says so, and the truth cites 'control-not-covering');
+          // the change that moves the host behind it must then end a day or more before the deadline, since nothing else meets it.
+          const toApply = f.truth.reasons.includes('control-not-covering');
           for (const c of controls) {
             expect(String(c.Mode), `${at}: ${String(c.ControlId)} is enforcing`).toBe('block');
             expect(String(c.CoversVulnId), `${at}: ${String(c.ControlId)} covers the vulnerability`).toBe(String(row.VulnId));
-            expect(String(c.Target), `${at}: ${String(c.ControlId)} names the host`).toContain(String(row.DeviceName));
+            if (toApply) {
+              expect(String(c.Target), `${at}: ${String(c.ControlId)} is a segment control, not one naming the host`).not.toContain(String(row.DeviceName));
+              expect(String(c.Evidence), `${at}: ${String(c.ControlId)} says the host is not in its scope`).toContain(`${String(row.DeviceName)} is not in scope`);
+            } else expect(String(c.Target), `${at}: ${String(c.ControlId)} names the host`).toContain(String(row.DeviceName));
+          }
+          if (toApply) {
+            const sla = slaOf(v, deadlineOf(v, row));
+            expect(sla.latest, `${at}: the next window ends before the deadline`).not.toBe('emergency');
+            expect(deadlineOf(v, row) - sla.ends[0], `${at}: the next window ends a day or more before the deadline`).toBeGreaterThanOrEqual(DAY);
           }
           expect(f.truth.schedule, `${at}: the permanent fix is in the next window`).toBe('next-window');
           expect(f.truth.slaLatest, `${at}: slaLatest`).toBe('next-window');
@@ -310,8 +338,11 @@ describe.each(TEMPLATES.map((t) => [t.id, t] as const))('%s data rules', (_id, t
         if (packageBasis) proven.push('banner-only', 'backported-fix');
         if (stale && !rebootPending) proven.push('pending-reboot');
         const vulnId = String(row.VulnId);
-        const excepted = tickets.some((x) => String(x.Title).startsWith('Risk exception') && JSON.stringify(x).includes(vulnId));
-        const controlled = controls.some((x) => String(x.CoversVulnId) === vulnId && String(x.Mode) === 'block'); // only an enforcing control covers it
+        // An exception counts when it is approved and unexpired (T6: an expired one, or an open request, is not one); a control
+        // covers the finding when it is enforcing, names the vulnerability and names the host (T6-B: a segment control that does not
+        // cover the host yet is not one).
+        const excepted = tickets.some((x) => String(x.Title).startsWith('Risk exception') && String(x.Status) === 'Approved' && ms(x.WindowEnd) > v.now && JSON.stringify(x).includes(vulnId));
+        const controlled = controls.some((x) => String(x.CoversVulnId) === vulnId && String(x.Mode) === 'block' && String(x.Target).includes(String(row.DeviceName))); // only an enforcing control that names the host covers it
         const exposed = flag(devices.get(String(row.DeviceName))?.ExposedToInternet);
         if (!packageBasis) proven.push('credentialed-confirmed');
         if (!exposed) proven.push('internet-exposed');
@@ -508,16 +539,27 @@ describe.each(TEMPLATES.map((t) => [t.id, t] as const))('%s data rules', (_id, t
 // Twin pairs whose deciding clue is the exposure of the headline host: its DeviceInfo ExposedToInternet differs.
 const EXPOSURE_CLUE: ReadonlySet<string> = new Set(['vm-exposed-edge']);
 
+// T8: who operates the headline host is the deciding clue (a vendor-hosted service in A, an IT-managed server in B), so these DeviceInfo columns of
+// that one host may differ between the twins; every other column and every other host stays identical.
+const HOSTING_CLUE: Readonly<Record<string, readonly string[]>> = { 'vm-saas-transfer': ['Role', 'OSPlatform', 'IsManaged', 'IPAddress', 'Site'] };
+
 // The twin pairs whose two hosts swap roles (T1 web servers, T2 file servers): the deciding clue is how each was installed or updated, so the inventory and
 // update rows of those two hosts, and the truth of the second worklist row (the sibling), differ by design. Capacity (two
 // emergency or next-window changes per window) allows one false positive and one real emergency on the pair, in either order.
-const MIRROR_CLUE: Readonly<Record<string, readonly string[]>> = { 'vm-backport-fp': ['WEBLX01', 'WEBLX02'], 'vm-stale-scan': ['FS01', 'FS02'] };
+// T7 (the two intranet application servers) mirrors too: the credentialed run reached one and failed to log in to the other, and their inventory shows the fixed or the vulnerable release.
+const MIRROR_CLUE: Readonly<Record<string, readonly string[]>> = { 'vm-backport-fp': ['WEBLX01', 'WEBLX02'], 'vm-stale-scan': ['FS01', 'FS02'], 'vm-noncred-low': ['INTRA01', 'INTRA02'] };
 
 describe('twin pairs share one world (K5)', () => {
   const pairs = TEMPLATES.filter((t) => t.twin && t.id < t.twin && TEMPLATES.some((x) => x.id === t.twin)).map((t) => [t, TEMPLATES.find((x) => x.id === t.twin)!] as const);
 
   it.each(pairs.map(([a, b]) => [a.id, b.id, a, b] as const))('%s / %s agree on every worklist row and differ only in the headline truth', (_a, _b, a, b) => {
     const mirror = MIRROR_CLUE[a.id] ?? MIRROR_CLUE[b.id]; // keyed by whichever twin lists it (the ids sort either way)
+    const hostingColumns = HOSTING_CLUE[a.id] ?? HOSTING_CLUE[b.id] ?? [];
+    const withoutHosting = (json: string, host: string): string => {
+      const row = JSON.parse(json) as Record<string, unknown>;
+      if (row.DeviceName === host) for (const c of hostingColumns) delete row[c];
+      return JSON.stringify(row);
+    };
     for (const run of RUNS) {
       const va = view(a, run);
       const vb = view(b, run);
@@ -537,6 +579,8 @@ describe('twin pairs share one world (K5)', () => {
           .filter((r) => table === 'DeviceInfo' || !(mirror ?? []).includes(String(r.DeviceName)))
           // The exposure of the headline host is the deciding clue of a twin pair whose clue it is (T4): the one column that may differ.
           .map(({ RecordId: _r, ExposedToInternet: exposure, ...rest }) => JSON.stringify(table === 'DeviceInfo' && EXPOSURE_CLUE.has(a.id) && rest.DeviceName === va.work[0].row.DeviceName ? rest : { ...rest, ExposedToInternet: exposure }))
+          // T8: the headline host's hosting columns are the deciding clue.
+          .map((json) => (table === 'DeviceInfo' ? withoutHosting(json, String(va.work[0].row.DeviceName)) : json))
           .sort();
       for (const table of ['DeviceInfo', 'SoftwareInventory', 'PatchHistory'] as const) expect(shared(va, table), `${run.seed}: same ${table} rows on the worklist hosts`).toEqual(shared(vb, table));
       // ...the twins' ScanRuns rows (ids, times, coverage) and the worklist rows' run and last-seen columns are identical.

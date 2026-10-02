@@ -76,11 +76,26 @@ Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, 
   author/implementer fix verified; coordinator fixes (policy recording sentence, renames, a wording fix); reviewer gate PASS
   (first attempt), fact-checker PASS.
 
+- **WP3 — Content batch B** (2026-10-02). Ten templates: `vm-legacy-accept` / `vm-legacy-isolate` (T6, tier 1, 5 findings;
+  approved exception with isolation in effect vs no exception and corporate sessions reaching the controller → mitigate behind
+  the OT isolation ACL), `vm-noncred-low` / `vm-cred-high` (T7, tier 1, 5; banner guess disproved by a credentialed run vs
+  confirmed by inventory where the credentialed login failed; mirrored look-alike hosts), `vm-saas-transfer` / `vm-self-hosted`
+  (T8, tier 1, 5; vendor-operated service → transfer vs IT-managed install → patch), `vm-unused-service` / `vm-needed-service`
+  (T11, tier 1, 5; unused default admin console → avoid vs one a business process uses → patch), and the first tier-3 cases
+  `vm-dup-plugins` / `vm-distinct` (T10 with T9 inside, 16 findings, 2 runs, stale-vs-fresh conflict, capacity squeeze with the
+  ideal fitting exactly; per-service detections of a fictional shared library are duplicates closed once vs bundled copies;
+  payments Medium ahead of the developer-box Critical by the Asset tier row). Template-local policy rows; `pair-helpers.ts`
+  (shared pair suite), `batch-b`, per-template tests, `data-rules` hooks; e2e: library tiers incl. Tier 3, a tier-3 case
+  (keyboard reorder, axe both themes, 360/320 px), the avoid decision. 38 files / 1,353 tests (+21 opt-in), build ok, e2e
+  34/34. Hardening (WP3 templates): S1 max 60.2, S2 60 for every lesson finding, S3 100, S4 min 87.7; WP2 numbers unchanged.
+  Process: brief checked by the fact-checker (PASS-WITH-CHANGES, applied); T6 author, then a workflow of four sequential
+  authors, e2e, 2 review rounds × 5 lenses with skeptics (37 → 24 kept, 5 blocking; 25 → 16 kept, 2 blocking), verified fixes;
+  coordinator ruling on T10 key findings with a verified fix; reviewer gate PASS (first attempt), fact-checker PASS.
+
 ## In progress
-- None. WP3 starts next.
+- None. Next session starts WP4.
 
 ## Next
-- WP3 — Content batch B (twins T6, T7, T8, T11) + tier 3 (T10 twins with T9 inside; human decision 2026-10-02)
 - WP4 — Stats and study integration
 - WP5 — Continuity hook (vuln → SOC)
 - WP6 — Polish
@@ -361,7 +376,44 @@ Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, 
   4. Vendor names: the fact-checker found real companies named "Quillon" and "Larkfield Software"; renamed (PLAN WP2 as built).
      The SOC registrar list (`src/core/synth/domains.ts:155`, "Quillon Domains") is SOC content and stays unchanged (Known issues).
 
+- 2026-10-02 (coordinator, before WP3 authoring): brief checked by the fact-checker (PASS-WITH-CHANGES), applied: T10's
+  duplicates are true positives "closed as duplicate" (decision `false-positive` + `duplicate-root-cause`, worded honestly,
+  bundled copies checked first, services restarted), fictional library name; T8 sourced from a vendor advisory / non-intrusive
+  fingerprint of org-owned hostnames, no testing of vendor systems, reserved tenant host; T9's asset-tier row moves the
+  deadline one class (Medium on payment systems → High deadline; Critical on isolated non-production → High deadline), not the
+  class. Declined: dropping 4.1 from T7/T11 (every template has a graded note, WP1d ruling) and adding 2.4 to T11 (DESIGN §1
+  maps avoid / attack surface to 2.5). Ultracode was switched off mid-session, so WP3 runs as individual agents (same steps).
+
+- WP3 pre-gate (workflow: T6 author alone, then T7, T8, T11, T10 authors in sequence with earlier handoffs, e2e, 2 review
+  rounds × 5 lenses with a skeptic per finding: round 1 37 findings / 24 kept (5 blocking), round 2 25 / 16 (2 blocking); all
+  author/implementer-owned ones fixed and verified). Coordinator rulings:
+  1. **T10 key findings**: a probe (every template × 20 runs, one real finding dismissed alone, the rest perfect) showed T10's
+     package-level root, second bundled copy, developer-box Critical and still-valid rollup High passing at 94–95. They are now
+     lesson findings (7 of 16 per twin), named in the lesson texts; DESIGN §5.8 clarified for tier 3 (every finding the lesson
+     names and every decider whose lone dismissal must fail, at most half the case); the hardening count bound follows it. They
+     also gate a two-step over-reaction (an emergency change for these standard-cycle findings), which on the developer-box
+     Critical is T9's misconception. Verified: each scores 60 when dismissed; hardening S1 ≤ 60, S2 60, S3 100, S4 ≥ 88.
+  2. T6: the scanner-session timing regression was already fixed in the tree (a test now covers 41 seeds); the "ticket alone"
+     pitfall is scoped to this exception; objectives gain 2.1 (both explanations teach an OT scanning consideration; DESIGN §1).
+  3. T7, T8, T11, T10 as-built deviations from DESIGN §4 / the brief are accepted and recorded in DESIGN §4 ("Clarified
+     2026-10-02 (WP3)"): T7's internal sweep and inventory-plus-failed-login confirmation (ids kept), T8's clue in DeviceInfo
+     plus Tickets, T11's scheduled `avoid`, T10's mixed design (only the headline flips).
+
 ## Known issues
+- WP3 gate notes (not blocking): the avoid e2e test has no axe or 360 px pass (UI unchanged); `common.ts` classes the T10
+  library product as 'server' in `PRODUCT_KINDS`; the T8 K5 exemption strips 5 DeviceInfo columns of the headline host; T8's
+  passive version read of a vendor-hosted tenant is defensible, but some SaaS terms forbid any scanning, so WP6 may reword
+  "scan" to "version read" (fact-checker); "Halbrenn" is one letter off a small UK firm (kept); the case library is skewed
+  toward tier 1 (7 case types; tier 2: 2; tier 3: 1), WP6 may promote pairs.
+- WP3 (pre-gate, not blocking): dismissing one real non-key finding alone still passes in every template (probe, 20 runs):
+  decoys 75–86 (T3 dev box, T4/T5 detect-only decoys, T6 expired-exception and detect-only decoys, T8 contract and second
+  hosted service, T11 second console and console-in-use), padding about 89–97. WP1f accepted this; WP7 should decide whether
+  lesson-named decoys become key findings at tiers 1–2 or a separate "must not dismiss" flag is worth a grader change. The
+  generic UI and Help label T10's closed duplicates as plain "False positive" (the case text explains): WP6 copy review. WP2
+  templates can show one worklist product below another worklist flaw's fixed version on another host (about 57 of 200 seeds
+  for backport-fp, scenario-author note): realism, WP6/WP7. Some T6 decider points also accept shared ScanRuns/ticket rows. The
+  e2e tier-3 and avoid tests find their twin through `resolveVulnTemplate` and assert it from the data; a new template in either
+  case type can change the pick (fails visibly). Hardening S4's "one step earlier" slip can land on a closed duplicate.
 - WP2, minor (reviewer / pre-gate, not blocking): `vm-exposed-edge` shotgun S1 max is 69.4 (structural: the same over 200
   seeds; the naive emergency patch is right on A's headline, and the twin `vm-segmented` holds it to 47.9) — any reweight or new
   finding there needs a decoy to keep the margin; `data-rules` K5 exempts whole SoftwareInventory/PatchHistory rows of the two
