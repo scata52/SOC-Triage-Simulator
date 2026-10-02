@@ -295,7 +295,7 @@ Branch: `feat/vuln-mgmt-wp1` (from `main` @ 849adce).
      must-not-miss findings: it does not — it triggers on every key finding, lesson findings included (DESIGN §5.8); in nokev,
      stale-scan and backport-fp the lesson findings are not must-not-miss, and a must-not-miss-only cap would let "only the lesson
      finding wrong" pass at 88–97 (WP1f acceptance 2). Lesson right with minor slips passes: 88 / 88 / 90 / 94 %. Raised with the
-     human; nothing changed.
+     human, who decided the same day: **keep it** (the cap covers lesson and must-not-miss findings, DESIGN §5.8).
   4. **Claude Code Review check**: it reviewed nothing because the code-review plugin's command runs every step through subagents
      and the job allowed no agent tool (PR #6 run: 2 turns, no tool call, no comment, green). Replaced with a direct review prompt
      and the gh tools (the action's own `pr-review-comprehensive` example), restricted to pull requests into `main`, and a final
