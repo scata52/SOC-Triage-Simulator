@@ -234,7 +234,7 @@ const authorizedPentest: CaseTemplate = {
       truth: { disposition: 'benign', severity: 'informational', action: 'close', techniques: [], tactics: [] },
       evidence: [
         { id: 'roe', label: 'An approved penetration-test change names both source IPs, the scope and the window', why: 'The activity is a sanctioned red-team engagement, not an intrusion.', rows: [roe] },
-        { id: 'external', label: `The external probing comes only from the named test source ${testerIp}`, why: 'Scoped exactly to the rules of engagement.', rows: probes.slice(0, 8) },
+        { id: 'external', label: `The external probing in this alert comes from the named test source ${testerIp}`, why: 'Scoped exactly to the rules of engagement.', rows: probes.slice(0, 8) },
         { id: 'internal', label: `The internal scans come from the named test agent ${internalKali}`, why: 'Matches the ROE; no other hosts are involved.', rows: scans.slice(0, 8) },
       ],
       indicators: { block: [], scope: [], mustNot: [ip(testerIp, 'Authorised pentest source'), ip(internalKali, 'Authorised internal test agent')] },
@@ -248,17 +248,17 @@ const authorizedPentest: CaseTemplate = {
         { title: 'Do the sources match the ROE?', kql: `FirewallLogs\n| where SourceIP in ("${testerIp}", "${internalKali}")\n| summarize Events = count(), Targets = dcount(DestinationIP) by SourceIP, Direction`, why: 'Exactly the two named sources; nothing outside scope.' },
         { title: 'The external probing', kql: `FirewallLogs\n| where SourceIP == "${testerIp}"\n| project TimeGenerated, DestinationIP, DestinationPort, Action\n| take 20`, why: 'Web ports on the public site, from the named source.' },
         { title: 'The internal scanning', kql: `FirewallLogs\n| where SourceIP == "${internalKali}"\n| project TimeGenerated, DestinationIP, DestinationPort, Action\n| take 20`, why: 'Admin ports on internal servers, from the named test agent.' },
-        { title: 'Anything from other sources?', kql: `FirewallLogs\n| where Direction == "Inbound" and DestinationIP == "${web}" and Action == "Allow" and SourceIP != "${testerIp}"\n| summarize count() by SourceIP\n| sort by count_`, why: 'Only the usual background — no piggybacking attacker.' },
+        { title: 'Anything from other sources?', kql: `FirewallLogs\n| where Direction == "Inbound" and DestinationIP == "${web}" and Action == "Allow" and SourceIP != "${testerIp}"\n| summarize count() by SourceIP\n| sort by count_`, why: 'Sources the engagement does not cover. Normally only background; a source that is attacking the web app is not part of the test and gets its own triage.' },
       ],
       rubric: rubric([
         ['roe', 'An approved penetration-test change (rules of engagement) covers this activity.', ['pentest', 'penetration', 'red team', 'rules of engagement', 'roe', 'approved']],
-        ['sources', 'The activity comes only from the named test sources, within scope and window.', ['source', 'scope', 'named', 'test ip', 'window']],
+        ['sources', 'The alerted activity comes from the named test sources, within scope and window.', ['source', 'scope', 'named', 'test ip', 'window']],
         ['deconflict', 'De-conflict with the security team rather than mobilising IR.', ['de-conflict', 'confirm', 'coordinate', 'security team']],
         ['close', 'Benign authorised testing — close, and stay alert for real activity hiding alongside it.', ['benign', 'close', 'monitor', 'alongside']],
       ]),
       explanation: [
         `External web-app attacks correlated with internal scanning is exactly what a serious intrusion looks like — which is why an attacker would love for you to wave it away, and why a real red team makes you practise the confirmation. Here an approved penetration-test change names both sources (${testerIp} externally, ${internalKali} internally), the scope and a multi-day window, run by a third-party red team under CISO-approved rules of engagement.`,
-        `The activity stays inside those bounds: the external probing comes only from the test source, the internal scans only from the test agent, and nothing else is piggybacking on the public web app. De-conflict via the security channel confirms it.`,
+        `The alerted activity stays inside those bounds: the external probing comes from the test source and the internal scans from the test agent. The engagement covers those two sources and nothing else, so any other source on the public web app is outside it: normally just background, and one that is attacking is not covered by the test and gets its own triage. De-conflict via the security channel confirms the test.`,
         `Disposition benign. Close it as authorised testing — but keep watching: the one real risk during a pentest is a genuine attacker hiding in the noise, so a quick check that no other source is doing the same things is worth the minute.`,
       ],
       pitfalls: [
