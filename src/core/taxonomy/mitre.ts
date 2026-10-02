@@ -87,6 +87,7 @@ const RAW: Raw[] = [
   { id: 'T1021.001', name: 'Remote Services: Remote Desktop Protocol', tactics: ['lateral-movement'] },
   { id: 'T1021.002', name: 'Remote Services: SMB/Windows Admin Shares', tactics: ['lateral-movement'] },
   { id: 'T1021.006', name: 'Remote Services: Windows Remote Management', tactics: ['lateral-movement'] },
+  { id: 'T1210', name: 'Exploitation of Remote Services', tactics: ['lateral-movement'] },
   { id: 'T1550.002', name: 'Use Alternate Authentication Material: Pass the Hash', tactics: ['lateral-movement', 'defense-evasion'] },
   { id: 'T1550.004', name: 'Use Alternate Authentication Material: Web Session Cookie', tactics: ['lateral-movement', 'defense-evasion'] },
   { id: 'T1080', name: 'Taint Shared Content', tactics: ['lateral-movement'] },

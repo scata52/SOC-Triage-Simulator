@@ -27,7 +27,7 @@ function calendar(capacityPerWindow: number): ResolvedVulnCase['constraints'] {
 }
 
 function finding(findingId: string, truth: Partial<FindingTruth> = {}, over: Partial<ResolvedVulnFinding> = {}): ResolvedVulnFinding {
-  return { findingId, recordId: `VF-${findingId}`, truth: { decision: 'patch', schedule: 'next-window', reasons: [], ...truth }, weight: 1, mustNotMiss: false, lesson: false, evidence: [], ...over };
+  return { findingId, recordId: `VF-${findingId}`, host: 'HOST01', vulnId: 'SIMVULN-2026-00001', sharedHost: true, truth: { decision: 'patch', schedule: 'next-window', reasons: [], ...truth }, weight: 1, mustNotMiss: false, lesson: false, evidence: [], ...over };
 }
 
 const point = (id: string, ...recordIds: string[]) => ({ id, label: `Point ${id}`, why: `Why ${id}`, recordIds });

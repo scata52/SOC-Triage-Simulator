@@ -1,5 +1,9 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { VULN_TEMPLATES } from '../src/core/vuln/registry.ts';
+import { resolveVulnTemplate, vulnCaseTypes } from '../src/core/vuln/worklist.ts';
+import { buildVulnScenario } from '../src/core/vuln/scenario.ts';
+import { generateWorld } from '../src/core/world/world.ts';
 
 // Vulnerability-management mode: acceptance criteria (1)-(10) of WP1e.
 // A fixed profile so every run works in the same fictional organisation.
@@ -55,6 +59,14 @@ async function axeStrict(page: Page, label: string, include?: string): Promise<v
   let b = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']);
   if (include) b = b.include(include);
   const r = await b.analyze();
+  expect(r.violations.map((v) => `${label}: ${v.id} (${v.impact}) ${v.help} (${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(' | ')})`)).toEqual([]);
+}
+
+// Full rule set (best practice and experimental included, no tag filter), zero violations of any impact.
+// A second helper: the WCAG-tag axeStrict above is shared by the other tests and stays as it is.
+async function axeFull(page: Page, label: string): Promise<void> {
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+  const r = await new AxeBuilder({ page }).analyze();
   expect(r.violations.map((v) => `${label}: ${v.id} (${v.impact}) ${v.help} (${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(' | ')})`)).toEqual([]);
 }
 
@@ -1165,4 +1177,314 @@ test.describe('vulnerability mode', () => {
       expect(errors).toEqual([]);
     });
   }
+});
+
+// ---------------------------------------------------------------- WP4: Stats and Study
+
+type SeedDecision = { findingId: string; truth: string; given: string | null; mustNotMiss: boolean; verdict?: string };
+const vulnRecord = (n: number, templateId: string, percent: number, objectives: string[], decisions: SeedDecision[], day = 20_000 + n) => ({
+  id: `${templateId}~s${n}`,
+  templateId,
+  seed: `s${n}`,
+  mode: 'vuln',
+  completedAt: 1_780_000_000_000 + n * 60_000,
+  day,
+  percent,
+  score: percent,
+  dispositionCorrect: percent >= 70,
+  xp: 50,
+  hintsUsed: 0,
+  durationSec: 300,
+  components: {},
+  matchedTechniques: [],
+  missedTechniques: [],
+  evidenceFound: 0,
+  evidenceTotal: 0,
+  category: 'vulnmgmt',
+  difficulty: 'tier1',
+  tactics: [],
+  cysaDomains: ['2.0', '4.0'],
+  vuln: { objectives, evidenceFound: 2, evidenceTotal: 3, decisions },
+});
+const fd = (i: number, truth: string, given: string | null, verdict?: string): SeedDecision => ({ findingId: `VF-0000${i}`, truth, given, mustNotMiss: false, ...(verdict ? { verdict } : {}) });
+// Objective 2.4 has no case; the false-positive row is the most common mix-up (three findings chose patch).
+const STATS_ATTEMPTS = [
+  vulnRecord(1, 'vm-kev-internal', 90, ['2.3', '2.5', '4.1'], [fd(1, 'patch', 'patch', 'exact'), fd(2, 'false-positive', 'patch', 'wrong'), fd(3, 'accept', 'transfer', 'wrong')]),
+  vulnRecord(2, 'vm-stale-scan', 50, ['2.1', '2.2', '2.3', '2.5', '4.1'], [fd(1, 'false-positive', 'patch', 'wrong'), fd(2, 'false-positive', 'patch', 'wrong'), fd(3, 'mitigate', null, 'missing')]),
+  vulnRecord(3, 'vm-fresh-scan', 80, ['2.1', '2.2', '2.3', '2.5', '4.1'], [fd(1, 'patch', 'patch', 'exact'), fd(2, 'false-positive', 'false-positive', 'exact')]),
+];
+const STATS_PROFILE = { ...PROFILE, xp: 150, attempts: STATS_ATTEMPTS };
+const SOC_ATTEMPT = {
+  id: 'identity-password-spray~a1',
+  templateId: 'identity-password-spray',
+  seed: 'a1',
+  mode: 'practice',
+  completedAt: 1_780_000_000_000,
+  day: 20_000,
+  percent: 80,
+  score: 80,
+  dispositionCorrect: true,
+  xp: 90,
+  hintsUsed: 0,
+  durationSec: 200,
+  components: {},
+  matchedTechniques: [],
+  missedTechniques: [],
+  evidenceFound: 1,
+  evidenceTotal: 1,
+  category: 'identity',
+  difficulty: 'tier1',
+  tactics: ['credential-access'],
+  cysaDomains: ['1.0'],
+};
+
+test.describe('vulnerability stats and study integration', () => {
+  test('stats of a vuln-only profile: section, objective table, decision matrix, mix-up sentence, no empty state', async ({ page }) => {
+    const errors = watchErrors(page);
+    await withProfile(page, STATS_PROFILE);
+    await page.goto('/#/stats');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('E2E');
+    await expect(page.getByText('No graded cases yet')).toHaveCount(0);
+    await expect(page.getByText('No SOC cases yet.')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Vulnerability management' })).toBeVisible();
+    const section = page.locator('section[aria-labelledby="vuln-h"]');
+    await expect(section).toContainText('cases graded');
+    await expect(section).toContainText('passed (2 of 3)');
+    await expect(section).toContainText('73'); // average score of 90, 50, 80
+
+    // objectives 2.1-2.5, no 4.1 row; a row without cases says so
+    const objectives = section.getByRole('table', { name: /each CySA\+ vulnerability objective/ });
+    await expect(objectives.getByRole('rowheader')).toHaveCount(5);
+    await expect(objectives.getByRole('rowheader').nth(0)).toContainText('2.1 Vulnerability scanning methods');
+    await expect(objectives.getByRole('rowheader').nth(2)).toContainText('2.3 Prioritizing vulnerabilities');
+    await expect(objectives.getByRole('rowheader').nth(2)).toContainText('Given a scenario, analyze data to prioritize vulnerabilities.');
+    await expect(objectives.getByRole('rowheader').filter({ hasText: '4.1' })).toHaveCount(0);
+    await expect(objectives.getByRole('row', { name: /2\.4 Mitigating controls/ })).toContainText('No cases yet');
+    await expect(objectives.getByRole('row', { name: /2\.3 Prioritizing/ })).toContainText('67%'); // 3 cases: 90, 50, 80 -> 2 of 3 passed
+    await expect(objectives.getByRole('row', { name: /2\.3 Prioritizing/ }).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '67');
+
+    // the matrix: a real table with a caption, headers on both axes, the diagonal marked by text
+    const matrix = section.locator('table.matrix');
+    await expect(matrix.locator('caption')).toContainText('Number of findings by the right decision (rows)');
+    await expect(matrix.locator('thead th[scope="col"]')).toHaveText(['Right decision', 'Patch', 'Mitigate', 'Avoid', 'Accept', 'Transfer', 'False positive', 'No decision']);
+    await expect(matrix.locator('tbody th[scope="row"]')).toHaveText(['Patch', 'Mitigate', 'Avoid', 'Accept', 'Transfer', 'False positive']);
+    const fpRow = matrix.getByRole('row', { name: /^False positive/ });
+    await expect(fpRow.getByRole('cell').first()).toHaveText('3'); // chose patch when the answer was false positive: 3 findings
+    await expect(fpRow.locator('td.matrix-diag')).toContainText('(matched the right decision)');
+    await expect(matrix.locator('td.matrix-diag')).toHaveCount(6);
+    await expect(matrix.locator('td.matrix-diag').first()).toContainText('2'); // patch -> patch twice
+    await expect(section).toContainText('Most common mix-up: you chose Patch when the answer was False positive (3 findings).');
+
+    // the scrollable regions are focusable and labelled
+    for (const name of [/Results by CySA\+ objective/, /Decision matrix/]) {
+      await expect(section.getByRole('region', { name })).toHaveAttribute('tabindex', '0');
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test('stats with SOC and vuln attempts keep the SOC sections on SOC attempts only', async ({ page }) => {
+    const errors = watchErrors(page);
+    await withProfile(page, { ...STATS_PROFILE, attempts: [SOC_ATTEMPT, ...STATS_ATTEMPTS] });
+    await page.goto('/#/stats');
+    await expect(page.locator('.grid-4 .stat').first().locator('.stat-value')).toHaveText('1'); // SOC cases graded
+    await expect(page.getByText('No SOC cases yet.')).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 2, name: 'By category' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Results by category' })).not.toContainText('Vulnerability Management');
+    await expect(page.getByRole('heading', { level: 2, name: 'Vulnerability management' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('a profile with nothing graded shows the empty state and no vuln section', async ({ page }) => {
+    await withProfile(page);
+    await page.goto('/#/stats');
+    await expect(page.getByText('No graded cases yet')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Vulnerability management' })).toHaveCount(0);
+  });
+
+  test('stats: axe clean (any impact) in light and dark, no page scroll at 360 and 320 px, the matrix scrolls inside its region', async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = watchErrors(page);
+    await withProfile(page, { ...STATS_PROFILE, attempts: [SOC_ATTEMPT, ...STATS_ATTEMPTS] });
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto('/#/stats');
+      await expect(page.locator('section[aria-labelledby="vuln-h"]')).toBeVisible();
+      await axeStrict(page, `stats ${scheme}`);
+      await axeFull(page, `stats full rule set, mixed profile ${scheme}`);
+    }
+    for (const width of [360, 320]) {
+      await page.setViewportSize({ width, height: 740 });
+      await page.goto('/#/stats');
+      await expect(page.locator('section[aria-labelledby="vuln-h"]')).toBeVisible();
+      expect(await overflow(page), `page scroll at ${width}`).toBeLessThanOrEqual(0);
+      const region = page.getByRole('region', { name: /Decision matrix/ });
+      const box = await region.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+      expect(box.scroll, `matrix scrolls inside its region at ${width}`).toBeGreaterThan(box.client);
+      await region.focus();
+      await expect(region).toBeFocused();
+      await axeStrict(page, `stats ${width}px`);
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test('stats: full axe rule set (best practice included) on a vuln-only profile, light and dark', async ({ page }) => {
+    test.setTimeout(60_000);
+    await withProfile(page, STATS_PROFILE);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto('/#/stats');
+      await expect(page.locator('section[aria-labelledby="vuln-h"]')).toBeVisible();
+      await axeFull(page, `stats full rule set, vuln-only profile ${scheme}`);
+    }
+  });
+
+  test('study: the objectives card renders, vulnerability is not an alert category, a due vuln card starts the suggested twin', async ({ page }) => {
+    const errors = watchErrors(page);
+    const card = { templateId: 'vm-needed-service', ef: 2.5, interval: 1, reps: 1, lapses: 0, due: 0, last: 0, lastPercent: 40 };
+    await withProfile(page, { ...PROFILE, cards: { 'vm-needed-service': card }, attempts: [vulnRecord(1, 'vm-needed-service', 40, ['2.3', '2.5', '4.1'], [fd(1, 'patch', 'accept', 'wrong')])] });
+    await page.goto('/#/study');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your study plan');
+    await expect(page.getByRole('heading', { level: 2, name: 'CySA+ objectives' })).toBeVisible();
+    const items = page.getByRole('list', { name: 'Mastery by CySA+ objective' }).getByRole('listitem');
+    await expect(items).toHaveCount(6);
+    await expect(items.nth(2)).toContainText('2.3 Prioritizing vulnerabilities');
+    await expect(items.nth(5)).toContainText('4.1 Vulnerability management reporting');
+    await expect(page.getByRole('list', { name: 'Mastery by category' })).not.toContainText('Vulnerability');
+    await expect(page.getByRole('list', { name: 'Mastery by CySA+ domain' })).toContainText('2.0 Vulnerability Management');
+    // the only due card is the vuln one: it is the suggestion, and the due list names it
+    await expect(page.locator('section[aria-labelledby="next-h"]')).toContainText('Scan review: optional admin consoles and internal servers');
+    await expect(page.locator('section[aria-labelledby="up-h"]')).toContainText('Scan review: optional admin consoles and internal servers');
+    await axeStrict(page, 'study');
+
+    await page.getByRole('button', { name: /^Start/ }).click();
+    await expect(page).toHaveURL(/#\/vuln\/[^/]+\/[^/]+$/);
+    const [, slug, seed] = new URL(page.url()).hash.match(/#\/vuln\/([^/]+)\/([^/]+)$/)!;
+    const type = vulnCaseTypes(VULN_TEMPLATES).find((t) => t.slug === decodeURIComponent(slug))!;
+    expect(resolveVulnTemplate(type, decodeURIComponent(seed)).id).toBe('vm-needed-service');
+    await expect(page.locator('.vc-worklist')).toBeVisible({ timeout: 30_000 });
+    expect(errors).toEqual([]);
+  });
+});
+
+// WP5: a finding left open in a vulnerability case becomes one extra alert in the next shift (DESIGN section 8),
+// and its debrief links back to that case. A ledger entry is seeded, taken from a real build of the e2e world.
+test.describe('continuity: vulnerability case to SOC shift', () => {
+  const HOOK_RULE = 'Exploit signature match on a monitored service';
+  const WORLD_SEED = PROFILE.worldSeed;
+
+  function seededEntry() {
+    const w = generateWorld(WORLD_SEED);
+    for (const type of vulnCaseTypes(VULN_TEMPLATES)) {
+      for (const seed of ['e2e', 'e2e-a', 'e2e-b', 'e2e-c']) {
+        const t = resolveVulnTemplate(type, seed);
+        const v = buildVulnScenario({ worldSeed: WORLD_SEED, templateId: t.id, seed, world: w });
+        const f = v.case.findings.find((x) => x.mustNotMiss && x.sharedHost && x.truth.decision !== 'false-positive' && x.truth.decision !== 'mitigate' && !x.truth.mitigation?.length && /^SIMVULN-/.test(x.vulnId));
+        if (!f) continue;
+        const caseRef = `${t.id}~${seed}`;
+        const entry = { id: `${caseRef}/${f.findingId}@1700000000000`, vulnId: f.vulnId, host: f.host, decision: 'false-positive', schedule: 'none', decidedDay: 20000, caseRef };
+        return { entry, type, seed };
+      }
+    }
+    throw new Error('no eligible finding');
+  }
+
+  const stored = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('soc-triage-sim:v2')!));
+
+  async function startShift(page: Page): Promise<void> {
+    await page.goto('/#/');
+    await page.getByRole('radio', { name: 'Untimed' }).check();
+    await page.getByRole('button', { name: 'Start shift' }).click();
+    await expect(page.getByRole('heading', { name: 'Alert queue' })).toBeVisible({ timeout: 30_000 });
+  }
+
+  test('a pending ledger entry adds one alert, survives a reload, and the debrief links back; axe clean in both themes', async ({ page }) => {
+    const errors = watchErrors(page);
+    const { entry, type, seed } = seededEntry();
+    await withProfile(page, { ...PROFILE, vulnLedger: [entry] });
+    await startShift(page);
+    const items = page.locator('.queue-item');
+    const n = await items.count();
+    // exactly one hook alert in the queue, and the ledger entry is consumed
+    const hookItem = items.filter({ hasText: HOOK_RULE });
+    await expect(hookItem).toHaveCount(1);
+    const alertId = (await hookItem.locator('.mono').first().textContent())!.trim();
+    // the profile is saved a moment after it changes
+    await expect.poll(async () => (await stored(page)).vulnLedger?.[0]?.consumed).toBe(true);
+    let p = await stored(page);
+    expect(p.vulnLedger).toHaveLength(1);
+    expect(p.activeShift.vulnHook.ledgerId).toBe(entry.id);
+    // nothing before submit points at the vulnerability case
+    await hookItem.click();
+    await expect(page.locator('.ws-grid')).toBeVisible();
+    await expect(page.locator('main')).not.toContainText(/vulnerability case|ledger/i);
+    await page.goto('/#/shift');
+    await expect(items).toHaveCount(n, { timeout: 30_000 });
+
+    // a reload rebuilds the same queue; the entry is not given back and not taken twice
+    await page.reload();
+    await expect(items).toHaveCount(n, { timeout: 30_000 });
+    await expect(items.filter({ hasText: HOOK_RULE })).toHaveCount(1);
+    expect((await items.filter({ hasText: HOOK_RULE }).locator('.mono').first().textContent())!.trim()).toBe(alertId);
+    p = await stored(page);
+    expect(p.vulnLedger).toHaveLength(1);
+    expect(p.vulnLedger[0].consumed).toBe(true);
+
+    // work the hook alert, hand over, review it
+    await items.filter({ hasText: HOOK_RULE }).click();
+    await expect(page.locator('.ws-grid')).toBeVisible();
+    await page.getByRole('radio', { name: 'Benign / expected' }).check();
+    await page.getByRole('radio', { name: 'Informational' }).check();
+    await page.getByRole('radio', { name: 'Close' }).check();
+    await page.getByRole('button', { name: 'Submit & back to queue' }).click();
+    await expect(page.getByRole('heading', { name: 'Alert queue' })).toBeVisible();
+    await page.getByRole('button', { name: 'Hand over' }).click();
+    await page.getByRole('button', { name: 'Hand over now' }).click();
+    await expect(page.getByText('Shift 1 handover')).toBeVisible();
+    await page.getByRole('button', { name: `Review ${alertId}` }).click();
+    const para = page.locator('.vuln-link-back');
+    const link = para.locator('a');
+    await expect(link).toHaveCount(1, { timeout: 30_000 });
+    await expect(para).toContainText(entry.vulnId);
+    await expect(para).toContainText('false positive');
+    await expect(para).toContainText(type.title);
+    await expect(link).toHaveAttribute('href', `#/vuln/${type.slug}/${seed}`);
+
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await axeStrict(page, `hook debrief ${scheme}`);
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+
+    // keyboard: the link takes focus and Enter opens the case
+    await link.focus();
+    await expect(link).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.vc-worklist')).toBeVisible({ timeout: 30_000 });
+    expect(errors).toEqual([]);
+  });
+
+  test('no ledger entry, no extra alert and no ledger written', async ({ page }) => {
+    await withProfile(page);
+    await startShift(page);
+    await expect(page.locator('.queue-item').filter({ hasText: HOOK_RULE })).toHaveCount(0);
+    expect((await stored(page)).vulnLedger).toBeUndefined();
+  });
+
+  test('phone width: the hook debrief does not scroll the page', async ({ page }) => {
+    const { entry } = seededEntry();
+    await page.setViewportSize({ width: 360, height: 740 });
+    await withProfile(page, { ...PROFILE, vulnLedger: [entry] });
+    await startShift(page);
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+    const alertId = (await page.locator('.queue-item').filter({ hasText: HOOK_RULE }).locator('.mono').first().textContent())!.trim();
+    await page.getByRole('button', { name: 'Hand over' }).click();
+    await page.getByRole('button', { name: 'Hand over now' }).click();
+    await expect(page.getByText('Shift 1 handover')).toBeVisible();
+    await page.getByRole('button', { name: `Review ${alertId}` }).click();
+    await expect(page.locator('.vuln-link-back a')).toBeVisible({ timeout: 30_000 });
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+    await axeStrict(page, 'hook debrief 360');
+  });
 });

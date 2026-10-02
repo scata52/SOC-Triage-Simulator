@@ -3,12 +3,12 @@ import { profile, update, today, announce, toast } from '../store/app.ts';
 import { navigate } from '../router.ts';
 import { siem } from '../lib/siem.ts';
 import type { SessionInfo } from '../lib/protocol.ts';
-import { alertType, dailyCase, DAILY_WORLD, resolveCase, seedFor, slugOf, ALERT_TYPES } from '../lib/cases.ts';
+import { alertType, dailyCase, DAILY_WORLD, resolveCase, studyRoute, ALERT_TYPES } from '../lib/cases.ts';
 import { clock, dailySeed, randomSeed } from '../lib/format.ts';
 import { play } from '../lib/sound.ts';
 import { emptyVerdict, gradeCase, type CaseGrade, type Verdict } from '../../core/grading/grade.ts';
 import { recordAttempt, asStudyAttempts } from '../../state/profile.ts';
-import { nextStudyCase } from '../../core/study/scheduler.ts';
+import { FULL_STUDY_POOL, nextStudyCase } from '../../core/study/scheduler.ts';
 import { createRng } from '../../core/rng.ts';
 import { Workspace } from '../components/Workspace.tsx';
 import { Debrief } from '../components/Debrief.tsx';
@@ -53,8 +53,8 @@ function Timer({ since }: { since: number }) {
 
 export function nextStudyRoute(exclude: string[] = []): void {
   const p = profile.peek();
-  const s = nextStudyCase(p.cards, asStudyAttempts(p), today(), createRng(`study:${Date.now()}`), { exclude });
-  navigate({ name: 'case', slug: slugOf(s.templateId), seed: seedFor(s.templateId, randomSeed()), study: true });
+  const s = nextStudyCase(p.cards, asStudyAttempts(p), today(), createRng(`study:${Date.now()}`), { exclude, pool: FULL_STUDY_POOL });
+  navigate(studyRoute(s.templateId, randomSeed()));
 }
 
 export function CaseScreen({ slug, seed, mode }: { slug: string; seed: string; mode: Mode }) {

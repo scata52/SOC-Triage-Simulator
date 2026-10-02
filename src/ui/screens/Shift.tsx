@@ -24,7 +24,7 @@ function specFor(): OpenSpec | null {
   const p = profile.peek();
   const s = p.activeShift;
   if (!s) return null;
-  return { kind: 'shift', worldSeed: p.worldSeed, number: s.number, budget: s.budget, campaign: p.campaign, recent: recentShiftTemplates(p) };
+  return { kind: 'shift', worldSeed: p.worldSeed, number: s.number, budget: s.budget, campaign: p.campaign, recent: recentShiftTemplates(p), ...(s.vulnHook ? { vulnHook: s.vulnHook } : {}) };
 }
 
 const shiftSession = signal<SessionInfo | null>(null);
@@ -37,7 +37,7 @@ function useShiftSession(): { session: SessionInfo | null; error: string | null 
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const s = profile.value.activeShift;
-  const key = s ? `${profile.value.worldSeed}:${s.number}` : null;
+  const key = s ? `${profile.value.worldSeed}:${s.number}${s.vulnHook ? `:${s.vulnHook.ledgerId}` : ''}` : null;
   useEffect(() => {
     if (!key) return;
     const spec = specFor();

@@ -4,10 +4,9 @@ import { navigate } from '../router.ts';
 import { Icon } from '../components/Icon.tsx';
 import { Bar } from '../components/ui.tsx';
 import { asStudyAttempts } from '../../state/profile.ts';
-import { nextStudyCase, studyPlan, type Skill } from '../../core/study/scheduler.ts';
-import { templateById } from '../../core/cases/templates/index.ts';
+import { FULL_STUDY_POOL, nextStudyCase, studyPlan, studyTemplateById, type Skill } from '../../core/study/scheduler.ts';
 import { createRng } from '../../core/rng.ts';
-import { seedFor, slugOf } from '../lib/cases.ts';
+import { studyRoute } from '../lib/cases.ts';
 import { plural, randomSeed } from '../lib/format.ts';
 
 function SkillList({ skills, label }: { skills: Skill[]; label: string }) {
@@ -31,13 +30,16 @@ export function Study() {
   const p = profile.value;
   const day = today();
   const attempts = asStudyAttempts(p);
-  const plan = studyPlan(p.cards, attempts, day);
+  const plan = studyPlan(p.cards, attempts, day, { pool: FULL_STUDY_POOL });
   // Stable suggestion for the page; a fresh one is drawn when you start.
-  const suggestion = useMemo(() => nextStudyCase(p.cards, attempts, day, createRng(`study-view:${day}:${attempts.length}`)), [p.attempts.length, day]);
+  const suggestion = useMemo(() => nextStudyCase(p.cards, attempts, day, createRng(`study-view:${day}:${attempts.length}`), { pool: FULL_STUDY_POOL }), [p.attempts.length, day]);
   const start = () => {
-    navigate({ name: 'case', slug: slugOf(suggestion.templateId), seed: seedFor(suggestion.templateId, randomSeed()), study: true });
+    navigate(studyRoute(suggestion.templateId, randomSeed()));
   };
-  const byKind = (k: Skill['kind']) => plan.skills.filter((s) => s.kind === k).sort((a, b) => a.mastery - b.mastery);
+  // 'vulnmgmt' is a skill (vulnerability cases train it) but not an alert category.
+  const byKind = (k: Skill['kind']) => plan.skills.filter((s) => s.kind === k && s.key !== 'vulnmgmt').sort((a, b) => a.mastery - b.mastery);
+  // Objectives read in exam order, not weakest first.
+  const objectives = plan.skills.filter((s) => s.kind === 'objective');
   const dayLabel = (d: number) => {
     const diff = d - day;
     return diff === 1 ? 'Tomorrow' : new Date((d + 0.5) * 86_400_000).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
@@ -59,7 +61,7 @@ export function Study() {
             <Icon name="cap" /> Next up
           </h2>
           <p class="lede">
-            <strong>{templateById(suggestion.templateId)?.title}</strong>
+            <strong>{studyTemplateById(suggestion.templateId)?.title}</strong>
           </p>
           <p class="muted small">{suggestion.detail}</p>
           <button type="button" class="btn btn-primary btn-lg" onClick={start}>
@@ -103,7 +105,7 @@ export function Study() {
               <h3 class="section-label">Due now</h3>
               <ul class="small">
                 {plan.dueToday.slice(0, 8).map((id) => (
-                  <li>{templateById(id)?.title}</li>
+                  <li>{studyTemplateById(id)?.title}</li>
                 ))}
               </ul>
               {plan.dueToday.length > 8 && <p class="faint small">and {plural(plan.dueToday.length - 8, 'more')}</p>}
@@ -125,6 +127,11 @@ export function Study() {
           <h2 id="sk-d">CySA+ domains</h2>
           <SkillList skills={byKind('domain')} label="Mastery by CySA+ domain" />
           <p class="faint small">Mastery is a recency-weighted average of your grades, starting from 40% for anything you haven't tried.</p>
+        </section>
+        <section class="card" aria-labelledby="sk-o">
+          <h2 id="sk-o">CySA+ objectives</h2>
+          <SkillList skills={objectives} label="Mastery by CySA+ objective" />
+          <p class="faint small">Vulnerability-management cases train these objectives (CS0-003 2.1 to 2.5, and 4.1 for the stakeholder note).</p>
         </section>
       </div>
     </div>

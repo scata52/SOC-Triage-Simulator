@@ -38,6 +38,12 @@ export interface VulnScenarioOptions {
 export interface ResolvedVulnFinding {
   findingId: string;
   recordId: string; // the finding's VulnFindings row
+  // Read from that row; answer-key data for the continuity ledger (DESIGN section 8),
+  // used only after submit. sharedHost: the host is a device of the shared world
+  // (not one a case added to its own scope), so a shift corpus can show it.
+  host: string;
+  vulnId: string;
+  sharedHost: boolean;
   truth: FindingTruth;
   weight: number;
   mustNotMiss: boolean;
@@ -176,6 +182,9 @@ export function buildVulnScenario(opts: VulnScenarioOptions): VulnScenario {
     findings: spec.findings.map((f) => ({
       findingId: f.findingId,
       recordId: recordIdOf(f.row),
+      host: String(f.row.row.DeviceName ?? ''),
+      vulnId: String(f.row.row.VulnId ?? ''),
+      sharedHost: world.hosts.some((h) => h.name === f.row.row.DeviceName),
       truth: f.truth,
       weight: f.weight,
       mustNotMiss: f.mustNotMiss ?? false,

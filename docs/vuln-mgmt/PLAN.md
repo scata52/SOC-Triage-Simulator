@@ -126,12 +126,35 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 - Owner: implementer. Deps: WP1e (content can grow in parallel only if files don't overlap).
 - Acceptance: weak objective raises selection weight (unit test); Stats screen axe clean; existing study tests unchanged.
 - Tests: `tests/study.test.ts` additions, `e2e/vuln.spec.ts` stats check.
+- As built (2026-10-02): `study/scheduler.ts` (`SkillKind` `objective`, `StudyTemplate` view, `SOC_STUDY_POOL` default /
+  `FULL_STUDY_POOL` passed by the UI through `StudyOptions.pool`, `studyTemplateById`, exported `studyWeight`), `taxonomy/cysa.ts`
+  (`CYSA_OBJECTIVES`, titles verbatim from DESIGN §1), `vuln/worklist.ts` (`vulnSeedFor`), `state/profile.ts` (vuln SRS card,
+  `verdict` per recorded decision, vuln attempts in study attempts), new `state/vuln-stats.ts`, `ui/lib/cases.ts` (`studyRoute`),
+  `Stats.tsx` (Vulnerability management section: domain 2.0 summary, objectives 2.1–2.5, decision confusion matrix, most common
+  mix-up), `Study.tsx` (objectives card), `Home.tsx`, `CaseScreen.tsx`; tests `study` (appended), `profile`, new `vuln-stats`,
+  `study-route`, `e2e/vuln.spec.ts`. Outside the list, reviewer sign-off on each: `ui/styles/screens.css` (bars inside table rows get
+  a width, which also makes the 0-px bars of the SOC "By category" table visible, display only); the SOC Stats scroll region
+  "Latest cases" renamed "Table of the latest graded cases" (axe `landmark-unique`); three existing `profile` tests updated for
+  the vuln card and `verdict`.
 
 ## WP5 — Continuity hook (vuln → SOC): one alert, upgradeable
 - Goal: per DESIGN §8. Optional `profile.vulnLedger` (cap 50); pure `selectVulnFollowUp(ledger, shiftSeed) → VulnHook | null`; `planShift` takes the result as an optional slot parallel to `campaign` and adds **exactly one** alert from new SOC template `endpoint-known-vuln-exploit` (receives `ctx.vulnHook`); ledger entry marked consumed; debrief links back. No follow-on stages, no campaign state change.
 - Owner: implementer (engine) + scenario-author (template body, inside a new file coordinated by the coordinator since it lives under `src/core/cases/templates/`). Deps: WP4.
 - Acceptance: (1) deterministic injection given ledger + seed; (2) no injection with empty ledger (existing shift tests unchanged); (3) at most one injected alert per shift and a consumed entry never re-injects; (4) campaign state untouched by the injection; (5) template passes SOC scenario harness; (6) ledger coerces from old profiles.
 - Tests: `tests/shift.test.ts`, new `tests/scenarios/vuln-link.test.ts`.
+- As built (2026-10-02): new `src/core/shift/vuln-hook.ts` (ledger types, entry rule, cap/trim, coercion validators,
+  `selectVulnFollowUp`, `markConsumed`); `shift/plan.ts` (`ShiftOptions.vulnHook`, one extra item on its own time stream,
+  `shiftSeedFor`); `cases/scenario.ts` (hook items built last, `ResolvedCase.vulnLink`); `campaign/campaign.ts` (history skips the
+  hook case); `vuln/scenario.ts` (`host`, `vulnId`, `sharedHost` on resolved findings); `state/profile.ts` (`vulnLedger`, entries
+  written by `recordVulnAttempt`, `startShift` options with consumption, coercion of the ledger and `activeShift.vulnHook`,
+  `moveToNewOrganisation`, recency window without linked templates); `study/scheduler.ts` (lookup resolves linked templates);
+  UI: `Home`, `Shift`, `Settings`, `protocol.ts` (session key includes the hook), the worker, `Debrief.tsx` + new
+  `ui/lib/vuln-link.ts` (link back after submit). Template (scenario-author, under PLAN's assignment):
+  `src/core/cases/templates/vuln-link.ts` (`LINKED_TEMPLATES`, outside `ALL_TEMPLATES`). Tests: `shift`, `profile`, `campaign`,
+  new `vuln-continuity`, new `tests/scenarios/vuln-link.test.ts`, `e2e/vuln.spec.ts` (3). Outside the list, reviewer sign-off on
+  each: `taxonomy/mitre.ts` (T1210 Exploitation of Remote Services, one line, coordinator); `tests/helpers/scenario-check.ts`
+  (linked templates only: truth tactics a non-empty subset of the template's); `tests/vuln-grading.test.ts` (fixture fields);
+  the coordinator's contract edits (`cases/model.ts`, `cases/scenario.ts`, `templates/index.ts`); DESIGN §8 clarification.
 
 ## WP6 — Polish
 - Goal: Help section for the mode (terms: credentialed scan, backport, compensating control, avoid vs mitigate, Sim-KEV and Sim-EPSS with their real-world equivalents per DESIGN §3.1), hint ladders, debrief copy review, stakeholder-note rubric tuning.

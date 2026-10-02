@@ -42,7 +42,7 @@ async function open(spec: OpenSpec): Promise<SessionInfo> {
     scenario = buildPracticeCase(w, spec.templateId, spec.seed);
   } else {
     const slot = spec.campaign ? campaignSlot(spec.campaign, w, spec.number) : undefined;
-    plan = planShift({ world: w, seed: spec.worldSeed, number: spec.number, budget: spec.budget, campaign: slot, recent: spec.recent });
+    plan = planShift({ world: w, seed: spec.worldSeed, number: spec.number, budget: spec.budget, campaign: slot, recent: spec.recent, vulnHook: spec.vulnHook });
     scenario = buildShift(w, plan, spec.campaign ? campaignContext(spec.campaign, w, spec.number) : undefined);
   }
   const SQL = await sql();

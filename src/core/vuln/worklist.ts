@@ -561,3 +561,16 @@ export function resolveVulnTemplate(type: VulnCaseType, seed: string): VulnTempl
   if (n === 1) return type.templates[0];
   return type.templates[createRng(`vuln-variant:${type.slug}:${seed}`).int(0, n - 1)];
 }
+
+// A seed (derived from `base`) whose twin is the given template, found like the
+// SOC `seedFor`. `types` is the case-type list (`vulnCaseTypes(VULN_TEMPLATES)`);
+// it is passed in so this file does not depend on the registry.
+export function vulnSeedFor(types: readonly VulnCaseType[], templateId: string, base: string): { slug: string; seed: string } | null {
+  const type = types.find((t) => t.templates.some((x) => x.id === templateId));
+  if (!type) return null;
+  for (let i = 0; i < 200; i++) {
+    const seed = i === 0 ? base : `${base}${i.toString(36)}`;
+    if (resolveVulnTemplate(type, seed).id === templateId) return { slug: type.slug, seed };
+  }
+  return { slug: type.slug, seed: base };
+}

@@ -6,11 +6,13 @@ import type { World } from '../world/world.ts';
 import { CorpusBuilder, recordIdOf, type Corpus } from '../logs/corpus.ts';
 import { generateNoise } from '../logs/noise/index.ts';
 import { atLocalHour, DAY, HOUR, iso, MIN, localWeekday } from '../logs/time.ts';
-import type { AlertEntity, Attachment, CaseKind, Indicators, SolutionStep, TimePreference } from './model.ts';
+import type { AlertEntity, Attachment, CaseKind, CaseSpec, CaseTemplate, Indicators, SolutionStep, TimePreference } from './model.ts';
 import type { Category, CaseReference, Difficulty, GroundTruth, RubricItem, Severity } from '../types.ts';
 import { Picker } from './picker.ts';
 import { Infra, type InfraRecord } from './infra.ts';
 import { templateById } from './templates/index.ts';
+import type { VulnHook } from '../shift/vuln-hook.ts';
+import type { VulnDecision, VulnSchedule } from '../vuln/model.ts';
 
 export interface ScenarioItem {
   alertId: string;
@@ -18,6 +20,7 @@ export interface ScenarioItem {
   seed: string;
   at: number;
   campaign?: { infra: InfraRecord; foothold?: { personId?: string; host?: string } };
+  vulnHook?: VulnHook;
 }
 
 export interface ScenarioOptions {
@@ -70,6 +73,17 @@ export interface ResolvedCase {
   explanation: string[];
   pitfalls: string[];
   references: CaseReference[];
+  // Set on the one alert a shift gets from a vulnerability case (DESIGN section 8):
+  // answer-key data for the debrief, shown only after the alert is submitted.
+  vulnLink?: VulnLink;
+}
+
+export interface VulnLink {
+  caseRef: string;
+  vulnId: string;
+  host: string;
+  decision: VulnDecision;
+  schedule: VulnSchedule;
 }
 
 export interface Scenario {
@@ -94,7 +108,14 @@ export function buildScenario(opts: ScenarioOptions): Scenario {
   const sessions = generateNoise(b, { historyFiller: opts.historyFiller ?? false });
   opts.context?.(b);
 
-  const built = opts.items.map((item) => {
+  // Items that carry a vulnerability hook are built after all the others: the
+  // builder's shared state (external addresses, ticket numbers, the corpus rng)
+  // then reaches every other item exactly as it would without them. The result
+  // stays in the order of `opts.items`.
+  const buildOrder = [...opts.items.keys()].sort((i, j) => Number(!!opts.items[i].vulnHook) - Number(!!opts.items[j].vulnHook) || i - j);
+  const builtByIndex = new Map<number, { item: ScenarioItem; template: CaseTemplate; spec: CaseSpec; infra: Infra }>();
+  for (const index of buildOrder) {
+    const item = opts.items[index];
     const template = templateById(item.templateId);
     if (!template) throw new Error(`Unknown template ${item.templateId}`);
     const crng = createRng(`${item.templateId}:${item.seed}:${world.seed}`);
@@ -110,9 +131,11 @@ export function buildScenario(opts: ScenarioOptions): Scenario {
       pick: new Picker(crng.fork('pick'), b.idx, sessions, b, item.at),
       infra,
       foothold: item.campaign?.foothold,
+      vulnHook: item.vulnHook,
     });
-    return { item, template, spec, infra };
-  });
+    builtByIndex.set(index, { item, template, spec, infra });
+  }
+  const built = opts.items.map((_, i) => builtByIndex.get(i)!);
 
   const corpus = b.finalize();
 
@@ -159,6 +182,7 @@ export function buildScenario(opts: ScenarioOptions): Scenario {
     explanation: spec.explanation,
     pitfalls: spec.pitfalls,
     references: spec.references,
+    ...(item.vulnHook ? { vulnLink: { caseRef: item.vulnHook.caseRef, vulnId: item.vulnHook.vulnId, host: item.vulnHook.host, decision: item.vulnHook.decision, schedule: item.vulnHook.schedule } } : {}),
   }));
 
   return {

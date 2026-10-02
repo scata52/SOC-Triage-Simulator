@@ -238,7 +238,9 @@ function historyOf(c: ResolvedCase, r: ShiftResult['cases'][number], shift: numb
 export function recordShift(state: CampaignState, world: World, shift: number, infra: Scenario['infra'], result: ShiftResult, campaignAlertId?: string): CampaignState {
   const next: CampaignState = JSON.parse(JSON.stringify(state)) as CampaignState;
   // Every verdict of the shift becomes history.
-  result.cases.forEach((r, i) => next.history.push(historyOf(r.case, r, shift, i)));
+  // The one alert a shift gets from a vulnerability case is not part of the
+  // campaign's story: no history entry, and the INC numbers count only the rest.
+  result.cases.filter((r) => !r.case.vulnLink).forEach((r, i) => next.history.push(historyOf(r.case, r, shift, i)));
   next.history = next.history.slice(-MAX_HISTORY);
 
   if (state.status !== 'active' || !campaignAlertId) return next;

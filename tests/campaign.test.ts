@@ -221,3 +221,74 @@ describe('campaign consequences', () => {
     expect(JSON.stringify(a.map((t) => t.after))).toBe(JSON.stringify(b.map((t) => t.after)));
   });
 });
+
+// ---------------------------------------------------------------------------
+// The vulnerability hook's alert is not part of the campaign (DESIGN section 8).
+
+describe('campaign state ignores the vulnerability hook alert', () => {
+  const HOOK = { ledgerId: 'vm-kev-internal~c1/F2@1', host: 'WEB01', vulnId: 'SIMVULN-2026-00421', decidedDay: 20000, caseRef: 'vm-kev-internal~c1', decision: 'false-positive' as const, schedule: 'none' as const, seed: 'seed:vuln:x' };
+
+  // Alert ids are positions in a shift's queue, so a hooked shift can number the campaign alert
+  // differently. Reading the state through the template behind each alert id compares the rest.
+  const normalise = (state: CampaignState, scenarios: Record<number, Scenario>): string => {
+    const named = (e: { shift: number }) => {
+      const tpl = new Map(scenarios[e.shift].cases.map((c) => [c.alertId, c.templateId]));
+      return JSON.stringify(e).replace(/\bA\d+\b/g, (id) => `<${tpl.get(id) ?? id}>`);
+    };
+    return JSON.stringify({ ...state, log: state.log.map(named), intel: state.intel.map(named) });
+  };
+
+  for (const actor of ACTORS.slice(0, 2)) {
+    for (const [name, policy] of [['missed', miss], ['contained', catchAll]] as const) {
+      it(`${actor.id}, ${name}: recordShift gives the same campaign with and without the hook alert`, () => {
+        const w = world('camp-hook');
+        let a = startCampaign(w, `hook-${actor.id}-${name}`, actor.id);
+        let b = a;
+        const seenA: Record<number, Scenario> = {};
+        const seenB: Record<number, Scenario> = {};
+        for (let shift = 0; shift < 3 && a.status === 'active'; shift++) {
+          const slot = campaignSlot(a, w, shift)!;
+          const base = { world: w, seed: 'camp-hook', number: shift, campaign: slot };
+          const planA = planShift(base);
+          const planB = planShift({ ...base, vulnHook: HOOK });
+          const ctx = campaignContext(a, w, shift);
+          const sa = buildShift(w, planA, ctx);
+          const sb = buildShift(w, planB, ctx);
+          expect(sb.cases.filter((c) => c.vulnLink)).toHaveLength(1);
+          // the same verdicts on the other alerts, matched by template; a wrong-way verdict on the hook alert
+          const verdictFor = (c: ResolvedCase, campaignAlertId?: string) => (c.vulnLink ? miss(c) : c.alertId === campaignAlertId ? policy(c) : perfectVerdict(c));
+          const subs = (s: Scenario, campaignAlertId?: string): Submission[] => s.cases.map((c, i) => ({ alertId: c.alertId, verdict: verdictFor(c, campaignAlertId), atSec: 60 * (i + 1) }));
+          const ra = scoreShift(sa.cases, subs(sa, planA.campaignAlertId));
+          const rb = scoreShift(sb.cases, subs(sb, planB.campaignAlertId));
+          expect(planB.campaignAlertId).toBeDefined();
+          const nextA = recordShift(a, w, shift, sa.infra, ra, planA.campaignAlertId);
+          const nextB = recordShift(b, w, shift, sb.infra, rb, planB.campaignAlertId);
+          seenA[shift] = sa;
+          seenB[shift] = sb;
+          expect(normalise(nextB, seenB)).toBe(normalise(nextA, seenA));
+          // no history entry for the hook alert, and the INC ids are those of the shift without it
+          expect(nextB.history.map((h) => h.id)).toEqual(nextA.history.map((h) => h.id));
+          expect(nextB.history.every((h) => h.title !== sb.cases.find((c) => c.vulnLink)!.alert.rule)).toBe(true);
+          a = nextA;
+          b = nextB;
+        }
+        expect(b.log.length).toBeGreaterThan(0);
+      });
+    }
+  }
+
+  it('skips a case that carries a vulnerability link, whatever template it is (template-independent)', () => {
+    const w = world('camp-hook-2');
+    const state = startCampaign(w, 'hook-synth');
+    const plan = planShift({ world: w, seed: 'synth', number: 0, campaign: campaignSlot(state, w, 0)! });
+    const s = buildShift(w, plan, campaignContext(state, w, 0));
+    const plain = scoreShift(s.cases, s.cases.map((c, i) => ({ alertId: c.alertId, verdict: perfectVerdict(c), atSec: 60 * (i + 1) })));
+    const extra = { ...s.cases.find((c) => c.truth.disposition !== 'true-positive')!, alertId: 'A99', vulnLink: { caseRef: HOOK.caseRef, vulnId: HOOK.vulnId, host: HOOK.host, decision: HOOK.decision, schedule: HOOK.schedule } };
+    const cases = [...s.cases, extra];
+    const withExtra = scoreShift(cases, cases.map((c, i) => ({ alertId: c.alertId, verdict: perfectVerdict(c), atSec: 60 * (i + 1) })));
+    const a = recordShift(state, w, 0, s.infra, plain, plan.campaignAlertId);
+    const b = recordShift(state, w, 0, { ...s.infra, A99: s.infra[s.cases[0].alertId] }, withExtra, plan.campaignAlertId);
+    expect(b).toEqual(a);
+    expect(b.history).toHaveLength(s.cases.length);
+  });
+});

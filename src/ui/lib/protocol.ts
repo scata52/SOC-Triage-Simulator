@@ -7,10 +7,12 @@ import type { Cell, TableName } from '../../core/logs/schema.ts';
 import type { ShiftPlan, Budget } from '../../core/shift/plan.ts';
 import type { CampaignState } from '../../core/campaign/campaign.ts';
 import type { ResolvedVulnCase } from '../../core/vuln/scenario.ts';
+import type { VulnHook } from '../../core/shift/vuln-hook.ts';
 
 export type OpenSpec =
   | { kind: 'practice'; worldSeed: string; templateId: string; seed: string }
-  | { kind: 'shift'; worldSeed: string; number: number; budget: Budget; campaign: CampaignState | null; recent: string[] }
+  // vulnHook: the continuity hook the shift took at its start (DESIGN section 8); a reload rebuilds the same shift from it.
+  | { kind: 'shift'; worldSeed: string; number: number; budget: Budget; campaign: CampaignState | null; recent: string[]; vulnHook?: VulnHook }
   // A vulnerability-management case (`vm-*` template). The session carries it
   // in `vulnCase`; `cases` stays empty.
   | { kind: 'vuln'; worldSeed: string; templateId: string; seed: string };
@@ -48,5 +50,6 @@ export type Response =
 
 export function sessionKey(spec: OpenSpec): string {
   if (spec.kind === 'vuln') return `vuln:${spec.worldSeed}:${spec.templateId}:${spec.seed}`;
-  return spec.kind === 'practice' ? `practice:${spec.worldSeed}:${spec.templateId}:${spec.seed}` : `shift:${spec.worldSeed}:${spec.number}`;
+  if (spec.kind === 'practice') return `practice:${spec.worldSeed}:${spec.templateId}:${spec.seed}`;
+  return `shift:${spec.worldSeed}:${spec.number}${spec.vulnHook ? `:vuln:${spec.vulnHook.ledgerId}` : ''}`;
 }

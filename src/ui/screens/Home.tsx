@@ -3,11 +3,13 @@ import { navigate } from '../router.ts';
 import { Icon } from '../components/Icon.tsx';
 import { Bar } from '../components/ui.tsx';
 import { rankFor, nextShiftNumber, startShift, asStudyAttempts } from '../../state/profile.ts';
-import { BUDGETS, type Budget } from '../../core/shift/plan.ts';
-import { studyPlan } from '../../core/study/scheduler.ts';
+import { BUDGETS, shiftSeedFor, type Budget } from '../../core/shift/plan.ts';
+import { selectVulnFollowUp } from '../../core/shift/vuln-hook.ts';
+import { FULL_STUDY_POOL, studyPlan } from '../../core/study/scheduler.ts';
 import { campaignSummary, nextCampaign } from '../../core/campaign/campaign.ts';
 import { ago, clock, dailySeed, plural, randomSeed } from '../lib/format.ts';
 import { ALERT_TYPES, dailyCase } from '../lib/cases.ts';
+import { templateById } from '../../core/cases/templates/index.ts';
 import { useState } from 'preact/hooks';
 import { VULN_TEMPLATES } from '../../core/vuln/registry.ts';
 import { vulnCaseTypes } from '../../core/vuln/worklist.ts';
@@ -41,7 +43,10 @@ export function beginShift(budget: Budget): void {
     if (p.activeShift) return p;
     // A campaign runs across shifts; a new one starts when the last has ended.
     const campaign = p.campaign && p.campaign.status === 'active' ? p.campaign : nextCampaign(p.campaign, world.peek(), `${p.worldSeed}:c${p.campaignsFinished.length}`);
-    return startShift({ ...p, campaign, settings: { ...p.settings, defaultBudget: budget } }, nextShiftNumber(p), budget, Date.now());
+    // A vulnerability finding left open earlier becomes one extra alert (DESIGN section 8); its ledger entry is consumed here.
+    const number = nextShiftNumber(p);
+    const vulnHook = selectVulnFollowUp(p.vulnLedger, shiftSeedFor(p.worldSeed, number));
+    return startShift({ ...p, campaign, settings: { ...p.settings, defaultBudget: budget } }, number, budget, Date.now(), { vulnHook });
   });
   navigate({ name: 'shift' });
 }
@@ -51,7 +56,7 @@ export function Home() {
   const w = world.value;
   const rank = rankFor(p.xp);
   const [budget, setBudget] = useState<Budget>(p.settings.defaultBudget);
-  const plan = studyPlan(p.cards, asStudyAttempts(p), today());
+  const plan = studyPlan(p.cards, asStudyAttempts(p), today(), { pool: FULL_STUDY_POOL });
   const recent = [...p.attempts].reverse().slice(0, 6);
   // Vulnerability attempts are listed under Recent, but the SOC first-run card and accuracy chip stay SOC-only.
   const socAttempts = p.attempts.filter((a) => a.mode !== 'vuln');
@@ -258,7 +263,7 @@ export function Home() {
                 ) : (
                 <li>
                   <Icon name={a.dispositionCorrect ? 'check' : 'x'} class={a.dispositionCorrect ? 'text-ok' : 'text-bad'} label={a.dispositionCorrect ? 'Right call' : 'Wrong call'} />
-                  <span class="recent-title">{ALERT_TYPES.find((t) => t.templates.some((x) => x.id === a.templateId))?.title ?? a.templateId}</span>
+                  <span class="recent-title">{ALERT_TYPES.find((t) => t.templates.some((x) => x.id === a.templateId))?.title ?? templateById(a.templateId)?.title ?? a.templateId}</span>
                   <span class="mono faint">{a.percent}%</span>
                   <span class="faint small">{ago(a.completedAt)}</span>
                 </li>

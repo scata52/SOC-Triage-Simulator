@@ -1,6 +1,6 @@
 # PROGRESS — Vulnerability Management
 
-Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, #6, #7 from `feat/vuln-mgmt-wp1`).
+Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, #6, #7, WP2–WP3 via PR #8).
 
 ## Done
 - **WP0 — Kickoff and progress file** (2026-09-28). Baseline on `main` @ 849adce: `npm run typecheck` ok, `npm test` 16 files / 233 tests
@@ -92,12 +92,40 @@ Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, 
   authors, e2e, 2 review rounds × 5 lenses with skeptics (37 → 24 kept, 5 blocking; 25 → 16 kept, 2 blocking), verified fixes;
   coordinator ruling on T10 key findings with a verified fix; reviewer gate PASS (first attempt), fact-checker PASS.
 
+- **WP4 — Stats and study integration** (2026-10-02). Objective skill kind (2.1–2.5, 4.1; titles verbatim from DESIGN §1) and an
+  explicit study pool: `nextStudyCase` / `studyPlan` take `pool` (default the SOC pool, so existing callers and tests behave as
+  before; the UI passes SOC + vuln). Vuln attempts review their own SRS card (keyed by template id, each twin its own card) and join
+  the study attempts; a study pick of a vuln case opens the right twin (`vulnSeedFor`, `studyRoute`). Study shows an objectives card.
+  Stats gains a "Vulnerability management" section: domain 2.0 summary (cases, passed at 70+, average), objectives 2.1–2.5, a
+  decision confusion matrix (right decision × your decision, diagonal marked in text) and the most common mix-up (only decisions
+  without full credit; a wrong control is reported separately). Tests: `study` (appended; existing tests byte-identical),
+  `profile`, `vuln-stats`, `study-route`, e2e stats/study (full axe rule set, both themes, 360/320 px). 40 files / 1,380 tests
+  (+21 opt-in), build ok, e2e 40/40. SOC identity vs HEAD: 7,200 suggestions + 80 plans, 0 mismatches (implementer and reviewer
+  probes). Process: brief with rulings R1–R8; implementer; pre-gate review 5 lenses with a skeptic per finding (10 → 7 kept, none
+  blocking); fix round (F1–F8) verified independently incl. mutations; coordinator fix (off-diagonal wrong-control); reviewer gate
+  PASS (first attempt).
+
+- **WP5 — Continuity hook (vuln → SOC)** (2026-10-02). A real must-not-miss finding the grader counts as left open (dismissed,
+  unscheduled or past its SLA) writes a ledger entry (`profile.vulnLedger`, cap 50), unless a verified control covers it, its host is
+  case-local or it has no SIMVULN id. The next shift takes the oldest entry at start (`selectVulnFollowUp`, stored on the active
+  shift, entry consumed) and gets exactly one extra alert, `endpoint-known-vuln-exploit` (`LINKED_TEMPLATES`, never picked at
+  random). The rest of the shift is unchanged: hook built last, campaign history skips it. The alert fits the host: an internet-facing
+  web server gets perimeter IPS hits, then C2 on 443 (T1190); the internal application server gets an internal unmanaged source,
+  then a w3wp → cmd → PowerShell chain and beacons (T1210, T1190 accepted). The authorised scanner trips the same signature on the
+  host and its peers, so a signature hit alone is not the answer. The debrief links back to the vuln case after submit.
+  Tests: `vuln-continuity`, `scenarios/vuln-link` (template harness with and without a hook over real hooks; end-to-end shift
+  properties; campaign equality), `shift`, `profile`, `campaign`, e2e (queue, reload, consumed entry, debrief link, axe both
+  themes, 360 px). 42 files / 1,453 tests (+21 opt-in), build ok, e2e 43/43. SOC identity vs f7c380c with no hook: 84
+  (implementer) + 90 (reviewer) plan/scenario comparisons, 0 differences; `ALL_TEMPLATES` unchanged. Process: brief checked by
+  three critics (3 blocking design defects fixed before building); author and implementer in parallel; integration; pre-gate
+  review 6 lenses with a skeptic per finding (16 → 11 kept, 2 blocking); fix rounds (engine B1–B4; template A1–A6, round 2
+  A3b/A7–A9), each verified on 250–750 real-hook shifts; coordinator wording fixes; reviewer gate PASS (first attempt);
+  fact-checker PASS-WITH-CHANGES (three wording hedges applied, reviewer delta sign-off).
+
 ## In progress
-- None. Next session starts WP4.
+- None. Next session starts WP6.
 
 ## Next
-- WP4 — Stats and study integration
-- WP5 — Continuity hook (vuln → SOC)
 - WP6 — Polish
 - WP7 — Hardening
 
@@ -399,7 +427,61 @@ Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, 
      2026-10-02 (WP3)"): T7's internal sweep and inventory-plus-failed-login confirmation (ids kept), T8's clue in DeviceInfo
      plus Tickets, T11's scheduled `avoid`, T10's mixed design (only the headline flips).
 
+- 2026-10-02 (coordinator, before WP4): session start found PLAN, PROGRESS and repo in agreement (WP0–WP3 committed and merged
+  to `main` via PR #8, 78c9078; no WP4/WP5 file); `main` clean and in sync with origin; work goes on `feat/vuln-mgmt-wp4-wp5`.
+  Baseline 38 files / 1,353 tests (+21 opt-in), build ok. No open question was left for the coordinator. This session does WP4
+  and WP5 only. WP4 rulings (acceptance readings, no human input needed):
+  1. **Study pool is an option, default SOC.** Acceptance 3 ("existing study tests unchanged") is read literally: those tests call
+     the SOC `templateById` on every suggestion and expect `plan.total = ALL_TEMPLATES.length`, so a vuln id in the default pool
+     would crash them. The UI passes the full pool everywhere (Study, Home, the SOC study "next case"), so vuln cases are in the
+     learner's study pool as DESIGN §8 says; with the SOC pool, suggestions are identical to HEAD (probed).
+  2. **Objective accuracy = share of passed cases** (70+), with the average score beside it; objectives are tagged per template,
+     not per finding, so a decision accuracy per objective does not exist. 4.1 is a study skill but not a Stats row (every vuln case
+     carries it; it would repeat the 2.0 summary).
+  3. **The SOC disposition streak stays SOC-only** ("consecutive right calls" on alerts; a vuln pass is not a disposition); the
+     study day streak counts vuln days (it counts days studied). SOC Stats sections keep reading SOC attempts only.
+  4. **The confusion matrix counts every decided finding**; the mix-up sentence counts only decisions without full credit (an
+     answer the case also accepts is not a mix-up; a mitigate with a non-covering control is reported as a control problem). Each
+     recorded decision now stores the grader's `verdict` (additive; old records fall back to "off the diagonal = mix-up").
+
+- WP5 (coordinator): the brief's first draft was checked by three critics (engine, template, DESIGN conformance) before any
+  code. Changes they forced:
+  - the hook item is built last: the builder's shared rng otherwise moved the campaign alert's attacker IPs;
+  - campaign history skips the hook case;
+  - host and vulnId reach `recordVulnAttempt` through the resolved findings: the corpus lives in the worker;
+  - case-local hosts are excluded: no noise baseline possible without changing other alerts;
+  - the trigger is the grader's own left-open set, minus findings a verified control covers. A mitigate truth followed by an
+    exploitation alert would teach that controls don't matter;
+  - entry ids are unique per attempt;
+  - consumption is a pure `startShift` transition, and the hook is persisted on the active shift for reload;
+  - the session key includes the hook;
+  - coercion validates `activeShift.vulnHook`;
+  - a world move clears the ledger.
+  Recorded in DESIGN §8 ("Clarified 2026-10-02 (WP5)").
+- WP5 acceptance (4) reading: campaign state is deep-equal with and without the hook except the alert-number labels in the log entry
+  and intel notes (A-numbers name each alert's position in that shift's queue; numbering the hook out of time order would mark
+  it as special).
+- WP5 template ATT&CK: T1190 fits only internet-facing hosts; the internal variant (exploited from an internal address) is T1210
+  Exploitation of Remote Services (lateral-movement), added to the taxonomy, with T1190 accepted. The harness's tactics equality
+  check becomes "non-empty subset" for linked templates only (the template's tactics are the union of both variants).
+- WP5 process note: in fix round 1 the scenario-author declined the two assigned files (its definition limits it to the vuln
+  template area) although it had written them under PLAN's assignment in round 0; it accepted again when the prompt quoted
+  PLAN WP5. If a later package assigns SOC-side content, quote that line.
+
 ## Known issues
+- WP5 (not blocking): in a WEB01-hooked shift that also contains `ops-authorized-pentest`, that SOC case's "no piggybacking
+  attacker" sentence and its "Anything from other sources?" query are contradicted by the hook's attacker (SOC content unchanged;
+  filtering the plan would break "plan + exactly one item"). The hook's routine-client sessions can come from a laptop that
+  another alert in the shift treats as a foothold (seen once in 756 shifts: one extra row in that case's query). The hook alert
+  is always a true positive with no twin (ADR-14 v1). Additive effects on other cases' queries (an extra Change ticket, extra
+  svc-scan logons, a one-off scan ticket next to the twin's standing approval) leave their answer keys true. A must-not-miss
+  finding left with no decision writes no ledger entry (the submit gate asks for every decision, so it cannot happen in the app).
+  CHG-STD-0007's own window can run past 18:00 although it says "business hours" (`network.ts`, pre-existing SOC content).
+  The e2e link test runs the WCAG-tag axe; the reviewer's full-rule check was clean.
+- WP4 (not blocking): at 360 px the Stats tables (objectives, matrix, SOC "By category") scroll sideways inside their focusable
+  regions now that the bars have a width (the page itself does not scroll); the Study page's own e2e runs the WCAG-tag axe only
+  (the reviewer's full-rule probe was clean); every existing vuln attempt recorded before WP4 has no card until the case is
+  worked again.
 - WP3 gate notes (not blocking): the avoid e2e test has no axe or 360 px pass (UI unchanged); `common.ts` classes the T10
   library product as 'server' in `PRODUCT_KINDS`; the T8 K5 exemption strips 5 DeviceInfo columns of the headline host; T8's
   passive version read of a vendor-hosted tenant is defensible, but some SaaS terms forbid any scanning, so WP6 may reword
@@ -430,7 +512,7 @@ Branch: `feat/vuln-mgmt-wp2-wp3` (from `main` @ bae599d; WP1 merged via PRs #4, 
   every SOC case: a human decision.
 - Vuln domain test, minor (reviewer, 2026-10-02): its bare-token file-extension list includes real TLDs (`.zip`, `.sh`, `.py`, `.md`,
   `.so`), so a bare token such as `c2.zip` would pass; URL and e-mail hosts are checked without it, and no such token occurs today.
-- WP1e follow-ups: Stats ignores vuln attempts until WP4; (the control-picker e2e with a non-empty ControlInventory landed in WP2);
+- WP1e follow-ups: (Stats and study include vuln attempts since WP4); (the control-picker e2e with a non-empty ControlInventory landed in WP2);
   the query engine still knows the six vuln tables in SOC
   sessions (empty results, a did-you-mean could name one); a "Query this finding in the console" button was dropped (WP6
   candidate); devtools on one's own profile shows the template id of an earlier attempt of the same seed; SQL mode has no
