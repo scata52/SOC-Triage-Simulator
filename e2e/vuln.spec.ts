@@ -122,7 +122,61 @@ const watchLive = (page: Page) =>
 
 const liveCount = (page: Page, text: string) => page.evaluate((t) => (window as unknown as { __live: string[] }).__live.filter((x) => x === t).length, text);
 
+// Domains in vuln data are never links (human decision 2026-10-02). Every rendered a[href] is an in-app route (#...)
+// or a documentation-citation host; no anchor's href or text contains a domain that appears in the page data.
+const CITATION_HOSTS = ['www.first.org', 'www.cisa.gov', 'www.comptia.org'];
+async function noDataLinks(page: Page, label: string): Promise<number> {
+  const r = await page.evaluate((cites) => {
+    const anchors = [...document.querySelectorAll('a')].map((a) => ({ href: a.getAttribute('href'), text: (a.textContent ?? '').toLowerCase() }));
+    const hostRe = /(?<![\w.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?![\w-])/gi;
+    // Domain-like tokens in the data on the page (everything outside anchors), minus the citation hosts.
+    const clone = document.body.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('a').forEach((a) => a.remove());
+    const data = [...new Set((clone.textContent ?? '').toLowerCase().match(hostRe) ?? [])].filter((t) => !cites.includes(t));
+    const bad: string[] = [];
+    for (const a of anchors) {
+      const href = a.href ?? '';
+      if (!href.startsWith('#')) {
+        let host = '';
+        try {
+          host = new URL(href).host;
+        } catch {
+          /* not a URL */
+        }
+        if (!cites.includes(host)) bad.push(`href ${href}`);
+      }
+      for (const d of data) if (href.toLowerCase().includes(d) || a.text.includes(d)) bad.push(`data domain ${d} in anchor ${href} "${a.text.trim()}"`);
+    }
+    return { bad, anchors: anchors.length, data: data.length };
+  }, CITATION_HOSTS);
+  expect(r.bad, `${label}: links`).toEqual([]);
+  expect(r.anchors, `${label}: has anchors`).toBeGreaterThan(0);
+  return r.data;
+}
+
 test.describe('vulnerability mode', () => {
+  test('no data domain is ever a link: library, case with query results, debrief', async ({ page }) => {
+    test.setTimeout(120_000);
+    const errors = watchErrors(page);
+    await withProfile(page);
+    await page.goto('/#/vuln');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vulnerability cases');
+    await noDataLinks(page, 'library');
+
+    await openCase(page);
+    await runQuery(page, 'DeviceInfo\n| take 20');
+    await expect(page.locator('.results-meta')).toBeVisible();
+    // The results show asset owners as user principal names, so the data really carries a domain here.
+    expect(await noDataLinks(page, 'case with results'), 'the case page shows domains in its data').toBeGreaterThan(0);
+
+    await solveAndSubmit(page);
+    await page.locator('.vd-finding').first().getByRole('button', { name: /Show the/ }).click();
+    await page.locator('.steps li').first().getByRole('button', { name: 'Run it' }).click();
+    await expect(page.locator('.steps li').first().locator('.step-result')).toBeVisible();
+    await noDataLinks(page, 'debrief');
+    expect(errors).toEqual([]);
+  });
+
   test('library: a fresh profile reaches the Home card and every tier; tier filter and labels match the SOC library', async ({ page }) => {
     const errors = watchErrors(page);
     await withProfile(page, null);

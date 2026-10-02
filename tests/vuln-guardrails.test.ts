@@ -97,20 +97,31 @@ describe('no real CVE identifiers in scenario data (DESIGN section 9)', () => {
   });
 });
 
-// WP1f acceptance 6: every domain-like token in vuln-authored generated data is a reserved name.
+// Human decision 2026-10-02 on domain names. A real registered domain (the shared world's Microsoft sample
+// namespace, e.g. contoso.com, included) may appear only in a benign, legitimate role. Any domain in an attacker
+// or malicious role must be a reserved name (.example, .test, .invalid, .localhost, example.com / .net / .org).
 //
-// Reserved: RFC 2606 / 6761 names (.example, .test, .invalid, .localhost, and example.com / .net / .org).
-// EXEMPT (explicit, pending NEEDS-HUMAN-CHECK 4 in docs/vuln-mgmt/PLAN.md): the shared world's organisation
-// domain and its subdomains (e.g. corp.<org domain>, mail addresses of its staff). The world is shared with the
-// SOC modes, so changing it would change SOC output, which stays unchanged.
-// EXEMPT, listed below: the hosts of the real documentation citations a case links (its `references`). Nothing
-// else is: a case reference to any other host fails this test.
+// Enforced as follows. A non-reserved domain is allowed only
+//   (a) in the explicit allowlist BENIGN_ORG_COLUMNS of (table, column) pairs, where the world's org domain
+//       legitimately appears in vuln data as asset or identity context (an owner, an account, a manager, a
+//       requester), or
+//   (b) in the `url` of a case reference, for a host in CITATION_HOSTS (documentation citations).
+// Every other string is reserved-only: every other column of every table, and every built-spec text (briefing,
+// attachments, hints, explanation, pitfalls, solution text, evidence label and why, rubric, reference titles).
+// So a domain in an attacker or malicious role can only be a reserved name, and the UI never links data text.
 // A bare token (not the host of a URL or of an e-mail address) is also allowed when it is a known file name or
 // extension ("report.pdf") or a world account name ("nina.quinn"), because those look like hosts.
-describe('reserved domains in generated vuln data (WP1f)', () => {
+describe('reserved domains in generated vuln data (human decision 2026-10-02)', () => {
   const RESERVED_TLDS = new Set(['example', 'test', 'invalid', 'localhost']);
   const RESERVED_NAMES = ['example.com', 'example.net', 'example.org'];
   const CITATION_HOSTS = new Set(['www.first.org', 'www.cisa.gov', 'www.comptia.org']);
+  // The benign columns, taken from the generated corpus (every cell mentioning the org domain across all vuln
+  // templates and worlds): the org domain is the company's own mail/identity namespace, never an attacker's.
+  //   IdentityInfo.AccountUpn  the user principal name of a world account (svc-monitor@<org domain>)
+  //   IdentityInfo.Manager     the manager of an account, as a UPN
+  //   DeviceInfo.Owner         the asset owner, as a UPN
+  //   Tickets.Requester        who raised a ticket, as a UPN
+  const BENIGN_ORG_COLUMNS = new Set(['IdentityInfo.AccountUpn', 'IdentityInfo.Manager', 'DeviceInfo.Owner', 'Tickets.Requester']);
   // File names and code-like tokens ("report.pdf", "Table.Column") are not domains. Bare tokens only.
   const FILE_EXTENSIONS = new Set(['pdf', 'csv', 'txt', 'exe', 'dll', 'log', 'json', 'xml', 'zip', 'msi', 'ps1', 'sh', 'conf', 'cfg', 'yml', 'yaml', 'html', 'htm', 'js', 'py', 'docx', 'xlsx', 'bak', 'sql', 'tar', 'gz', 'ini', 'bat', 'so', 'dat', 'tmp', 'md', 'png', 'jpg', 'pem', 'key', 'crt', 'tsv']);
   const TOKEN = /(?<![\w.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?![\w-])/gi;
@@ -134,11 +145,22 @@ describe('reserved domains in generated vuln data (WP1f)', () => {
     return names;
   }
 
-  function violations(text: string, orgDomain: string, accounts: ReadonlySet<string> = new Set()): string[] {
-    const org = orgDomain.toLowerCase();
+  // What a string may carry besides reserved names: the world org domain (benign column) and/or citation hosts.
+  interface Allow {
+    org?: string;
+    citations?: boolean;
+  }
+
+  function violations(text: string, allow: Allow = {}, accounts: ReadonlySet<string> = new Set()): string[] {
+    const org = allow.org?.toLowerCase();
     const allowedHost = (host: string): boolean => {
       const tld = host.slice(host.lastIndexOf('.') + 1);
-      return RESERVED_TLDS.has(tld) || RESERVED_NAMES.some((r) => host === r || host.endsWith('.' + r)) || host === org || host.endsWith('.' + org) || CITATION_HOSTS.has(host);
+      return (
+        RESERVED_TLDS.has(tld) ||
+        RESERVED_NAMES.some((r) => host === r || host.endsWith('.' + r)) ||
+        (org !== undefined && (host === org || host.endsWith('.' + org))) ||
+        (allow.citations === true && CITATION_HOSTS.has(host))
+      );
     };
     const bad = new Set<string>();
     // Hosts of URLs and e-mail addresses: no file-extension or account-name exception.
@@ -155,31 +177,106 @@ describe('reserved domains in generated vuln data (WP1f)', () => {
     return [...bad].sort();
   }
 
+  // The checker for a built scenario. Corpus cells: reserved names only, except the org domain in a benign column.
+  // Spec text: reserved names only, except the citation hosts in a reference url.
+  type Tables = Record<string, { columns: string[]; rows: unknown[][] }>;
+
+  function corpusViolations(tables: Tables, orgDomain: string, accounts: ReadonlySet<string>): { found: string[]; cells: number; orgCells: number } {
+    const found: string[] = [];
+    let cells = 0;
+    let orgCells = 0;
+    for (const [table, tb] of Object.entries(tables))
+      tb.columns.forEach((column, ci) => {
+        const key = `${table}.${column}`;
+        const benign = BENIGN_ORG_COLUMNS.has(key);
+        for (const row of tb.rows) {
+          const cell = row[ci];
+          if (typeof cell !== 'string') continue;
+          cells++;
+          if (benign && cell.toLowerCase().includes(orgDomain.toLowerCase())) orgCells++;
+          for (const d of violations(cell, benign ? { org: orgDomain } : {}, accounts)) found.push(`${key}: ${d}`);
+        }
+      });
+    return { found, cells, orgCells };
+  }
+
+  function specViolations(c: { references: { label: string; url: string }[] }, accounts: ReadonlySet<string>): { found: string[]; strings: number } {
+    const found: string[] = [];
+    const { references, ...rest } = c as { references: { label: string; url: string }[] } & Record<string, unknown>;
+    const texts = strings(rest);
+    for (const text of texts) for (const d of violations(text, {}, accounts)) found.push(`spec: ${d}`);
+    for (const r of references) {
+      for (const d of violations(r.label, {}, accounts)) found.push(`reference label: ${d}`);
+      for (const d of violations(r.url, { citations: true }, accounts)) found.push(`reference url: ${d}`);
+    }
+    return { found, strings: texts.length + references.length * 2 };
+  }
+
   it('the scanner flags real-looking domains and accepts reserved ones', () => {
     const org = 'acme-corp.example';
-    expect(violations('see https://evil.com/x and bob@mail.contoso.net', org)).toEqual(['evil.com', 'mail.contoso.net']);
-    for (const ok of ['https://a.example/x', 'host.corp.test', 'x@y.invalid', 'svc.localhost', 'www.example.com', 'mail.example.org', 'corp.' + org, 'u@' + org, 'report.pdf', 'v1.2.3']) expect(violations(ok, org), ok).toEqual([]);
+    expect(violations('see https://evil.com/x and bob@mail.contoso.net')).toEqual(['evil.com', 'mail.contoso.net']);
+    for (const ok of ['https://a.example/x', 'host.corp.test', 'x@y.invalid', 'svc.localhost', 'www.example.com', 'mail.example.org', 'report.pdf', 'v1.2.3']) expect(violations(ok), ok).toEqual([]);
+    // The org domain is allowed only when the caller grants it (a benign column).
+    for (const ok of ['corp.' + org, 'u@' + org]) expect(violations(ok, { org }), ok).toEqual([]);
+    expect(violations('u@wideworldimporters.com')).toEqual(['wideworldimporters.com']);
+    expect(violations('u@wideworldimporters.com', { org: 'wideworldimporters.com' })).toEqual([]);
+    expect(violations('u@wideworldimporters.com', { org: 'other-corp.zz' })).toEqual(['wideworldimporters.com']);
   });
 
   it('the file-extension exception is for bare tokens only; account names and citation hosts are explicit', () => {
-    const org = 'acme-corp.example';
     // A URL or e-mail host is never excused by its last label, even when that label is a file extension.
-    expect(violations('fetch https://evil.sh/x and https://files.pdf/a and bob@mail.py', org)).toEqual(['evil.sh', 'files.pdf', 'mail.py']);
+    expect(violations('fetch https://evil.sh/x and https://files.pdf/a and bob@mail.py')).toEqual(['evil.sh', 'files.pdf', 'mail.py']);
     // A bare token with any non-reserved last label is flagged, a real top-level domain or not.
-    expect(violations('connect to payments.zzz or pay.vendor', org)).toEqual(['pay.vendor', 'payments.zzz']);
-    expect(violations('run installer.exe, read notes.txt', org)).toEqual([]);
+    expect(violations('connect to payments.zzz or pay.vendor')).toEqual(['pay.vendor', 'payments.zzz']);
+    expect(violations('run installer.exe, read notes.txt')).toEqual([]);
     // World account names are bare tokens that look like hosts.
-    expect(violations('owner nina.quinn', org)).toEqual(['nina.quinn']);
-    expect(violations('owner nina.quinn', org, new Set(['nina.quinn']))).toEqual([]);
-    // Citation hosts are exact: a look-alike is a violation.
-    expect(violations('https://www.first.org/epss/ https://www.cisa.gov/x https://www.comptia.org/en-us/', org)).toEqual([]);
-    expect(violations('https://www.first.org.evil.com/epss/ https://cisa.gov/x', org)).toEqual(['cisa.gov', 'www.first.org.evil.com']);
+    expect(violations('owner nina.quinn')).toEqual(['nina.quinn']);
+    expect(violations('owner nina.quinn', {}, new Set(['nina.quinn']))).toEqual([]);
+    // Citation hosts are exact and only where granted: a look-alike is a violation.
+    const cites = 'https://www.first.org/epss/ https://www.cisa.gov/x https://www.comptia.org/en-us/';
+    expect(violations(cites, { citations: true })).toEqual([]);
+    expect(violations(cites)).toEqual(['www.cisa.gov', 'www.comptia.org', 'www.first.org']);
+    expect(violations('https://www.first.org.evil.com/epss/ https://cisa.gov/x', { citations: true })).toEqual(['cisa.gov', 'www.first.org.evil.com']);
   });
 
-  it('every string of every vuln corpus table and built spec, references included, uses reserved names, the world org domain or a listed citation host', async () => {
+  it('the checker reports a non-reserved domain in a non-benign column and in spec text, and accepts the benign ones', () => {
+    const org = 'wideworldimporters.com';
+    const none = new Set<string>(['lena.haas']);
+    const tables: Tables = {
+      DeviceInfo: { columns: ['DeviceName', 'Owner', 'Notes'], rows: [['ws-01', 'lena.haas@' + org, 'ok'], ['ws-02', 'x@y.test', 'beacon to c2.' + org]] },
+      DnsEvents: { columns: ['QueryName'], rows: [['update.' + org], ['lure.example']] },
+      IdentityInfo: { columns: ['AccountUpn', 'Manager', 'Department'], rows: [['a@' + org, 'b@' + org, 'mail.' + org]] },
+    };
+    // The same org domain is fine in DeviceInfo.Owner and IdentityInfo.AccountUpn / Manager, and nowhere else.
+    const c = corpusViolations(tables, org, none);
+    expect(c.found).toEqual(['DeviceInfo.Notes: c2.' + org, 'DnsEvents.QueryName: update.' + org, 'IdentityInfo.Department: mail.' + org]);
+    expect(c.orgCells).toBe(3);
+    // A real registered domain in a benign column is still only allowed if it is the world's org domain.
+    expect(corpusViolations({ DeviceInfo: { columns: ['Owner'], rows: [['a@evil.com']] } }, org, none).found).toEqual(['DeviceInfo.Owner: evil.com']);
+    // Spec text: the org domain is reported too, as is a reference label or a look-alike citation host.
+    const spec = {
+      briefing: 'Beacons to https://c2.' + org + '/a and to https://c2.bad.test/b.',
+      hints: ['See portal.contoso.com'],
+      references: [
+        { label: 'FIRST EPSS', url: 'https://www.first.org/epss/' },
+        { label: 'portal.' + org, url: 'https://www.first.org.evil.com/' },
+      ],
+    };
+    expect(specViolations(spec, none).found).toEqual([
+      'spec: c2.' + org,
+      'spec: portal.contoso.com',
+      'reference label: portal.' + org,
+      'reference url: www.first.org.evil.com',
+    ]);
+    const clean = { ...spec, briefing: 'ok', hints: [], references: [spec.references[0]] };
+    expect(specViolations(clean, none).found).toEqual([]);
+  });
+
+  it('every vuln template, over the standard runs: corpus cells are reserved except the benign org columns, spec text is reserved except citation urls', () => {
     const found: string[] = [];
-    let scanned = 0;
-    let withOrg = 0;
+    let cells = 0;
+    let specStrings = 0;
+    let orgCells = 0;
     let citations = 0;
     for (const template of VULN_TEMPLATES)
       for (const run of vulnRuns()) {
@@ -187,16 +284,17 @@ describe('reserved domains in generated vuln data (WP1f)', () => {
         const accounts = accountNames(w);
         const s = buildFor(template, w, run.seed);
         const label = `${template.id} ${run.world}/${run.seed}`;
-        const cells = Object.values(s.corpus.tables).flatMap((tb) => tb.rows.flatMap((row) => row.filter((c): c is string => typeof c === 'string')));
-        const texts = [...cells, ...strings(s.case)];
-        scanned += texts.length;
+        const c = corpusViolations(s.corpus.tables, w.org.domain, accounts);
+        const sp = specViolations(s.case, accounts);
+        cells += c.cells;
+        orgCells += c.orgCells;
+        specStrings += sp.strings;
         citations += s.case.references.length;
-        if (texts.some((x) => x.toLowerCase().includes(w.org.domain.toLowerCase()))) withOrg++;
-        for (const text of texts) for (const d of violations(text, w.org.domain, accounts)) found.push(`${label}: ${d}`);
+        for (const d of [...c.found, ...sp.found]) found.push(`${label}: ${d}`);
       }
-    expect(scanned).toBeGreaterThan(1000);
+    expect(cells + specStrings).toBeGreaterThan(1000);
     expect(citations, 'the citation hosts are exercised').toBeGreaterThan(0);
-    expect(withOrg, 'the org-domain exemption is exercised').toBeGreaterThan(0);
+    expect(orgCells, 'the benign org-domain columns are exercised').toBeGreaterThan(0);
     expect([...new Set(found)].slice(0, 40)).toEqual([]);
   }, 60_000);
 });

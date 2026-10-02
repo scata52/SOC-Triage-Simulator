@@ -26,7 +26,8 @@ objectives (scanning methods; tool output; prioritize *and* mitigate; control ty
 objectives PDF was not retrievable, so no CS0-004 numbering is used here (see PLAN NEEDS-HUMAN-CHECK). Objective tags are template data,
 so a later remap changes tags and labels only.
 
-Titles below are verbatim from the CS0-003 PDF. "Enrichment" marks goals the mode teaches beyond the objective's wording.
+Titles below are verbatim from the CS0-003 PDF (checked by hand against the official PDF by the human, 2026-10-02; the
+fact-checker could not read the encrypted file in WP1f). "Enrichment" marks goals the mode teaches beyond the objective's wording.
 
 | Obj | Official title | Goals in this mode | Where trained |
 |---|---|---|---|
@@ -448,9 +449,17 @@ Decision (2026-09-28): **fictional only for v1; no real-vulnerability reference 
 6. Design-time calibration (§11) uses public feeds for aggregate statistics only; raw data stays out of the repo; nothing is fetched
    at build or run time.
 7. Everything works offline as a static site. Any backend stays optional and additive.
-8. CS0-003 objective mapping (§1) and CVSS test oracles (§6.2) were verified against primary sources on 2026-09-28; re-verify when
-   the target exam version changes. Open items: NEEDS-HUMAN-CHECK list in PLAN.md.
+8. CS0-003 objective mapping (§1) and CVSS test oracles (§6.2) were verified against primary sources on 2026-09-28 (objective titles
+   again by hand by the human on 2026-10-02); re-verify when the target exam version changes. Open items: NEEDS-HUMAN-CHECK list in
+   PLAN.md.
 9. The fact-checker agent may veto any scenario violating rules 1–5.
+10. **Domain names (human decision 2026-10-02).** Real registered domains (including Microsoft's sample namespaces such as
+    `contoso.com`, which the shared world uses for the organisation) and real service domains may appear only in benign or
+    legitimate roles. Any domain in an attacker or malicious role is a reserved name (`.example`, `.test`, `.invalid`) or otherwise
+    guaranteed unregistered, and is never rendered as a clickable link. Documentation citations (case `references`) are the second
+    exception. `tests/vuln-guardrails.test.ts` enforces this for vuln-mode data (real domains only in allowlisted benign columns,
+    reserved names everywhere else) and `e2e/vuln.spec.ts` checks that vuln screens link only in-app routes and citation hosts. SOC
+    data is outside this test; its attacker-role domains were checked and reported (PROGRESS Known issues), not changed.
 
 ## 10. Non-goals and risks
 Non-goals: real scanner file import (Nessus/Qualys XML); CVSS v4.0 calculator; live feeds; i18n; backend; editing existing SOC
