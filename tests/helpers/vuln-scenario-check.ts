@@ -57,6 +57,11 @@ export function checkVulnCorpus(corpus: Corpus, label: string): void {
     expect(Number(row[ra('AuthFailures')]) <= Number(row[ra('TargetsScanned')]), `${id} failures <= scanned`).toBe(true);
     expect(String(row[ra('Finished')]) > String(row[ra('Started')]), `${id} finished after started`).toBe(true);
   }
+  // A host's address is its own: unique among the non-empty DeviceInfo values, and never one of the organisation's egress addresses (NamedLocations).
+  const deviceIps = column(corpus, 'DeviceInfo', 'IPAddress').filter((ip) => ip !== '');
+  expect(new Set(deviceIps).size, `${label}: DeviceInfo addresses unique`).toBe(deviceIps.length);
+  const egress = new Set(column(corpus, 'NamedLocations', 'IPAddress'));
+  for (const ip of deviceIps) expect(egress.has(ip), `${label}: DeviceInfo address ${ip} is a NamedLocations egress address`).toBe(false);
   for (const d of column(corpus, 'SoftwareInventory', 'DeviceName')) expect(devices.has(d), `${label}: inventory device ${d}`).toBe(true);
   for (const d of column(corpus, 'PatchHistory', 'DeviceName')) expect(devices.has(d), `${label}: patch device ${d}`).toBe(true);
   for (const id of column(corpus, 'ControlInventory', 'CoversVulnId')) if (id !== '') expect(isSimVulnId(id), `${label}: control covers ${id}`).toBe(true);

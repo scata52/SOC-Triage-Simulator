@@ -165,6 +165,38 @@ Each pair: same `title`, same headline finding and base score; one clue differs.
 T1–T8 satisfy the "≥ 8 pairs" requirement; T9–T10 are ordering/triage twins for tier 2–3; T11 covers the "avoid" principle of 2.5.
 WP1 slice uses **T3** (cleanest signal, exercises the intel table and scheduling).
 
+Clarified 2026-10-02 (WP2, coordinator): the org policy (shared attachment) gains two rows. *Severity class* comes from the
+base score in the scan store (an environmental score does not change the class). *Compensating control*: a control that
+blocks the vulnerable path (ControlInventory, block mode, covering this vulnerability on this host; FirewallLogs or the WAF's
+own records confirm it) satisfies the deadline only while in effect and ends when the permanent fix is deployed; the finding is
+recorded as `mitigate` naming the control, scheduled for the window of the permanent fix (the next window); no vendor fix →
+risk exception. This is what makes T4-B and T5-A ("mitigate → patch next-window") derivable from written policy, since twins
+share the headline's FirstSeen. T4: the deciding clue is the ACL's mode and its log confirmation (block + management-VLAN-only
+traffic in B; detect-only + allowed internet sessions in A); exposure is corroborating context (`internet-exposed` in A).
+`patch` is not accepted on a mitigate twin (A's emergency patch would otherwise be a one-step slip there and pass). T5: both
+twins use a calendar in which a freeze runs from the case date and the next window is the first after it (template-local;
+other cases keep the standard calendar); B's WAF rule is the same rule in detect mode. T1-B / T2-B mirror the sibling host:
+the A side's real sibling becomes the B side's false positive (backported / stale), so each twin keeps one false positive and
+one real finding on the two look-alike hosts and the same row counts; the headline is still the twin finding.
+
+Clarified 2026-10-02 (WP3, coordinator): rules a twin pair alone needs are template-local policy rows, identical in both twins
+(`policyAttachments` extra rows): T6 *No vendor fix* (put the system behind a covering control by the deadline, record
+`mitigate` naming it, raise a risk exception), T8 *Vendor-operated service* (record `transfer`, track the vendor's committed
+date, verify; never test vendor systems without written permission), T11 *Unused component*, T10 *Duplicate detections* and
+*Asset tier*. As built: T6-B names the OT isolation ACL whose scope does not yet include the host (a control to apply, not one
+in effect). T7's sweep is internal, not external (the credentialed run must reach the hosts, and exposed hosts carry no
+background rows), and B is confirmed by SoftwareInventory at the vulnerable release plus a failed credentialed login on that
+host: the scan store keeps one row per finding, so a credentialed confirmation row cannot sit beside the shared headline row;
+`credentialed-confirmed` contradicts on B; T7 mirrors two look-alike hosts as T1/T2 do (ids kept as proposed). T8's finding is
+an external unauthenticated version read of the organisation's own public hostnames; the clue is DeviceInfo (vendor-hosted,
+unmanaged) plus Tickets (subscription vs installation record). T11's `avoid` truth is a scheduled change (removal), tiered like a
+patch; the clue is FirewallLogs (no session to the console's port over at least twice the longest documented business cycle)
+plus the owner's ticket. T10's duplicate detections are true positives closed as duplicates (`false-positive` +
+`duplicate-root-cause`, the only enum fit; case text says the vulnerability is real and fixed once); per-service rows either link
+the system package or bundle their own copy, and only the headline's usage flips between the twins; T9 sits inside both T10
+twins (human decision 2026-10-02), its order derived from the Asset tier row, which moves a deadline one class and never the
+severity class.
+
 ## 5. Grading model (100 points per vuln case)
 Decision: **new grader `gradeVulnCase` in `src/core/vuln/grade.ts`**, reusing the ordinal-partial-credit helper,
 evidence pin scoring (any row satisfies a point), hint penalty, `DIFFICULTY_MULTIPLIER`, and the shift nDCG function.
@@ -294,7 +326,7 @@ scheduled later than its SLA allows."). Perfect = 100 and empty = 0 are unchange
 only the lesson finding wrong passed every slice template (76–97), and no weighting fixes that at tier-3 size; a cap holds
 whatever the case size, weights or number of deciders, and a late or dismissed Sim-KEV finding stays decisive in large cases.
 
-Template authors: flag only the finding(s) the lesson text names (keep it to 1–3); set `slaLatest` on every real key finding;
+Template authors: flag only the finding(s) the lesson text names (keep it to 1–3 at tiers 1–2; at tier 3 flag every finding the lesson names and every decider or decoy whose lone dismissal must fail, since one dismissed finding among 15–25 otherwise costs about 5 points, at most half the case; such a finding then also gates a two-step over-reaction, e.g. an emergency change for a standard-cycle finding, which on the T9 developer-box Critical is the very misconception — clarified in WP3); set `slaLatest` on every real key finding;
 put every decision that should pass on a key finding into `alsoAccept` (near misses fail the gate); make twin lesson findings
 differ by decision, by two or more steps, or across the SLA (a one-step difference within the SLA, an emergency change for a
 next-window finding included, is a slip and is not caught; the hardening S2 test fails such a pair).

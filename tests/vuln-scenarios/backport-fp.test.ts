@@ -4,7 +4,7 @@
 import { expect, it } from 'vitest';
 import type { Corpus } from '../../src/core/logs/corpus.ts';
 import { generateCatalogue } from '../../src/core/vuln/catalogue.ts';
-import { backportFp } from '../../src/core/vuln/templates/backport-fp.ts';
+import { backportFp, backportReal } from '../../src/core/vuln/templates/backport-fp.ts';
 import { world } from '../helpers/scenario-check.ts';
 import { buildFor, vulnRuns } from '../helpers/vuln-scenario-check.ts';
 
@@ -91,4 +91,26 @@ it('the web server product shares no word with a catalogue product; the banner-o
   const banner = head.evidence.find((e) => e.id === 'banner-only-scan')!;
   const headRow = rows(c, 'VulnFindings').find((r) => r.FindingId === head.findingId)!;
   expect(banner.recordIds).toContain(String(headRow.RecordId));
+}, 600_000);
+
+it('vm-backport-real: the source-built headline is real, dated before first detection, and its evidence cites the clue rows', () => {
+  for (const run of vulnRuns(20, 20)) {
+    const b = buildFor(backportReal, world(run.world), run.seed);
+    const c = b.corpus as Corpus;
+    const label = `${run.world}/${run.seed}`;
+    const head = b.case.findings[0];
+    const hf = rows(c, 'VulnFindings').find((r) => r.FindingId === head.findingId)!;
+    const soft = rows(c, 'SoftwareInventory').find((r) => r.DeviceName === hf.DeviceName && r.Product === 'Dunmarrow httpd')!;
+    expect(soft.PackageSource, label).toBe('source-built');
+    expect(soft.Version, label).toBe(hf.DetectedVersion);
+    expect(head.truth, label).toMatchObject({ decision: 'patch', schedule: 'emergency', slaLatest: 'emergency' });
+    expect(head.truth.contradicting, label).toContain('backported-fix');
+    expect(head.truth.reasons, label).not.toContain('backported-fix');
+    const ids = head.evidence.flatMap((e) => e.recordIds);
+    expect(ids, label).toContain(String(soft.RecordId));
+    expect(ids, label).toContain(String(hf.RecordId));
+    expect(b.case.tiers[1], `${label}: the headline is the one real emergency among the web servers`).toEqual([head.findingId]);
+    expect(b.case.findings[1].truth.decision, `${label}: the sibling is the backported false positive`).toBe('false-positive');
+    expect(b.case.findings.length, label).toBe(buildFor(backportFp, world(run.world), run.seed).case.findings.length);
+  }
 }, 600_000);

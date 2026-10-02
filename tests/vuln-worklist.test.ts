@@ -571,8 +571,14 @@ describe('case types', () => {
       seen.add(a.id);
     }
     expect(seen.size).toBe(2);
-    const single = types.find((t) => t.templates.length === 1)!;
+    // A one-template type is built from a one-element list: the registry no longer holds one.
+    const single = vulnCaseTypes([VULN_TEMPLATES[0]])[0];
+    expect(single.templates).toHaveLength(1);
     expect(resolveVulnTemplate(single, 'any')).toBe(single.templates[0]);
+  });
+
+  it('every registered case type is a twin pair', () => {
+    for (const t of types) expect(t.templates, t.slug).toHaveLength(2);
   });
 });
 

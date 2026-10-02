@@ -28,8 +28,10 @@ import {
   simEpssPercentileRank,
   simEpssScoreAt,
   type CatalogueBand,
+  type CatalogueEntry,
   type VulnCatalogue,
 } from '../src/core/vuln/catalogue.ts';
+import { placedOn } from '../src/core/vuln/templates/common.ts';
 
 const REF = Date.UTC(2026, 8, 28);
 const SEEDS = Array.from({ length: 24 }, (_, i) => `cat-seed-${i}`);
@@ -103,7 +105,18 @@ describe('Sim-KEV listing dates and vendor names', () => {
   });
   it('uses none of the names that collide with real vendors (fact-check 2026-09-29)', () => {
     for (const c of catalogues)
-      for (const e of c.entries) expect(`${e.vendor} ${e.product} ${e.title}`).not.toMatch(/fenwick|northmere/i);
+      for (const e of c.entries) expect(`${e.vendor} ${e.product} ${e.title}`).not.toMatch(/fenwick|northmere|quillon|larkfield/i);
+  });
+  it('a re-branded (placed) entry carries the vendor the catalogue gives that product, so a rename in one list cannot drift from the other', () => {
+    const entries = catalogues[0].entries;
+    for (const { product, vendor } of PRODUCTS) {
+      const source = entries.find((e) => e.product !== product);
+      expect(source).toBeDefined();
+      const placed = placedOn(source as CatalogueEntry, 'ANY-HOST', createRng('vendor-agreement'), new Set(), [product]);
+      expect(placed, product).not.toBeNull();
+      expect(placed?.product).toBe(product);
+      expect(placed?.vendor, product).toBe(vendor);
+    }
   });
 });
 
