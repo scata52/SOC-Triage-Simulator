@@ -142,6 +142,19 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 - Owner: implementer (engine) + scenario-author (template body, inside a new file coordinated by the coordinator since it lives under `src/core/cases/templates/`). Deps: WP4.
 - Acceptance: (1) deterministic injection given ledger + seed; (2) no injection with empty ledger (existing shift tests unchanged); (3) at most one injected alert per shift and a consumed entry never re-injects; (4) campaign state untouched by the injection; (5) template passes SOC scenario harness; (6) ledger coerces from old profiles.
 - Tests: `tests/shift.test.ts`, new `tests/scenarios/vuln-link.test.ts`.
+- As built (2026-10-02): new `src/core/shift/vuln-hook.ts` (ledger types, entry rule, cap/trim, coercion validators,
+  `selectVulnFollowUp`, `markConsumed`); `shift/plan.ts` (`ShiftOptions.vulnHook`, one extra item on its own time stream,
+  `shiftSeedFor`); `cases/scenario.ts` (hook items built last, `ResolvedCase.vulnLink`); `campaign/campaign.ts` (history skips the
+  hook case); `vuln/scenario.ts` (`host`, `vulnId`, `sharedHost` on resolved findings); `state/profile.ts` (`vulnLedger`, entries
+  written by `recordVulnAttempt`, `startShift` options with consumption, coercion of the ledger and `activeShift.vulnHook`,
+  `moveToNewOrganisation`, recency window without linked templates); `study/scheduler.ts` (lookup resolves linked templates);
+  UI: `Home`, `Shift`, `Settings`, `protocol.ts` (session key includes the hook), the worker, `Debrief.tsx` + new
+  `ui/lib/vuln-link.ts` (link back after submit). Template (scenario-author, under PLAN's assignment):
+  `src/core/cases/templates/vuln-link.ts` (`LINKED_TEMPLATES`, outside `ALL_TEMPLATES`). Tests: `shift`, `profile`, `campaign`,
+  new `vuln-continuity`, new `tests/scenarios/vuln-link.test.ts`, `e2e/vuln.spec.ts` (3). Outside the list, reviewer sign-off on
+  each: `taxonomy/mitre.ts` (T1210 Exploitation of Remote Services, one line, coordinator); `tests/helpers/scenario-check.ts`
+  (linked templates only: truth tactics a non-empty subset of the template's); `tests/vuln-grading.test.ts` (fixture fields);
+  the coordinator's contract edits (`cases/model.ts`, `cases/scenario.ts`, `templates/index.ts`); DESIGN §8 clarification.
 
 ## WP6 — Polish
 - Goal: Help section for the mode (terms: credentialed scan, backport, compensating control, avoid vs mitigate, Sim-KEV and Sim-EPSS with their real-world equivalents per DESIGN §3.1), hint ladders, debrief copy review, stakeholder-note rubric tuning.

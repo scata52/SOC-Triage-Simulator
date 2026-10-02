@@ -105,8 +105,25 @@ Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, 
   blocking); fix round (F1–F8) verified independently incl. mutations; coordinator fix (off-diagonal wrong-control); reviewer gate
   PASS (first attempt).
 
+- **WP5 — Continuity hook (vuln → SOC)** (2026-10-02). A real must-not-miss finding the grader counts as left open (dismissed,
+  unscheduled or past its SLA) writes a ledger entry (`profile.vulnLedger`, cap 50), unless a verified control covers it, its host is
+  case-local or it has no SIMVULN id. The next shift takes the oldest entry at start (`selectVulnFollowUp`, stored on the active
+  shift, entry consumed) and gets exactly one extra alert, `endpoint-known-vuln-exploit` (`LINKED_TEMPLATES`, never picked at
+  random). The rest of the shift is unchanged: hook built last, campaign history skips it. The alert fits the host: an internet-facing
+  web server gets perimeter IPS hits, then C2 on 443 (T1190); the internal application server gets an internal unmanaged source,
+  then a w3wp → cmd → PowerShell chain and beacons (T1210, T1190 accepted). The authorised scanner trips the same signature on the
+  host and its peers, so a signature hit alone is not the answer. The debrief links back to the vuln case after submit.
+  Tests: `vuln-continuity`, `scenarios/vuln-link` (template harness with and without a hook over real hooks; end-to-end shift
+  properties; campaign equality), `shift`, `profile`, `campaign`, e2e (queue, reload, consumed entry, debrief link, axe both
+  themes, 360 px). 42 files / 1,453 tests (+21 opt-in), build ok, e2e 43/43. SOC identity vs f7c380c with no hook: 84
+  (implementer) + 90 (reviewer) plan/scenario comparisons, 0 differences; `ALL_TEMPLATES` unchanged. Process: brief checked by
+  three critics (3 blocking design defects fixed before building); author and implementer in parallel; integration; pre-gate
+  review 6 lenses with a skeptic per finding (16 → 11 kept, 2 blocking); fix rounds (engine B1–B4; template A1–A6, round 2
+  A3b/A7–A9), each verified on 250–750 real-hook shifts; coordinator wording fixes; reviewer gate PASS (first attempt);
+  fact-checker PASS-WITH-CHANGES (three wording hedges applied, reviewer delta sign-off).
+
 ## In progress
-- WP5 — Continuity hook (vuln → SOC): brief written and checked by three critics (rev 2); build next.
+- None. Next session starts WP6.
 
 ## Next
 - WP6 — Polish
@@ -427,7 +444,40 @@ Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, 
      answer the case also accepts is not a mix-up; a mitigate with a non-covering control is reported as a control problem). Each
      recorded decision now stores the grader's `verdict` (additive; old records fall back to "off the diagonal = mix-up").
 
+- WP5 (coordinator): the brief's first draft was checked by three critics (engine, template, DESIGN conformance) before any
+  code. Changes they forced:
+  - the hook item is built last: the builder's shared rng otherwise moved the campaign alert's attacker IPs;
+  - campaign history skips the hook case;
+  - host and vulnId reach `recordVulnAttempt` through the resolved findings: the corpus lives in the worker;
+  - case-local hosts are excluded: no noise baseline possible without changing other alerts;
+  - the trigger is the grader's own left-open set, minus findings a verified control covers. A mitigate truth followed by an
+    exploitation alert would teach that controls don't matter;
+  - entry ids are unique per attempt;
+  - consumption is a pure `startShift` transition, and the hook is persisted on the active shift for reload;
+  - the session key includes the hook;
+  - coercion validates `activeShift.vulnHook`;
+  - a world move clears the ledger.
+  Recorded in DESIGN §8 ("Clarified 2026-10-02 (WP5)").
+- WP5 acceptance (4) reading: campaign state is deep-equal with and without the hook except the alert-number labels in the log entry
+  and intel notes (A-numbers name each alert's position in that shift's queue; numbering the hook out of time order would mark
+  it as special).
+- WP5 template ATT&CK: T1190 fits only internet-facing hosts; the internal variant (exploited from an internal address) is T1210
+  Exploitation of Remote Services (lateral-movement), added to the taxonomy, with T1190 accepted. The harness's tactics equality
+  check becomes "non-empty subset" for linked templates only (the template's tactics are the union of both variants).
+- WP5 process note: in fix round 1 the scenario-author declined the two assigned files (its definition limits it to the vuln
+  template area) although it had written them under PLAN's assignment in round 0; it accepted again when the prompt quoted
+  PLAN WP5. If a later package assigns SOC-side content, quote that line.
+
 ## Known issues
+- WP5 (not blocking): in a WEB01-hooked shift that also contains `ops-authorized-pentest`, that SOC case's "no piggybacking
+  attacker" sentence and its "Anything from other sources?" query are contradicted by the hook's attacker (SOC content unchanged;
+  filtering the plan would break "plan + exactly one item"). The hook's routine-client sessions can come from a laptop that
+  another alert in the shift treats as a foothold (seen once in 756 shifts: one extra row in that case's query). The hook alert
+  is always a true positive with no twin (ADR-14 v1). Additive effects on other cases' queries (an extra Change ticket, extra
+  svc-scan logons, a one-off scan ticket next to the twin's standing approval) leave their answer keys true. A must-not-miss
+  finding left with no decision writes no ledger entry (the submit gate asks for every decision, so it cannot happen in the app).
+  CHG-STD-0007's own window can run past 18:00 although it says "business hours" (`network.ts`, pre-existing SOC content).
+  The e2e link test runs the WCAG-tag axe; the reviewer's full-rule check was clean.
 - WP4 (not blocking): at 360 px the Stats tables (objectives, matrix, SOC "By category") scroll sideways inside their focusable
   regions now that the bars have a width (the page itself does not scroll); the Study page's own e2e runs the WCAG-tag axe only
   (the reviewer's full-rule probe was clean); every existing vuln attempt recorded before WP4 has no card until the case is

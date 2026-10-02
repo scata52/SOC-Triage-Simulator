@@ -7,7 +7,7 @@
 import { expect } from 'vitest';
 import { generateWorld, type World } from '../../src/core/world/world.ts';
 import { buildPracticeCase, type ResolvedCase, type Scenario } from '../../src/core/cases/scenario.ts';
-import { templateById } from '../../src/core/cases/templates/index.ts';
+import { LINKED_TEMPLATES, templateById } from '../../src/core/cases/templates/index.ts';
 import { technique } from '../../src/core/taxonomy/mitre.ts';
 import { cysaDomain } from '../../src/core/taxonomy/cysa.ts';
 import { SiemDatabase } from '../../src/core/query/engine.ts';
@@ -45,7 +45,11 @@ export function checkStructure(c: ResolvedCase): void {
   for (const id of [...c.truth.techniques, ...(c.truth.alsoAccept ?? [])]) expect(technique(id), `technique ${id}`).toBeDefined();
   for (const id of c.truth.techniques) expect(c.truth.alsoAccept ?? []).not.toContain(id);
   for (const d of c.cysaDomains) expect(cysaDomain(d), `domain ${d}`).toBeDefined();
-  expect(c.truth.tactics, `${c.templateId}: template tactics match the truth`).toEqual(t.tactics);
+  // A continuity-linked template serves several host classes, so its template tactics are the union and each truth is a non-empty subset.
+  if (LINKED_TEMPLATES.some((l) => l.id === t.id)) {
+    expect(c.truth.tactics.length, `${c.templateId}: truth tactics`).toBeGreaterThan(0);
+    for (const tac of c.truth.tactics) expect(t.tactics, `${c.templateId}: truth tactic ${tac} is in the template tactics`).toContain(tac);
+  } else expect(c.truth.tactics, `${c.templateId}: template tactics match the truth`).toEqual(t.tactics);
   const ind = c.indicators;
   if (c.truth.disposition === 'true-positive') {
     expect(c.truth.techniques.length).toBeGreaterThan(0);

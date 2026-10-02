@@ -2,6 +2,8 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { VULN_TEMPLATES } from '../src/core/vuln/registry.ts';
 import { resolveVulnTemplate, vulnCaseTypes } from '../src/core/vuln/worklist.ts';
+import { buildVulnScenario } from '../src/core/vuln/scenario.ts';
+import { generateWorld } from '../src/core/world/world.ts';
 
 // Vulnerability-management mode: acceptance criteria (1)-(10) of WP1e.
 // A fixed profile so every run works in the same fictional organisation.
@@ -1363,5 +1365,126 @@ test.describe('vulnerability stats and study integration', () => {
     expect(resolveVulnTemplate(type, decodeURIComponent(seed)).id).toBe('vm-needed-service');
     await expect(page.locator('.vc-worklist')).toBeVisible({ timeout: 30_000 });
     expect(errors).toEqual([]);
+  });
+});
+
+// WP5: a finding left open in a vulnerability case becomes one extra alert in the next shift (DESIGN section 8),
+// and its debrief links back to that case. A ledger entry is seeded, taken from a real build of the e2e world.
+test.describe('continuity: vulnerability case to SOC shift', () => {
+  const HOOK_RULE = 'Exploit signature match on a monitored service';
+  const WORLD_SEED = PROFILE.worldSeed;
+
+  function seededEntry() {
+    const w = generateWorld(WORLD_SEED);
+    for (const type of vulnCaseTypes(VULN_TEMPLATES)) {
+      for (const seed of ['e2e', 'e2e-a', 'e2e-b', 'e2e-c']) {
+        const t = resolveVulnTemplate(type, seed);
+        const v = buildVulnScenario({ worldSeed: WORLD_SEED, templateId: t.id, seed, world: w });
+        const f = v.case.findings.find((x) => x.mustNotMiss && x.sharedHost && x.truth.decision !== 'false-positive' && x.truth.decision !== 'mitigate' && !x.truth.mitigation?.length && /^SIMVULN-/.test(x.vulnId));
+        if (!f) continue;
+        const caseRef = `${t.id}~${seed}`;
+        const entry = { id: `${caseRef}/${f.findingId}@1700000000000`, vulnId: f.vulnId, host: f.host, decision: 'false-positive', schedule: 'none', decidedDay: 20000, caseRef };
+        return { entry, type, seed };
+      }
+    }
+    throw new Error('no eligible finding');
+  }
+
+  const stored = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('soc-triage-sim:v2')!));
+
+  async function startShift(page: Page): Promise<void> {
+    await page.goto('/#/');
+    await page.getByRole('radio', { name: 'Untimed' }).check();
+    await page.getByRole('button', { name: 'Start shift' }).click();
+    await expect(page.getByRole('heading', { name: 'Alert queue' })).toBeVisible({ timeout: 30_000 });
+  }
+
+  test('a pending ledger entry adds one alert, survives a reload, and the debrief links back; axe clean in both themes', async ({ page }) => {
+    const errors = watchErrors(page);
+    const { entry, type, seed } = seededEntry();
+    await withProfile(page, { ...PROFILE, vulnLedger: [entry] });
+    await startShift(page);
+    const items = page.locator('.queue-item');
+    const n = await items.count();
+    // exactly one hook alert in the queue, and the ledger entry is consumed
+    const hookItem = items.filter({ hasText: HOOK_RULE });
+    await expect(hookItem).toHaveCount(1);
+    const alertId = (await hookItem.locator('.mono').first().textContent())!.trim();
+    // the profile is saved a moment after it changes
+    await expect.poll(async () => (await stored(page)).vulnLedger?.[0]?.consumed).toBe(true);
+    let p = await stored(page);
+    expect(p.vulnLedger).toHaveLength(1);
+    expect(p.activeShift.vulnHook.ledgerId).toBe(entry.id);
+    // nothing before submit points at the vulnerability case
+    await hookItem.click();
+    await expect(page.locator('.ws-grid')).toBeVisible();
+    await expect(page.locator('main')).not.toContainText(/vulnerability case|ledger/i);
+    await page.goto('/#/shift');
+    await expect(items).toHaveCount(n, { timeout: 30_000 });
+
+    // a reload rebuilds the same queue; the entry is not given back and not taken twice
+    await page.reload();
+    await expect(items).toHaveCount(n, { timeout: 30_000 });
+    await expect(items.filter({ hasText: HOOK_RULE })).toHaveCount(1);
+    expect((await items.filter({ hasText: HOOK_RULE }).locator('.mono').first().textContent())!.trim()).toBe(alertId);
+    p = await stored(page);
+    expect(p.vulnLedger).toHaveLength(1);
+    expect(p.vulnLedger[0].consumed).toBe(true);
+
+    // work the hook alert, hand over, review it
+    await items.filter({ hasText: HOOK_RULE }).click();
+    await expect(page.locator('.ws-grid')).toBeVisible();
+    await page.getByRole('radio', { name: 'Benign / expected' }).check();
+    await page.getByRole('radio', { name: 'Informational' }).check();
+    await page.getByRole('radio', { name: 'Close' }).check();
+    await page.getByRole('button', { name: 'Submit & back to queue' }).click();
+    await expect(page.getByRole('heading', { name: 'Alert queue' })).toBeVisible();
+    await page.getByRole('button', { name: 'Hand over' }).click();
+    await page.getByRole('button', { name: 'Hand over now' }).click();
+    await expect(page.getByText('Shift 1 handover')).toBeVisible();
+    await page.getByRole('button', { name: `Review ${alertId}` }).click();
+    const para = page.locator('.vuln-link-back');
+    const link = para.locator('a');
+    await expect(link).toHaveCount(1, { timeout: 30_000 });
+    await expect(para).toContainText(entry.vulnId);
+    await expect(para).toContainText('false positive');
+    await expect(para).toContainText(type.title);
+    await expect(link).toHaveAttribute('href', `#/vuln/${type.slug}/${seed}`);
+
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await axeStrict(page, `hook debrief ${scheme}`);
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+
+    // keyboard: the link takes focus and Enter opens the case
+    await link.focus();
+    await expect(link).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.vc-worklist')).toBeVisible({ timeout: 30_000 });
+    expect(errors).toEqual([]);
+  });
+
+  test('no ledger entry, no extra alert and no ledger written', async ({ page }) => {
+    await withProfile(page);
+    await startShift(page);
+    await expect(page.locator('.queue-item').filter({ hasText: HOOK_RULE })).toHaveCount(0);
+    expect((await stored(page)).vulnLedger).toBeUndefined();
+  });
+
+  test('phone width: the hook debrief does not scroll the page', async ({ page }) => {
+    const { entry } = seededEntry();
+    await page.setViewportSize({ width: 360, height: 740 });
+    await withProfile(page, { ...PROFILE, vulnLedger: [entry] });
+    await startShift(page);
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+    const alertId = (await page.locator('.queue-item').filter({ hasText: HOOK_RULE }).locator('.mono').first().textContent())!.trim();
+    await page.getByRole('button', { name: 'Hand over' }).click();
+    await page.getByRole('button', { name: 'Hand over now' }).click();
+    await expect(page.getByText('Shift 1 handover')).toBeVisible();
+    await page.getByRole('button', { name: `Review ${alertId}` }).click();
+    await expect(page.locator('.vuln-link-back a')).toBeVisible({ timeout: 30_000 });
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+    await axeStrict(page, 'hook debrief 360');
   });
 });

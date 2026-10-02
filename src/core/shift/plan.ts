@@ -10,6 +10,7 @@ import { ALL_TEMPLATES, templateById } from '../cases/templates/index.ts';
 import { buildScenario, type Scenario, type ScenarioItem } from '../cases/scenario.ts';
 import type { CorpusBuilder } from '../logs/corpus.ts';
 import { atLocalHour, DAY, HOUR, localWeekday } from '../logs/time.ts';
+import { VULN_LINK_TEMPLATE_ID, type VulnHook } from './vuln-hook.ts';
 
 export const SEASON_START = Date.UTC(2026, 8, 1);
 export const SHIFT_END_LOCAL_HOUR = 17.5;
@@ -28,6 +29,11 @@ export interface CampaignSlot {
   campaign: NonNullable<ScenarioItem['campaign']>;
 }
 
+// The seed a shift is planned and built from.
+export function shiftSeedFor(worldSeed: string, number: number): string {
+  return `${worldSeed}:shift:${number}`;
+}
+
 export interface ShiftOptions {
   world: World;
   seed: string; // profile-level seed
@@ -35,6 +41,10 @@ export interface ShiftOptions {
   size?: number;
   budget?: Budget;
   campaign?: CampaignSlot;
+  // Vulnerability continuity (DESIGN section 8): one extra alert, planned after
+  // everything else so that the rest of the shift is exactly what it would be
+  // without it.
+  vulnHook?: VulnHook;
   // Templates seen in the last shifts, avoided where possible.
   recent?: readonly string[];
 }
@@ -78,7 +88,7 @@ function eligible(t: CaseTemplate): boolean {
 
 export function planShift(opts: ShiftOptions): ShiftPlan {
   const { world } = opts;
-  const seed = `${opts.seed}:shift:${opts.number}`;
+  const seed = shiftSeedFor(opts.seed, opts.number);
   const rng = createRng(seed);
   const size = opts.size ?? rng.int(6, 9);
   const recent = new Set(opts.recent ?? []);
@@ -137,6 +147,13 @@ export function planShift(opts: ShiftOptions): ShiftPlan {
     const isCampaign = opts.campaign && id === opts.campaign.templateId;
     const caseSeed = isCampaign ? opts.campaign!.seed : `${seed}:${id}`;
     items.push({ alertId: '', templateId: id, seed: caseSeed, at: alertTime(irng.fork(id), day, t.when, utcOffset), campaign: isCampaign ? opts.campaign!.campaign : undefined });
+  }
+  // The continuity alert: one extra item with its own seed and its own time
+  // stream, so the main rng and every other item are untouched.
+  if (opts.vulnHook) {
+    const t = templateById(VULN_LINK_TEMPLATE_ID);
+    if (!t) throw new Error(`Unknown template ${VULN_LINK_TEMPLATE_ID}`);
+    items.push({ alertId: '', templateId: t.id, seed: opts.vulnHook.seed, at: alertTime(createRng(`${seed}:vuln-hook`), day, t.when, utcOffset), vulnHook: opts.vulnHook });
   }
   // Queue order is arrival order; alert ids follow it.
   items.sort((a, b) => a.at - b.at || (a.templateId < b.templateId ? -1 : 1));

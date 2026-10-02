@@ -462,6 +462,28 @@ carrier of severity (text label + icon). Axe scan in both themes for the new scr
   `planShift` takes the result as an optional slot parallel to the existing `campaign` slot. A later attacker-driven version can replace that
   function, or hand the same `VulnHook` to the campaign actor as its initial-access stage, without changing the template or the ledger format.
   Feasible because `shift/plan.ts` already composes templates around one optional campaign slot and templates already receive optional context (`foothold`).
+  *Clarified 2026-10-02 (WP5, coordinator; brief checked by three critics):*
+  - **"Marked FP/accept/standard-cycle"** is read as the grader's own "left open" set (§5.8): a real must-not-miss finding
+    dismissed as a false positive, left unscheduled, or scheduled later than its SLA. That set covers the three named answers and
+    never fires on a one-step slip inside the SLA.
+  - **Exclusions.** No entry is written for:
+    - a finding whose truth is `mitigate` or names a mitigation. The verified control blocks the path, so an exploitation alert
+      would teach that controls don't matter.
+    - a finding on a case-local host (vuln cases add scope hosts that the shared world lacks). A shift corpus cannot give such a
+      host a noise baseline without changing every other alert's rows. Snapshotting the device into the ledger is the upgrade
+      path.
+    - a finding without a `SIMVULN-` id.
+  - **Ledger.** Entry ids are unique per attempt. A (vulnId, host) with an unconsumed entry gets no second entry. The cap of 50
+    drops consumed entries first. Moving to a new organisation clears the ledger.
+  - **Selection.** Oldest unconsumed entry first. `decidedDay` only orders the ledger; no SOC text or time is derived from it.
+  - **Taking an entry.** It is taken at shift start: the hook is stored on the active shift (so a reload rebuilds the same shift)
+    and the entry is marked consumed.
+  - **The alert.** It is an extra item: the shift without the hook is planned unchanged. The hook item is built after every
+    other item, so no other alert's rows or infra change.
+  - **Campaign.** History skips the hook case, so campaign state is unchanged apart from alert-number labels, which name each
+    alert's place in that shift's queue.
+  - **Registry.** The template lives in `LINKED_TEMPLATES`, outside `ALL_TEMPLATES`: library, daily case, study pool and random
+    shift picks never see it.
 - **Case of the Day**: future work.
 
 ## 9. Fact and safety policy (rules)

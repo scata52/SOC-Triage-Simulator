@@ -3,7 +3,7 @@ import { profile, update, replaceProfile, toast, world, loadSource } from '../st
 import { Icon } from '../components/Icon.tsx';
 import { Dialog, Notice } from '../components/ui.tsx';
 import { BudgetPicker } from './Home.tsx';
-import { defaultProfile, type MotionPref, type Settings as S, type ThemePref } from '../../state/profile.ts';
+import { defaultProfile, moveToNewOrganisation, type MotionPref, type Settings as S, type ThemePref } from '../../state/profile.ts';
 import { exportProfile, importProfile, newWorldSeed } from '../../state/storage.ts';
 import { play } from '../lib/sound.ts';
 
@@ -170,7 +170,7 @@ export function Settings() {
                   replaceProfile({ ...defaultProfile(Date.now(), newWorldSeed()), settings: p.settings });
                   toast('Progress reset.');
                 } else {
-                  update((x) => ({ ...x, worldSeed: newWorldSeed(), campaign: null, activeShift: null }));
+                  update((x) => moveToNewOrganisation(x, newWorldSeed()));
                   toast('Welcome to your new organisation.');
                 }
                 setConfirm(null);

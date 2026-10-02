@@ -14,12 +14,13 @@ import { CLEAN_SHIFT_BONUS, type ShiftResult, type Submission } from '../core/sh
 import type { CampaignState, StageOutcome } from '../core/campaign/campaign.ts';
 import { review, type Card } from '../core/study/srs.ts';
 import type { Attempt, AttemptMode } from '../core/study/scheduler.ts';
-import { templateById } from '../core/cases/templates/index.ts';
+import { LINKED_TEMPLATES, templateById } from '../core/cases/templates/index.ts';
 import type { VulnComponentId, VulnGrade, VulnSubmission } from '../core/vuln/grade.ts';
 import type { VulnDecision } from '../core/vuln/model.ts';
 import type { VulnDecisionVerdict } from '../core/vuln/grade.ts';
 import type { ResolvedVulnCase } from '../core/vuln/scenario.ts';
 import { VULN_PASS_PERCENT } from '../core/vuln/worklist.ts';
+import { addLedgerEntries, coerceLedger, isVulnHook, ledgerEntriesFor, markConsumed, type VulnHook, type VulnLedgerEntry } from '../core/shift/vuln-hook.ts';
 
 export const PROFILE_VERSION = 2;
 export const MAX_ATTEMPTS = 1500;
@@ -86,6 +87,8 @@ export interface ActiveShift {
   startedAt: number; // epoch ms
   elapsedSec: number; // clock only runs while the app is open
   campaignAlertId?: string;
+  // The vulnerability hook this shift took (its ledger entry is consumed); a reload rebuilds the same shift from it.
+  vulnHook?: VulnHook;
   drafts: Record<string, Verdict>;
   submissions: Submission[];
 }
@@ -134,6 +137,8 @@ export interface Profile {
   dailyDone: string[];
   settings: Settings;
   migratedFromV1?: { records: number; at: number };
+  // Real must-not-miss findings left open in vulnerability cases (DESIGN section 8); optional, at most 50.
+  vulnLedger?: VulnLedgerEntry[];
 }
 
 export function defaultSettings(): Settings {
@@ -273,11 +278,29 @@ export function recordVulnAttempt(p: Profile, input: VulnAttemptInput): { profil
     },
   };
   const cards = { ...p.cards, [c.templateId]: review(p.cards[c.templateId], c.templateId, g.percent, input.day) };
-  return { profile: { ...p, xp: p.xp + g.xp, attempts: [...p.attempts, record].slice(-MAX_ATTEMPTS), cards }, record };
+  // Real must-not-miss findings left open go into the continuity ledger (one
+  // follow-up SOC alert in a later shift). A profile that has none keeps no ledger field.
+  const entries = ledgerEntriesFor(c, g, input.submission, { caseRef: record.id, completedAt: input.now, day: input.day }, p.vulnLedger);
+  const vulnLedger = addLedgerEntries(p.vulnLedger, entries);
+  return { profile: { ...p, xp: p.xp + g.xp, attempts: [...p.attempts, record].slice(-MAX_ATTEMPTS), cards, ...(vulnLedger ? { vulnLedger } : {}) }, record };
 }
 
-export function startShift(p: Profile, number: number, budget: Budget, now: number, campaignAlertId?: string): Profile {
-  return { ...p, activeShift: { number, budget, startedAt: now, elapsedSec: 0, campaignAlertId, drafts: {}, submissions: [] } };
+// Starting a shift. `vulnHook` (from selectVulnFollowUp) is stored on the active
+// shift and consumes exactly its ledger entry, whether or not the shift is
+// finished: an abandoned shift does not give the entry back. The third form of
+// the last argument is the campaign alert id, as before.
+export function startShift(p: Profile, number: number, budget: Budget, now: number, opts?: string | { campaignAlertId?: string; vulnHook?: VulnHook | null }): Profile {
+  const o = typeof opts === 'string' ? { campaignAlertId: opts } : (opts ?? {});
+  const hook = o.vulnHook ?? undefined;
+  const base: Profile = hook && p.vulnLedger ? { ...p, vulnLedger: markConsumed(p.vulnLedger, hook.ledgerId) } : p;
+  return { ...base, activeShift: { number, budget, startedAt: now, elapsedSec: 0, campaignAlertId: o.campaignAlertId, ...(hook ? { vulnHook: hook } : {}), drafts: {}, submissions: [] } };
+}
+
+// Moving to a new organisation (Settings): a new world seed, no campaign or shift in progress, and no
+// continuity ledger, since its entries name hosts of the old organisation.
+export function moveToNewOrganisation(p: Profile, worldSeed: string): Profile {
+  const { vulnLedger: _old, ...rest } = p;
+  return { ...rest, worldSeed, campaign: null, activeShift: null };
 }
 
 export function updateShift(p: Profile, patch: Partial<Pick<ActiveShift, 'elapsedSec' | 'drafts' | 'submissions'>>): Profile {
@@ -321,7 +344,9 @@ export function nextShiftNumber(p: Profile): number {
 }
 
 export function recentShiftTemplates(p: Profile, n = 12): string[] {
-  return p.attempts.filter((a) => a.mode === 'shift' || a.mode === 'campaign').slice(-n).map((a) => a.templateId);
+  // The continuity-hook attempt is not a SOC template: leave it out before slicing so a real template keeps its place in the window.
+  const linked = new Set(LINKED_TEMPLATES.map((t) => t.id));
+  return p.attempts.filter((a) => (a.mode === 'shift' || a.mode === 'campaign') && !linked.has(a.templateId)).slice(-n).map((a) => a.templateId);
 }
 
 export function addQueryHistory(p: Profile, text: string): Profile {
@@ -447,9 +472,21 @@ export function coerceProfile(raw: unknown, ctx: { now: number; newWorldSeed: st
   const r = raw as Partial<Profile>;
   if (r.version !== 2 || !Array.isArray(r.attempts) || typeof r.worldSeed !== 'string' || !r.worldSeed) return null;
   const base = defaultProfile(ctx.now, r.worldSeed);
+  // The continuity ledger keeps only well-formed entries; a malformed hook on the
+  // active shift is dropped (the shift then runs without it), so an import cannot brick a shift.
+  const { vulnLedger: rawLedger, ...rest } = r;
+  const vulnLedger = coerceLedger(rawLedger);
+  const active = rest.activeShift;
+  if (active && typeof active === 'object' && 'vulnHook' in active && !isVulnHook(active.vulnHook)) {
+    // The shift's alert-keyed state was numbered with the hook in the queue: the worker refills
+    // campaignAlertId from the rebuilt plan, and drafts and submissions start over.
+    const { vulnHook: _dropped, campaignAlertId: _alert, ...kept } = active;
+    rest.activeShift = { ...kept, drafts: {}, submissions: [] };
+  }
   return {
     ...base,
-    ...r,
+    ...rest,
+    ...(vulnLedger ? { vulnLedger } : {}),
     version: 2,
     cards: r.cards && typeof r.cards === 'object' ? r.cards : {},
     shifts: Array.isArray(r.shifts) ? r.shifts : [],

@@ -5,7 +5,7 @@
 import type { Rng } from '../rng.ts';
 import type { Category, Difficulty, SocCategory, Tactic } from '../types.ts';
 import type { CaseTemplate } from '../cases/model.ts';
-import { ALL_TEMPLATES, CATEGORY_LABELS, templateById } from '../cases/templates/index.ts';
+import { ALL_TEMPLATES, CATEGORY_LABELS, LINKED_TEMPLATES, templateById } from '../cases/templates/index.ts';
 import { TACTIC_LABELS, TACTIC_ORDER } from '../taxonomy/mitre.ts';
 import { CYSA_DOMAINS, CYSA_OBJECTIVES, cysaLabel, objectiveLabel } from '../taxonomy/cysa.ts';
 import { VULN_TEMPLATES } from '../vuln/registry.ts';
@@ -71,7 +71,7 @@ export interface StudyTemplate {
   kind: 'soc' | 'vuln';
 }
 
-export const SOC_STUDY_POOL: readonly StudyTemplate[] = ALL_TEMPLATES.map((t) => ({
+const socStudy = (t: CaseTemplate): StudyTemplate => ({
   id: t.id,
   title: t.title,
   difficulty: t.difficulty,
@@ -80,7 +80,9 @@ export const SOC_STUDY_POOL: readonly StudyTemplate[] = ALL_TEMPLATES.map((t) =>
   objectives: [],
   tactics: skillTactics(t),
   kind: 'soc' as const,
-}));
+});
+
+export const SOC_STUDY_POOL: readonly StudyTemplate[] = ALL_TEMPLATES.map(socStudy);
 
 // Every case the app can serve: SOC first, then vulnerability management.
 export const FULL_STUDY_POOL: readonly StudyTemplate[] = [
@@ -97,7 +99,9 @@ export const FULL_STUDY_POOL: readonly StudyTemplate[] = [
   })),
 ];
 
-const STUDY_BY_ID = new Map(FULL_STUDY_POOL.map((t) => [t.id, t]));
+// Lookup only: the linked SOC template (the vulnerability hook's shift alert) is in no pool, but an
+// attempt of it still trains its domains and tactics.
+const STUDY_BY_ID = new Map([...FULL_STUDY_POOL, ...LINKED_TEMPLATES.map(socStudy)].map((t) => [t.id, t]));
 
 export function studyTemplateById(id: string): StudyTemplate | undefined {
   return STUDY_BY_ID.get(id);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addQueryHistory, asStudyAttempts, coerceProfile, dayNumber, defaultProfile, finishShift, migrateV1, nextShiftNumber, rankFor, recordAttempt, recordVulnAttempt, startShift, MAX_ATTEMPTS, type Profile } from '../src/state/profile.ts';
+import { addQueryHistory, asStudyAttempts, coerceProfile, dayNumber, defaultProfile, finishShift, migrateV1, nextShiftNumber, rankFor, recordAttempt, moveToNewOrganisation, recordVulnAttempt, recentShiftTemplates, startShift, MAX_ATTEMPTS, type Profile } from '../src/state/profile.ts';
 import { exportProfile, importProfile, loadProfile, saveProfile, V1_KEY, V2_KEY, type KeyValueStore } from '../src/state/storage.ts';
 import { buildPracticeCase } from '../src/core/cases/scenario.ts';
 import { emptyVerdict, gradeCase, perfectVerdict } from '../src/core/grading/grade.ts';
@@ -14,6 +14,7 @@ import { VULN_TEMPLATES } from '../src/core/vuln/registry.ts';
 import { createRng } from '../src/core/rng.ts';
 import { world } from './helpers/scenario-check.ts';
 
+import { VULN_LINK_TEMPLATE_ID } from '../src/core/shift/vuln-hook.ts';
 const NOW = Date.UTC(2026, 9, 1, 12);
 const ctx = { now: NOW, tzOffsetMinutes: -120, newWorldSeed: () => 'seed-new' };
 
@@ -376,5 +377,188 @@ describe('vulnerability attempts', () => {
     p = recordVulnAttempt(p, input(0, { day: 7 })).profile;
     expect(p.attempts).toHaveLength(MAX_ATTEMPTS);
     expect(p.attempts.at(-1)!.day).toBe(7);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The continuity ledger (DESIGN section 8): written by recordVulnAttempt, consumed by startShift.
+
+describe('vulnerability continuity ledger', () => {
+  const w = world('profile');
+  const base = defaultProfile(NOW, w.seed);
+  const caseFor = (seed: string, templateId = 'vm-kev-internal') => buildVulnScenario({ worldSeed: w.seed, templateId, seed, world: w }).case;
+  // the answer of an analyst who dismisses one real must-not-miss finding on a shared-world host, everything else right
+  const dismissing = (c: ReturnType<typeof caseFor>) => {
+    const target = c.findings.find((f) => f.mustNotMiss && f.truth.decision !== 'false-positive' && f.sharedHost)!;
+    const s = perfectVulnSubmission(c);
+    const submission = { ...s, answers: { ...s.answers, [target.findingId]: { ...s.answers[target.findingId], decision: 'false-positive' as const, schedule: 'none' as const } } };
+    return { target, submission };
+  };
+  const attempt = (p: Profile, c: ReturnType<typeof caseFor>, sub = perfectVulnSubmission(c), at = NOW, day = 100) =>
+    recordVulnAttempt(p, { c, grade: gradeVulnCase(c, sub), submission: sub, now: at, day, durationSec: 60 });
+
+  it('writes no ledger for an attempt that leaves nothing open', () => {
+    const c = caseFor('l1');
+    const { profile } = attempt(base, c);
+    expect('vulnLedger' in profile).toBe(false);
+  });
+
+  it('records an entry for a dismissed real must-not-miss finding', () => {
+    const c = caseFor('l2');
+    const { target, submission } = dismissing(c);
+    const { profile, record } = attempt(base, c, submission, NOW + 5, 123);
+    expect(profile.vulnLedger).toEqual([
+      {
+        id: `${c.id}/${target.findingId}@${NOW + 5}`,
+        vulnId: target.vulnId,
+        host: target.host,
+        decision: 'false-positive',
+        schedule: 'none',
+        decidedDay: 123,
+        caseRef: c.id,
+      },
+    ]);
+    expect(record.id).toBe(c.id);
+    // the attempt itself is recorded as any other
+    expect(profile.attempts).toHaveLength(1);
+    expect(profile.xp).toBe(record.xp);
+  });
+
+  it('adds no second unconsumed entry for the same finding, and adds one again once it is consumed', () => {
+    const c = caseFor('l3');
+    const { submission } = dismissing(c);
+    const once = attempt(base, c, submission, NOW, 100).profile;
+    const twice = attempt(once, c, submission, NOW + 1000, 101).profile;
+    expect(twice.vulnLedger).toHaveLength(1);
+    const consumed = { ...once, vulnLedger: once.vulnLedger!.map((e) => ({ ...e, consumed: true })) };
+    const again = attempt(consumed, c, submission, NOW + 2000, 102).profile;
+    expect(again.vulnLedger).toHaveLength(2);
+    expect(again.vulnLedger!.map((e) => !!e.consumed)).toEqual([true, false]);
+  });
+
+  it('keeps at most 50 entries across many attempts, dropping consumed ones first', () => {
+    let p: Profile = base;
+    for (let i = 0; i < 60; i++) {
+      const c = caseFor(`cap-${i}`);
+      p = attempt(p, c, dismissing(c).submission, NOW + i, 100 + i).profile;
+      if (i === 9) p = { ...p, vulnLedger: p.vulnLedger!.map((e, k) => (k < 3 ? { ...e, consumed: true } : e)) };
+    }
+    expect(p.vulnLedger!.length).toBeLessThanOrEqual(50);
+    expect(p.vulnLedger!.length).toBeGreaterThan(30);
+    expect(p.vulnLedger!.filter((e) => e.consumed)).toHaveLength(0); // the three consumed ones went first
+  });
+
+  describe('startShift', () => {
+    const entry = { id: 'e1', vulnId: 'SIMVULN-2026-00007', host: 'APP01', decision: 'accept' as const, schedule: 'none' as const, decidedDay: 90, caseRef: 'vm-kev-internal~z' };
+    const hook = { ledgerId: 'e1', host: 'APP01', vulnId: entry.vulnId, decidedDay: 90, caseRef: entry.caseRef, decision: entry.decision, schedule: entry.schedule, seed: 's:vuln:e1' };
+    const withLedger: Profile = { ...base, vulnLedger: [entry, { ...entry, id: 'e2', vulnId: 'SIMVULN-2026-00008' }] };
+
+    it('behaves as before without a hook (string or options argument)', () => {
+      const old = { number: 2, budget: 30 as const, startedAt: NOW, elapsedSec: 0, campaignAlertId: undefined, drafts: {}, submissions: [] };
+      expect(startShift(base, 2, 30, NOW).activeShift).toEqual(old);
+      expect(startShift(base, 2, 30, NOW, 'A4').activeShift).toEqual({ ...old, campaignAlertId: 'A4' });
+      expect(startShift(base, 2, 30, NOW, { campaignAlertId: 'A4' }).activeShift).toEqual({ ...old, campaignAlertId: 'A4' });
+      expect(startShift(base, 2, 30, NOW, { vulnHook: null }).activeShift).toEqual(old);
+      expect('vulnHook' in startShift(withLedger, 2, 30, NOW, { vulnHook: null }).activeShift!).toBe(false);
+      expect(startShift(withLedger, 2, 30, NOW, { vulnHook: null }).vulnLedger).toEqual(withLedger.vulnLedger);
+    });
+
+    it('stores the hook and consumes exactly its entry, purely', () => {
+      const frozen = JSON.stringify(withLedger);
+      const p = startShift(withLedger, 2, 30, NOW, { campaignAlertId: 'A1', vulnHook: hook });
+      expect(p.activeShift).toMatchObject({ number: 2, campaignAlertId: 'A1', vulnHook: hook });
+      expect(p.vulnLedger).toEqual([{ ...entry, consumed: true }, { ...entry, id: 'e2', vulnId: 'SIMVULN-2026-00008' }]);
+      expect(JSON.stringify(withLedger)).toBe(frozen);
+    });
+
+    it('consumes the entry named by hook.ledgerId even when it is not the first unconsumed one', () => {
+      const three: Profile = { ...base, vulnLedger: [entry, { ...entry, id: 'e2', vulnId: 'SIMVULN-2026-00008' }, { ...entry, id: 'e3', vulnId: 'SIMVULN-2026-00009' }] };
+      const p = startShift(three, 2, 30, NOW, { vulnHook: { ...hook, ledgerId: 'e2' } });
+      expect(p.vulnLedger!.map((e) => [e.id, !!e.consumed])).toEqual([['e1', false], ['e2', true], ['e3', false]]);
+    });
+
+    it('does not hand the entry back when the shift ends or is dropped', () => {
+      const p = startShift(withLedger, 2, 30, NOW, { vulnHook: hook });
+      const dropped = { ...p, activeShift: null };
+      expect(dropped.vulnLedger![0].consumed).toBe(true);
+      const finished = finishShift(p, scoreShift([], []), { now: NOW + 1, campaign: null });
+      expect(finished.vulnLedger![0].consumed).toBe(true);
+      expect(finished.activeShift).toBeNull();
+    });
+
+    it('moving to a new organisation clears the ledger and the shift', () => {
+      const p = startShift(withLedger, 2, 30, NOW, { vulnHook: hook });
+      const moved = moveToNewOrganisation(p, 'seed-new');
+      expect('vulnLedger' in moved).toBe(false);
+      expect(moved).toMatchObject({ worldSeed: 'seed-new', campaign: null, activeShift: null });
+      expect(moved.attempts).toBe(p.attempts);
+    });
+  });
+
+  describe('coerceProfile', () => {
+    const goodEntry = { id: 'e1', vulnId: 'SIMVULN-2026-00007', host: 'APP01', decision: 'accept', schedule: 'none', decidedDay: 90, caseRef: 'vm-kev-internal~z' };
+    const goodHook = { ledgerId: 'e1', host: 'APP01', vulnId: goodEntry.vulnId, decidedDay: 90, caseRef: goodEntry.caseRef, decision: 'accept', schedule: 'none', seed: 's:vuln:e1' };
+    const run = (extra: object) => coerceProfile({ ...JSON.parse(JSON.stringify(base)), ...extra }, { now: NOW, tzOffsetMinutes: 0, newWorldSeed: 'x' })!;
+
+    it('an old profile has no ledger and keeps working', () => {
+      const p = run({});
+      expect('vulnLedger' in p).toBe(false);
+      expect(p.activeShift).toBeNull();
+    });
+
+    it('keeps valid entries, drops malformed ones, and caps the ledger', () => {
+      const p = run({ vulnLedger: [goodEntry, { ...goodEntry, id: 'bad', vulnId: 'CVE-2021-44228' }, 'x', null, { ...goodEntry, id: 'e2', consumed: true }] });
+      expect(p.vulnLedger!.map((e) => e.id)).toEqual(['e1', 'e2']);
+      expect(run({ vulnLedger: 'not a list' }).vulnLedger).toBeUndefined();
+      expect(run({ vulnLedger: Array.from({ length: 80 }, (_, i) => ({ ...goodEntry, id: `e${i}` })) }).vulnLedger).toHaveLength(50);
+    });
+
+    it('keeps a valid hook on the active shift and drops a malformed one so the shift still runs', () => {
+      const shift = { number: 1, budget: 30, startedAt: NOW, elapsedSec: 0, drafts: {}, submissions: [] };
+      expect(run({ activeShift: { ...shift, vulnHook: goodHook } }).activeShift).toEqual({ ...shift, vulnHook: goodHook });
+      for (const bad of [{ ...goodHook, vulnId: 'nope' }, { ...goodHook, seed: '' }, { ...goodHook, decision: 'x' }, 'hook', 3, null, { ledgerId: 'e1' }]) {
+        const p = run({ activeShift: { ...shift, vulnHook: bad } });
+        expect(p.activeShift).toEqual(shift);
+        expect('vulnHook' in p.activeShift!).toBe(false);
+      }
+      expect(run({ activeShift: shift }).activeShift).toEqual(shift);
+    });
+
+    it('dropping a malformed hook also resets the alert-keyed state of the shift', () => {
+      const shift = { number: 1, budget: 30, startedAt: NOW, elapsedSec: 40, campaignAlertId: 'A7', drafts: { A1: {} }, submissions: [{ alertId: 'A1' }] };
+      const p = run({ activeShift: { ...shift, vulnHook: { ledgerId: 'e1' } } });
+      expect(p.activeShift).toEqual({ number: 1, budget: 30, startedAt: NOW, elapsedSec: 40, drafts: {}, submissions: [] });
+      expect('campaignAlertId' in p.activeShift!).toBe(false);
+      // a valid hook (or none) leaves the state alone
+      expect(run({ activeShift: { ...shift, vulnHook: goodHook } }).activeShift).toEqual({ ...shift, vulnHook: goodHook });
+      expect(run({ activeShift: shift }).activeShift).toEqual(shift);
+    });
+
+    it('survives a JSON round trip of a profile with a ledger and a hook', () => {
+      const p = startShift({ ...base, vulnLedger: [goodEntry as never] }, 1, 30, NOW, { vulnHook: goodHook as never });
+      const back = coerceProfile(JSON.parse(JSON.stringify(p)), { now: NOW, tzOffsetMinutes: 0, newWorldSeed: 'x' })!;
+      expect(back.vulnLedger).toEqual(p.vulnLedger);
+      expect(back.activeShift).toEqual(p.activeShift);
+    });
+  });
+});
+
+describe('recentShiftTemplates and the continuity hook', () => {
+  const at = (templateId: string, mode: 'shift' | 'campaign' | 'practice') => ({ templateId, percent: 80, day: 1, mode, correct: true, id: templateId, at: NOW }) as never;
+  const withAttempts = (list: unknown[]): Profile => ({ ...defaultProfile(NOW, 'seed'), attempts: list as never });
+
+  it('leaves the hook attempt out before slicing, so a real template keeps its place', () => {
+    const soc = Array.from({ length: 12 }, (_, i) => at(`soc-${i}`, 'shift'));
+    const list = [...soc.slice(0, 6), at(VULN_LINK_TEMPLATE_ID, 'shift'), ...soc.slice(6), at(VULN_LINK_TEMPLATE_ID, 'shift')];
+    expect(recentShiftTemplates(withAttempts(list))).toEqual(soc.map((a) => (a as { templateId: string }).templateId));
+  });
+
+  it('is unchanged for a profile without a hook attempt', () => {
+    const list = [...Array.from({ length: 15 }, (_, i) => at(`soc-${i}`, 'shift')), at('p-1', 'practice'), at('c-1', 'campaign')];
+    const out = recentShiftTemplates(withAttempts(list));
+    expect(out).toHaveLength(12);
+    expect(out[11]).toBe('c-1');
+    expect(out[0]).toBe('soc-4');
+    expect(recentShiftTemplates(withAttempts([]))).toEqual([]);
   });
 });

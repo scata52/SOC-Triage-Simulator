@@ -13,6 +13,7 @@ import type { LookupRow } from '../lib/protocol.ts';
 import { Icon } from './Icon.tsx';
 import { Ring } from './ui.tsx';
 import { Results, fmtCell } from './Results.tsx';
+import { resolveVulnLink } from '../lib/vuln-link.ts';
 
 export function scoreColor(pct: number): string {
   return pct >= 85 ? 'var(--ok)' : pct >= 60 ? 'var(--warn)' : 'var(--bad)';
@@ -105,6 +106,18 @@ export function StepRunner({ kql, expectEmpty }: { kql: string; expectEmpty?: bo
   );
 }
 
+// Only on the shift alert that a vulnerability case led to, and only here, after the alert is handed over.
+function VulnLinkBack({ c }: { c: ResolvedCase }) {
+  const l = c.vulnLink ? resolveVulnLink(c.vulnLink) : null;
+  if (!l) return null;
+  return (
+    <p class="small vuln-link-back">
+      The host carried <span class="mono">{l.vulnId}</span>, which you marked as {l.decision} / {l.schedule} in the vulnerability case &ldquo;{l.caseTitle}&rdquo;.{' '}
+      <a href={l.href}>Open that case: {l.caseTitle}</a>
+    </p>
+  );
+}
+
 export function Debrief({ c, grade, verdict, actions }: { c: ResolvedCase; grade: CaseGrade; verdict: Verdict; actions: ComponentChildren }) {
   const t = c.truth;
   const g = grade;
@@ -124,6 +137,7 @@ export function Debrief({ c, grade, verdict, actions }: { c: ResolvedCase; grade
             +{g.xp} XP{g.rubricHits.length ? ` (incl. ${g.rubricHits.length} note point${g.rubricHits.length === 1 ? '' : 's'})` : ''}
             {verdict.hintsUsed ? ` · ${verdict.hintsUsed} hint${verdict.hintsUsed === 1 ? '' : 's'} used` : ''}
           </p>
+          <VulnLinkBack c={c} />
           <div class="btn-row">{actions}</div>
         </div>
       </section>

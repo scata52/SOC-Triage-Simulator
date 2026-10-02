@@ -11,6 +11,7 @@ import type { WorldIndex } from '../world/index.ts';
 import type { Picker } from './picker.ts';
 import type { Infra } from './infra.ts';
 import type { Session } from '../logs/noise/presence.ts';
+import type { VulnHook } from '../shift/vuln-hook.ts';
 
 export type EntityKind = 'user' | 'host' | 'ip' | 'domain' | 'url' | 'sha256' | 'email' | 'file' | 'process';
 
@@ -101,6 +102,9 @@ export interface CaseContext {
   infra: Infra;
   // Campaign continuity: the person/host the actor already controls, if any.
   foothold?: { personId?: string; host?: string };
+  // Vulnerability continuity (DESIGN section 8): only the linked template
+  // `endpoint-known-vuln-exploit` receives it, in the one shift alert it adds.
+  vulnHook?: VulnHook;
 }
 
 export interface CaseTemplate {

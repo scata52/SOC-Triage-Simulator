@@ -6,10 +6,16 @@ import { endpointTemplates } from './endpoint.ts';
 import { networkTemplates } from './network.ts';
 import { impactTemplates } from './impact.ts';
 import { opsTemplates } from './ops.ts';
+import { LINKED_TEMPLATES } from './vuln-link.ts';
 
 export const ALL_TEMPLATES: CaseTemplate[] = [...identityTemplates, ...emailTemplates, ...endpointTemplates, ...networkTemplates, ...impactTemplates, ...opsTemplates];
 
-const BY_ID = new Map(ALL_TEMPLATES.map((t) => [t.id, t]));
+// Linked templates are built only from context another mode supplies (the
+// vulnerability hook, DESIGN section 8), so they stay out of ALL_TEMPLATES: the
+// library, the daily case, the study pool and random shift picks never see them.
+// templateById still resolves them for scenario building, grading and titles.
+export { LINKED_TEMPLATES };
+const BY_ID = new Map([...ALL_TEMPLATES, ...LINKED_TEMPLATES].map((t) => [t.id, t]));
 
 export function templateById(id: string): CaseTemplate | undefined {
   return BY_ID.get(id);
