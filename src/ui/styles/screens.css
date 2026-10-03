@@ -1184,14 +1184,58 @@
 .vc-submit .submit-btn {
   margin-top: var(--space-3);
 }
+
+/* Brief readability (WP8). The brief is a size container, so its key/value attachments follow the width of the brief
+   itself, not of the viewport. Inline-size containment ignores the brief's content when sizing it, so the grid track
+   it sits in must have a definite size (fixed or fr, never `auto`), or it collapses. Everything here is scoped to
+   `.vc-brief`: the SOC case screen's `.kv` lists and attachments are unchanged. */
+.vc-brief {
+  container: vc-brief / inline-size;
+}
+/* Two columns while there is room. The key column is capped at 38 % of the list minus the column gap (the gap comes out
+   of the value column), so a value keeps at least 62 % of the list whatever the key's length, with headroom over the
+   60 % the acceptance asks for; today's longest key (236 px) wraps only in the few pixels just above the stacking
+   threshold. */
+.vc-brief .kv {
+  grid-template-columns: fit-content(calc(38% - var(--space-3))) minmax(0, 1fr);
+}
+/* Policy sentences and timestamps read in the sans face (the SOC panel keeps monospace for identifiers). */
+.vc-brief .kv dt {
+  font-weight: 500;
+}
+.vc-brief .kv dd {
+  font-variant-numeric: tabular-nums;
+}
+/* A narrow brief stacks every value on its own full-width line below its key. */
+@container vc-brief (width < 640px) {
+  .vc-brief .kv {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0;
+  }
+  .vc-brief .kv dd + dt {
+    margin-top: var(--space-2);
+  }
+}
+/* A title that wraps keeps the book icon on its first line (identical to before for a one-line title). */
+.vc-brief details.disclosure > summary {
+  align-items: flex-start;
+}
+.vc-brief details.disclosure > summary > .icon {
+  margin-top: calc((1lh - 1em) / 2);
+}
+
 @media (min-width: 1200px) {
+  /* The brief grows with the viewport (320 px at 1280, about 470 px at 1920). A spare last row takes the brief's extra
+     height, so a tall brief no longer stretches the worklist, tools and submit cards. */
   .vc {
-    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    grid-template-columns: clamp(320px, 25%, 480px) minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto 1fr;
     grid-template-areas:
       'bar bar'
       'brief work'
       'brief tools'
-      'brief submit';
+      'brief submit'
+      'brief .';
   }
   .vc-bar {
     grid-area: bar;

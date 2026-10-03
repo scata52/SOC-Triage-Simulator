@@ -193,6 +193,64 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
   `README.md`, `ARCHITECTURE.md`, `AS-BUILT.md`, PLAN, PROGRESS. SOC changes are display/test only (ADR-24), listed in
   PROGRESS. NEEDS-HUMAN-CHECK: none open.
 
+## WP8 — Brief readability (added 2026-10-03, human request)
+- Goal: the Brief panel of a vulnerability case (`src/ui/screens/VulnBrief.tsx`: briefing, the two key/value attachments,
+  hints) reads well in the side column at ≥ 1200 px and on phones. Trigger (human, 2026-10-03): the open attachments
+  "vulnerability remediation standard (excerpt)" and "Change calendar (UTC)" are "a couple of characters wide".
+  Measured 2026-10-03 (coordinator, screenshots on the system Chrome): with the brief 320 px wide (1280–1920 px) the
+  key/value grid (`.kv`, `max-content 1fr`) gives the key column 159 px (policy) and 231 px (calendar) and the values
+  89 px and 17 px of monospace — 1 to 3 characters per line; the attachments are 4,813 px and 2,177 px tall. At 360 px:
+  105 / 33 px and 4,020 / 1,600 px (closed by default there). The single-column layout (< 1200 px) reads fine.
+- Owner: implementer — `src/ui/styles/screens.css` (and `components.css` only for a deliberate shared change),
+  `src/ui/screens/VulnBrief.tsx`, `e2e/vuln.spec.ts` and/or `e2e/vuln-a11y.spec.ts`. Coordinator: design choice from a
+  judged panel, before/after screenshots, PLAN/PROGRESS. Deps: WP7.
+- Acceptance: at 1280, 1440, 1920, 1000, 760, 700, 640, 360 and 320 px in both themes, every value in both attachments
+  gets at least 60 % of the list's width or sits on its own full-width line below its key; at 1280 px the policy
+  attachment is at most 1,800 px tall and the calendar at most 400 px (from 4,813 / 2,177; the first draft said "a third",
+  written before measuring, and the readability, not the height, is the complaint); no horizontal page scroll; full axe
+  rule set clean on the case with both attachments open; tab order brief → worklist → tools → submit unchanged; the SOC
+  case screen's attachments unchanged (an e2e assertion on a SOC case guards the shared `.kv` rules: two tracks, mono
+  values); an e2e test pins every measurement; reviewer PASS.
+- Design (coordinator, 2026-10-03, from a judged panel of three proposals — responsive CSS, typography, page layout — and
+  two judges, reader and maintainer, who split; the grafts they agreed on make the design):
+  1. `.vc-brief { container: vc-brief / inline-size }`; `@container vc-brief (width < 640px)` stacks `.vc-brief .kv`
+     (`grid-template-columns: minmax(0, 1fr)`, no row gap inside a pair, `var(--space-2)` between pairs via `dd + dt`);
+     above it the two-column list stays with the key column capped: `fit-content(40%) minmax(0, 1fr)`. The threshold is
+     on the brief's content box (≈ 706 px viewport); every key today is ≤ 231 px, so the calendar's value share at the
+     flip is ≥ 62 %. Note in a CSS comment that inline-size containment needs the grid track the brief has (fixed/fr, never
+     `auto`).
+  2. Values in the sans face: `VulnBrief.tsx` drops `class="mono"` on the `dd` (policy sentences and timestamps are not
+     identifiers; monospace breaks the window dates after a hyphen at 296–336 px); `.vc-brief .kv dd { font-variant-numeric:
+     tabular-nums }`; keys `.vc-brief .kv dt { font-weight: 500 }`. `Panels.tsx` keeps `mono` (SOC fields are identifiers).
+     The boxed `details.disclosure` chrome stays (the flat-section variant broke the product idiom).
+  3. Wrapped titles: `.vc-brief details.disclosure > summary { align-items: flex-start }` and `> summary > .icon
+     { margin-top: calc((1lh - 1em) / 2) }` (the icon is 1em; identical to today for one-line titles).
+  4. Grid at ≥ 1200 px: `grid-template-columns: clamp(320px, 25%, 480px) minmax(0, 1fr)` (320 at 1280, ≈ 352 at 1440,
+     ≈ 472 at 1920; e2e asserts floors, never exact widths — the 25 % depends on the scrollbar) and a spare fifth row
+     (`grid-template-rows: auto auto auto auto 1fr`, areas gain `'brief .'`) so the brief's height no longer stretches
+     the worklist, tools and submit cards (today a 534 px table sits in a 2,685 px card). Both are deliberate scope
+     additions to the right column, logged in PROGRESS; nothing changes below 1200 px.
+  5. e2e (`e2e/vuln.spec.ts`, inside 'vulnerability mode', `withProfile` fixed world, `await document.fonts.ready` before
+     measuring): at every width above, open both attachments and assert per value `share ≥ 0.6 || ownLine`, the used
+     track count (`getComputedStyle(dl).gridTemplateColumns.split(' ').length`: 1 stacked at ≤ 640 and 360/320, 2 at
+     760–1000), the icon's midpoint inside the title's first line rect, the height caps at 1280, brief width ≥ 340 at 1440
+     and ≥ 440 at 1920, worklist card height − table height ≤ 130 px at 1280, overflow 0 at 640/360/320, the summary
+     toggled by keyboard (Enter) at 360 px, and `axeFull` at 1280 and 360 in both themes with the attachments open; one
+     SOC case assertion (two tracks, `dd.mono`). Timeout 240 s. Add the open-attachments state to the T1 case in
+     `e2e/vuln-a11y.spec.ts` (the WP7 sweep covers the closed default only).
+  Rejected: `max-width: 72ch` on values (full width in a table is fine); closing the policy by default at ≥ 1200 px;
+  `line-height` tweaks to hit a height figure. Follow-ups logged in PROGRESS, not in this package: the calendar sits below
+  the policy (≈ 1,500 px down at 1280) though it is used for every schedule decision — swapping the attachment order in
+  `common.ts policyAttachments()` is a scenario-author change for a human to approve; the policy title repeats the org
+  name and wraps to 2–3 lines; `open={!narrow}` leaves both attachments open in the 761–1199 px one-column band.
+- As built (2026-10-03): implementer (opus) — `src/ui/styles/screens.css` (vuln section), `src/ui/screens/VulnBrief.tsx`,
+  `e2e/vuln.spec.ts` (helpers `openAttachments`, `briefMetrics`, the "brief readability" test), `e2e/vuln-a11y.spec.ts`
+  (`sweep` with a `prepare` callback, T1 open-attachments sweep); coordinator inline — the key cap subtracts the column
+  gap with headroom (`fit-content(calc(38% - var(--space-3)))`: a value keeps ≥ 62 % by arithmetic at every width, not
+  only at the listed ones; `40%` landed exactly on 60.0 % in the 706–711 px band, with no margin for rounding), the SOC
+  guard also pins key weight and summary alignment, PLAN and PROGRESS. Measured after: values 260 px at a 320 px brief
+  (276 at 360 px), policy 1,666 px and calendar 312 px at 1280 px.
+
 ---
 ## PROGRESS.md template (for WP0)
 ```
@@ -306,3 +364,14 @@ Resolved 2026-09-28 (sources in DESIGN):
   0 in 100 SOC builds) and empty the lessons that turn on telling a fictitious partner or vendor domain from an attacker's.
   The complete fix re-domains the shared world's fictitious partner and vendor namespaces too, a SOC content project of its
   own. Mitigations in place: no domain is rendered as a link (SOC and vuln e2e), Help tells learners not to visit them.
+- **ADR-28 Vuln brief attachments follow the brief's width; values in the sans face (2026-10-03, WP8, coordinator).**
+  `.vc-brief` is an inline-size container: its key/value attachments stack (key, then a full-width value) under a 640 px
+  content box and show two columns above it, the key capped at 38 % minus the column gap so a value keeps ≥ 62 %; the
+  values are set in the sans face with tabular figures (policy sentences and timestamps, not identifiers — the SOC panel
+  keeps monospace); at ≥ 1200 px the vuln case grid gets a brief column of `clamp(320px, 25%, 480px)` and a spare `1fr`
+  row so the brief's height no longer stretches the right-hand cards. Reason: with the shared `.kv` (`max-content 1fr`)
+  in a 320 px column the values measured 89 / 17 px of monospace and the attachments 4,813 / 2,177 px tall. Chosen from a
+  judged panel (responsive CSS, typography, page layout) by the grafts both judges agreed on. Vuln-only (every selector
+  under `.vc-brief` or the `.vc` grid); an e2e guard pins the SOC `.kv` shape, key weight and summary alignment. First use
+  of container queries and the `lh` unit (Chrome 109+, Firefox 120+, Safari 16.4+; degradation is the capped two-column
+  list and an unshifted icon).

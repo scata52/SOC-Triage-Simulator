@@ -94,6 +94,66 @@ const rowIds = (page: Page): Promise<string[]> => page.locator('tbody.wl-finding
 
 const live = (page: Page): Locator => page.locator(LIVE);
 
+// Opens every attachment of the brief once the page has settled at the current width: a width change across 760 px
+// re-renders the brief with its default (closed at 760 px and below), so this polls until a pass finds them all open.
+async function openAttachments(page: Page): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const all = [...document.querySelectorAll<HTMLDetailsElement>('.vc-brief details.attachment')];
+        const closed = all.filter((d) => !d.open).length;
+        for (const d of all) d.open = true;
+        return all.length > 0 ? closed : -1;
+      }),
+    )
+    .toBe(0);
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+}
+
+// Layout of the brief's key/value attachments: per value its share of the list width, or whether it sits on a
+// full-width line of its own below its key; the grid track count; whether the book icon's midpoint falls inside the
+// first line of a (possibly wrapped) title; the height. Plus the brief's width and, with the table layout, how much
+// taller the worklist card is than its table.
+function briefMetrics(page: Page) {
+  return page.evaluate(() => {
+    const r = (e: Element) => e.getBoundingClientRect();
+    const brief = document.querySelector('.vc-brief')!;
+    const atts = [...brief.querySelectorAll<HTMLDetailsElement>('details.attachment')]
+      .filter((d) => d.querySelector('dl.kv'))
+      .map((d) => {
+        const dl = d.querySelector('dl.kv')!;
+        const list = r(dl);
+        const pairs = [...dl.querySelectorAll('dd')].map((dd) => {
+          const v = r(dd);
+          const k = r(dd.previousElementSibling!);
+          const ownLine = v.top >= k.bottom - 0.5 && v.left <= list.left + 0.5 && v.width >= list.width - 1;
+          return { key: dd.previousElementSibling!.textContent ?? '', width: v.width, share: v.width / list.width, ownLine };
+        });
+        const summary = d.querySelector('summary')!;
+        const icon = r(summary.querySelector('.icon')!);
+        const text = [...summary.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE && n.textContent!.trim() !== '').pop()!;
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        const line = range.getClientRects()[0];
+        const mid = (icon.top + icon.bottom) / 2;
+        return {
+          title: summary.textContent!.trim(),
+          height: Math.round(r(d).height),
+          tracks: getComputedStyle(dl).gridTemplateColumns.split(' ').length,
+          valueWidth: Math.round(Math.min(...pairs.map((p) => p.width))),
+          bad: pairs.filter((p) => !(p.share >= 0.6 || p.ownLine)).map((p) => `${p.key} (${Math.round(p.share * 100)} %)`),
+          iconOnFirstLine: mid >= line.top && mid <= line.bottom,
+          monoValues: dl.querySelectorAll('dd.mono').length,
+        };
+      });
+    const wl = document.querySelector('.vc-worklist');
+    const table = wl?.querySelector('table');
+    return { brief: Math.round(r(brief).width), atts, slack: wl && table ? Math.round(r(wl).height - r(table).height) : null };
+  });
+}
+
 async function hostOf(page: Page, id: string): Promise<string> {
   return page.evaluate((fid) => {
     const unit = document.querySelector(`[data-finding-id="${fid}"]`)!;
@@ -1185,6 +1245,92 @@ test.describe('vulnerability mode', () => {
       expect(errors).toEqual([]);
     });
   }
+
+  // WP8: the brief's key/value attachments (remediation standard, change calendar) read at every width: each value gets
+  // at least 60 % of its list or a full-width line of its own below its key. From 1200 px up the brief grows with the
+  // viewport and a tall brief no longer stretches the worklist card. The SOC case's shared `.kv` lists are unchanged.
+  test('brief readability: attachment values read at every width, the brief grows from 1200 px, the right column is not stretched', async ({ page }) => {
+    test.setTimeout(240_000);
+    const errors = watchErrors(page);
+    await withProfile(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openCase(page);
+    const seen: string[] = [];
+    for (const width of [1280, 1440, 1920, 1000, 760, 700, 640, 360, 320]) {
+      await page.setViewportSize({ width, height: width >= 1200 ? 900 : 740 });
+      await openAttachments(page);
+      for (const scheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: scheme });
+        await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+        const where = `${width}/${scheme}`;
+        const m = await briefMetrics(page);
+        expect(m.atts.length, `${where}: key/value attachments`).toBe(2);
+        for (const a of m.atts) {
+          expect(a.bad, `${where} ${a.title}: values under 60 % of the list that share a line with their key`).toEqual([]);
+          expect(a.tracks, `${where} ${a.title}: grid tracks`).toBe(width === 1000 || width === 760 ? 2 : 1);
+          expect(a.iconOnFirstLine, `${where} ${a.title}: the icon sits on the title's first line`).toBe(true);
+          expect(a.monoValues, `${where} ${a.title}: values in the sans face`).toBe(0);
+        }
+        if (scheme === 'light') seen.push(`${width}: brief ${m.brief}, slack ${m.slack}, ${m.atts.map((a) => `${a.tracks} track(s), min value ${a.valueWidth} px, ${a.height} px tall`).join(' / ')}`);
+        if (width === 1280) {
+          const [policy, calendar] = m.atts;
+          expect(calendar.title, 'the second attachment is the change calendar').toMatch(/calendar/i);
+          expect(policy.height, `${where}: policy height`).toBeLessThanOrEqual(1800);
+          expect(calendar.height, `${where}: calendar height`).toBeLessThanOrEqual(400);
+          expect(m.brief, `${where}: brief width`).toBeGreaterThanOrEqual(319.5);
+          expect(m.slack, `${where}: worklist card height minus table height`).toBeLessThanOrEqual(130);
+        }
+        if (width === 1440) expect(m.brief, `${where}: brief width`).toBeGreaterThanOrEqual(340);
+        if (width === 1920) expect(m.brief, `${where}: brief width`).toBeGreaterThanOrEqual(440);
+        expect(await overflow(page), `${where}: sideways scroll`).toBe(0);
+        if (width === 1280 || width === 360) await axeFull(page, `case with both attachments open, ${where}`);
+      }
+      await page.emulateMedia({ colorScheme: 'light' });
+    }
+    await test.info().attach('brief metrics', { body: seen.join('\n'), contentType: 'text/plain' });
+    // At 360 px the attachments start closed; each summary toggles from the keyboard.
+    await page.evaluate(() => sessionStorage.clear());
+    await page.setViewportSize({ width: 360, height: 740 });
+    await page.goto('/#/');
+    await openCase(page);
+    const summaries = page.locator('.vc-brief details.attachment > summary');
+    expect(await summaries.count()).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < (await summaries.count()); i++) {
+      const details = page.locator('.vc-brief details.attachment').nth(i);
+      await expect(details).toHaveJSProperty('open', false);
+      await summaries.nth(i).focus();
+      await page.keyboard.press('Enter');
+      await expect(details).toHaveJSProperty('open', true);
+      await page.keyboard.press('Enter');
+      await expect(details).toHaveJSProperty('open', false);
+    }
+
+    // The SOC case keeps the shared rules: two tracks, monospace values and regular-weight keys in every key/value list,
+    // and centred attachment summaries with the icon unshifted (this case has a key/value attachment).
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/#/case/new-scheduled-task-running-powershell/e2e');
+    await expect(page.locator('.ws-grid')).toBeVisible({ timeout: 30_000 });
+    const soc = await page.locator('dl.kv').evaluateAll((dls) =>
+      dls.map((dl) => ({
+        tracks: getComputedStyle(dl).gridTemplateColumns.split(' ').length,
+        dd: dl.querySelectorAll('dd').length,
+        mono: dl.querySelectorAll('dd.mono').length,
+        keyWeights: [...dl.querySelectorAll('dt')].map((dt) => getComputedStyle(dt).fontWeight),
+      })),
+    );
+    expect(soc.length, 'SOC key/value lists').toBeGreaterThan(0);
+    for (const l of soc) {
+      expect(l.tracks, 'SOC .kv tracks').toBe(2);
+      expect(l.mono, 'SOC .kv values in monospace').toBe(l.dd);
+      expect(l.keyWeights.every((w) => w === '400'), 'SOC .kv keys at the regular weight').toBe(true);
+    }
+    const socSummaries = await page.locator('details.attachment > summary').evaluateAll((els) =>
+      els.map((s) => ({ align: getComputedStyle(s).alignItems, iconTop: getComputedStyle(s.querySelector('.icon')!).marginTop })),
+    );
+    expect(socSummaries.length, 'SOC attachments').toBeGreaterThan(0);
+    for (const s of socSummaries) expect(s, 'SOC attachment summary unchanged').toEqual({ align: 'center', iconTop: '0px' });
+    expect(errors).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------- WP4: Stats and Study

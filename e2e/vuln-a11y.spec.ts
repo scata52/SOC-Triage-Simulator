@@ -60,11 +60,13 @@ const heightFor = (w: number) => (w === 1280 ? 900 : 740);
 
 // One sweep of the current state: every width x theme. A problem is a violation (any impact, full rule set) or a page
 // that scrolls sideways at 360/320 px. The page is left at 1280 px in light, the state it was in for interaction.
-async function sweep(page: Page, problems: string[], label: string): Promise<void> {
+// `prepare` runs after each width change, for a state that a re-render at the new width would reset.
+async function sweep(page: Page, problems: string[], label: string, prepare?: () => Promise<void>): Promise<void> {
   const seen = new Map<string, string[]>();
   const note = (key: string, where: string) => seen.set(key, [...(seen.get(key) ?? []), where]);
   for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: heightFor(width) });
+    if (prepare) await prepare();
     for (const scheme of SCHEMES) {
       await page.emulateMedia({ colorScheme: scheme });
       await still(page);
@@ -81,6 +83,22 @@ async function sweep(page: Page, problems: string[], label: string): Promise<voi
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.emulateMedia({ colorScheme: 'light' });
   await still(page);
+}
+
+// Opens every attachment of the brief once the page has settled at the current width: a width change across 760 px
+// re-renders the brief with its default (closed at 760 px and below), so this polls until a pass finds them all open.
+async function openAttachments(page: Page): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const all = [...document.querySelectorAll<HTMLDetailsElement>('.vc-brief details.attachment')];
+        const closed = all.filter((d) => !d.open).length;
+        for (const d of all) d.open = true;
+        return all.length > 0 ? closed : -1;
+      }),
+    )
+    .toBe(0);
 }
 
 const rowIds = (page: Page): Promise<string[]> => page.locator('tbody.wl-finding, li.wl-card').evaluateAll((els) => els.map((e) => e.getAttribute('data-finding-id')!));
@@ -306,6 +324,8 @@ test.describe('vulnerability accessibility sweep (full axe rule set, light and d
     const problems: string[] = [];
     await withProfile(page);
     await caseStates(page, problems, CASE_T1, 'tier 1');
+    // Both attachments open at every width (WP8; the states above keep the default, closed at 360 and 320 px).
+    await sweep(page, problems, 'tier 1 case, both attachments open', () => openAttachments(page));
     expect(errors).toEqual([]);
     expect(problems).toEqual([]);
   });
