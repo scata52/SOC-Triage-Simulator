@@ -12,8 +12,10 @@ import { generateCatalogue, SIM_EPSS_ALL, simEpssScoreAt } from '../../src/core/
 import { baseScore, severityOf } from '../../src/core/vuln/cvss31.ts';
 import { gradeVulnCase, type VulnSubmission } from '../../src/core/vuln/grade.ts';
 import { VULN_SCHEDULES, type ReasonCode, type VulnSchedule, type VulnTemplate } from '../../src/core/vuln/model.ts';
+import { compareVersions } from '../../src/core/vuln/scan-writer.ts';
 import { VULN_CASE_TEMPLATES } from '../../src/core/vuln/templates/index.ts';
 import { AGENT_COMPONENTS, AUTH_FAILURE_TITLE, classOfTitle, endOfDay, isAgentProduct, KEV_SLA_DAYS, PRODUCT_KINDS, shapeTitle, shapesFor, slaClassOf, vectorProblem, WORKLIST_SHAPES, type ProductKind, type ShapeWant } from '../../src/core/vuln/templates/common.ts';
+import { SCHEMA, TABLE_NAMES } from '../../src/core/logs/schema.ts';
 import { world } from '../helpers/scenario-check.ts';
 import { buildFor, vulnRuns } from '../helpers/vuln-scenario-check.ts';
 
@@ -498,6 +500,38 @@ describe.each(TEMPLATES.map((t) => [t.id, t] as const))('%s data rules', (_id, t
       const exposed = new Set(rows(v.corpus, 'DeviceInfo').filter((d) => flag(d.ExposedToInternet)).map((d) => String(d.DeviceName)));
       for (const r of v.vulnFindings.filter((x) => !v.isWork(x) && String(x.Title) !== AUTH_FAILURE_TITLE))
         expect(exposed.has(String(r.DeviceName)), `${v.label}: background ${String(r.FindingId)} on exposed ${String(r.DeviceName)}`).toBe(false);
+    });
+  });
+
+  // Version realism (WP6): the scanner cannot show a host running a product below the fix of another worklist vulnerability on that
+  // product (found on another host) unless that host carries that finding too: VulnIntel holds only a fixed-in version, so the
+  // gap would read as an unpatched host that no finding reports.
+  it('V1: no worklist host runs a product below the fixed version of a different worklist vulnerability on it that the host does not carry', () => {
+    each((v) => {
+      const products = [...new Set(rows(v.corpus, 'SoftwareInventory').map((r) => String(r.Product)))].sort((a, b) => b.length - a.length);
+      const info = v.work.map(({ row }) => ({ row, host: String(row.DeviceName).toUpperCase(), product: products.find((p) => String(row.Title).includes(' in ' + p)) }));
+      for (const a of info)
+        for (const b of info) {
+          if (!a.product || a.product !== b.product || String(a.row.VulnId) === String(b.row.VulnId) || a.host === b.host) continue;
+          const fix = String(v.intel.get(String(b.row.VulnId))?.FixedVersion ?? '');
+          const detected = String(a.row.DetectedVersion ?? '');
+          if (!fix || !detected || compareVersions(detected, fix) >= 0) continue;
+          const carries = v.vulnFindings.some((r) => String(r.DeviceName).toUpperCase() === a.host && String(r.VulnId) === String(b.row.VulnId));
+          expect(carries, `${v.label}: ${a.host} runs ${a.product} ${detected}, below ${fix} (the fix of ${String(b.row.VulnId)} on ${b.host}) without carrying that finding`).toBe(true);
+        }
+    });
+  });
+
+  // Hints (WP6): a ladder of at least two, and a hint that names a table or column names one the SIEM has.
+  it('H1: at least two hints, and every table or column a hint names exists in the schema', () => {
+    const columns = new Set(TABLE_NAMES.flatMap((n) => Object.keys(SCHEMA[n].columns)));
+    const tables = new Set<string>(TABLE_NAMES);
+    each((v) => {
+      expect(v.c.hints.length, `${v.label}: hints`).toBeGreaterThanOrEqual(2);
+      for (const hint of v.c.hints) {
+        const named = hint.match(/[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+/g) ?? [];
+        for (const word of named) expect(tables.has(word) || columns.has(word), `${v.label}: hint names "${word}", which is no table or column`).toBe(true);
+      }
     });
   });
 

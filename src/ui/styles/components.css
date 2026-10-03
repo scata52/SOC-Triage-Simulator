@@ -409,6 +409,11 @@
   cursor: pointer;
   white-space: nowrap;
 }
+@media (max-width: 359px) {
+  .tabs [role='tab'] {
+    padding-inline: 6px;
+  }
+}
 .tabs [role='tab']:hover {
   color: var(--text);
 }

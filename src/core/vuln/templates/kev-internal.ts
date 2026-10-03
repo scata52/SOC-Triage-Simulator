@@ -43,6 +43,9 @@ import {
   writeChangeTickets,
   writeUnrelatedPatches,
   ymd,
+  dateRubricKeywords,
+  lowered,
+  KW_EMERGENCY,
 } from './common.ts';
 
 type Variant = 'kev' | 'nokev';
@@ -51,6 +54,16 @@ type Variant = 'kev' | 'nokev';
 const APP_HOST = 'APP01';
 const FILE_HOST = 'FS01';
 const TLS_HOST = 'PRINT01';
+// The no-listing keywords name the headline (or its host). The developer server and the TLS finding are not on Sim-KEV in either twin
+// and have a low Sim-EPSS, so a bare "not on Sim-KEV" or "low EPSS" fits a correct note of the listed twin too.
+const NOKEV_SUBJECTS = ['headline', 'the 7.5', '7.5', 'same 7.5', `${APP_HOST}`, `${APP_HOST} finding`, `finding on ${APP_HOST}`, 'application server finding', 'application server'];
+const NOKEV_PREDICATES = ['is not exploited', 'is not known exploited', 'is not being exploited', 'has not been exploited', 'is not actively exploited', 'is not on sim-kev', 'is not on the sim-kev', 'is not on kev', 'is not listed', 'is not kev listed', 'has no exploitation', 'has no sign of exploitation', 'has low epss', 'has a low epss', 'has low sim-epss', 'has a low sim-epss', 'epss is low', 'sim-epss is low', 'epss score is low', 'has no public exploit', 'has no known exploit', 'is unlikely to be exploited', 'carries little urgency', 'has little urgency', 'is not urgent', 'not on sim-kev', 'not exploited', 'not listed'];
+const NOKEV_PREFIXES = ['no sign that', 'no evidence that', 'no exploitation for', 'no sign of exploitation for', 'no evidence of exploitation for', 'no exploitation observed on', 'no exploitation of', 'no exploitation on', 'no sign of exploitation on', 'no sign of exploitation of', 'no public exploit for', 'no public exploit on', 'no known exploit for', 'low epss for', 'low epss on', 'low sim-epss for', 'low sim-epss on'];
+const NOKEV_RISK: string[] = [
+  ...NOKEV_SUBJECTS.flatMap((subject) => NOKEV_PREDICATES.map((p) => `${subject} ${p}`)),
+  ...[...NOKEV_SUBJECTS, 'the headline', 'the application server'].flatMap((subject) => NOKEV_PREFIXES.map((p) => `${p} ${subject}`)),
+];
+
 const DEV_HOST = 'DEVBOX01';
 
 const TITLE = 'Scan review: internal servers';
@@ -260,7 +273,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const devAge = Math.round((now - Number(f4.row.row.FirstSeen)) / DAY);
   const f1Age = Math.round((now - f1FirstSeen) / DAY);
 
-  const briefing = `${world.org.name}: review of the latest scan results for the internal servers in scope (two scan runs, one of them partial). Decide for each worklist finding whether to patch, mitigate, accept or dismiss it, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch and ticket data are in the SIEM tables. All data is simulated.`;
+  const briefing = `${world.org.name}: review of the latest scan results for the internal servers in scope (two scan runs, one of them partial). Decide for each worklist finding whether to patch, mitigate, avoid, accept, transfer or dismiss it as a false positive, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch and ticket data are in the SIEM tables. All data is simulated.`;
 
   // Hint 1 is the same text in both twins: it must not tell which one this is.
   const lead = 'Look past the score column: what does VulnIntel say about each finding, and do the scan runs and patch records still support each one?';
@@ -327,10 +340,26 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
       },
     ],
     rubric: [
-      { id: 'owner', text: `Names who acts: ${owners.join(', ')} (the Owner of each affected server in DeviceInfo).`, keywords: ['owner', ...owners.map((o) => o.toLowerCase())] },
-      { id: 'risk', text: isKev ? `States the risk in plain words: a known exploited flaw in the ${f1Entry.component} that lets anyone on the network read data from an internal application server without logging in.` : 'States that the same 7.5 carries little urgency: no exploitation signal and a low Sim-EPSS.', keywords: isKev ? ['known exploited', 'sim-kev', 'disclosure', 'exploited'] : ['not exploited', 'sim-epss', 'low probability', 'no public exploit'] },
-      { id: 'action', text: isKev ? 'Recommends an emergency patch for the listed finding, the next window for the developer server, the standard cycle for the TLS update, and a rescan of the file server.' : 'Recommends the next window for the developer server first, the standard cycle for the headline and the TLS update, and a rescan of the file server.', keywords: isKev ? ['emergency', 'next window', 'standard cycle', 'rescan'] : ['next window', 'standard cycle', 'rescan', 'patch'] },
-      { id: 'date', text: 'Gives dates or deadlines and ties them to the policy.', keywords: ['3 days', 'deadline', 'sla', 'window', '30 days'] },
+      { id: 'owner', text: `Names who acts: ${owners.join(', ')} (the Owner of each affected server in DeviceInfo).`, keywords: lowered(owners) },
+      {
+        id: 'risk',
+        text: isKev ? `States the risk in plain words: a known exploited ${f1Entry.component} flaw on an internal application server that lets anyone on the network read data without logging in.` : 'States that the same 7.5 carries little urgency: no exploitation signal and a low Sim-EPSS.',
+        keywords: isKev
+          ? lowered(['headline is on sim-kev', 'headline is on the sim-kev', 'headline is on the kev', "headline's on sim-kev", `headline on ${APP_HOST} is on sim-kev`, `headline on ${APP_HOST} is on the sim-kev`, 'headline is listed', `headline on ${APP_HOST} is listed`, 'headline is a known exploited', 'headline is known exploited', 'headline is actively exploited', 'headline is being exploited', 'headline has been exploited', `${APP_HOST} is on sim-kev`, `${APP_HOST} is on the sim-kev`, `${APP_HOST} is listed`, `${APP_HOST} finding is on sim-kev`, `finding on ${APP_HOST} is on sim-kev`, `${APP_HOST} is being exploited`, `${APP_HOST} is actively exploited`, `${APP_HOST} has been exploited`, 'application server finding is on sim-kev', 'application server finding is listed', 'kev-listed headline', 'listed headline'])
+          : lowered(NOKEV_RISK),
+      },
+      {
+        id: 'action',
+        text: isKev ? 'Recommends an emergency patch for the listed finding, the next window for the developer server, the standard cycle for the TLS update, and a rescan of the file server.' : 'Recommends no emergency: the next window for the developer server first, the standard cycle for the headline and the TLS update, and a rescan of the file server.',
+        keywords: isKev
+          ? lowered(KW_EMERGENCY, ['emergency window tonight', 'emergency window today', 'emergency window now', 'in an emergency window'])
+          : lowered(['no emergency for the headline', 'no emergency change for the headline', 'no emergency patch for the headline', 'headline is not an emergency', 'headline is no emergency', 'headline needs no emergency', 'headline does not need an emergency', 'without an emergency for the headline', 'no need for an emergency for the headline', 'headline in the standard', 'headline goes in the standard', 'headline to the standard', 'headline in the monthly', 'headline to the monthly', 'headline can go in the standard', 'headline can go in the regular', 'headline can go in the monthly', 'headline can go in the next standard', 'headline in the regular', 'headline goes in the regular', 'headline to the regular', '7.5 in the standard', '7.5 in the regular', '7.5 goes in the standard', '7.5 goes in the regular', '7.5 can go in the standard', '7.5 can go in the regular', '7.5 can wait', 'headline can wait']),
+      },
+      {
+        id: 'date',
+        text: 'Gives dates, not just "soon": the deadline of each urgent finding and the window or cycle it goes in, tied to the policy.',
+        keywords: dateRubricKeywords(cal, [isKev ? kevDeadline(f1FirstSeen, listed) : slaDeadline('high', f1FirstSeen), slaDeadline('high', now - 22 * DAY)], isKev ? [3, 30] : [30]),
+      },
     ],
     explanation: isKev
       ? [

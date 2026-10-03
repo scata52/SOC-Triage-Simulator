@@ -7,11 +7,12 @@
 // credit, evidence pin scoring with the hint penalty, the nDCG of the shift
 // score, the rubric keyword check and the difficulty multiplier.
 
-import { DIFFICULTY_MULTIPLIER, detectRubricHits } from '../grading/grade.ts';
+import { DIFFICULTY_MULTIPLIER } from '../grading/grade.ts';
 import { ordinalCredit, scoreEvidence, type EvidenceResult, type PinRule } from '../grading/shared.ts';
 import { prioritisation } from '../shift/score.ts';
 import { REASON_CODES, VULN_DECISIONS, VULN_SCHEDULES, type ControlId, type FindingTruth, type ReasonCode, type VulnDecision, type VulnSchedule } from './model.ts';
 import type { ResolvedVulnCase, ResolvedVulnFinding } from './scenario.ts';
+import type { RubricItem } from '../types.ts';
 
 export const VULN_POINTS = { decisions: 40, ordering: 20, schedule: 10, justification: 15, evidence: 15 } as const;
 export const VULN_MAX_SCORE = Object.values(VULN_POINTS).reduce((a, b) => a + b, 0);
@@ -270,10 +271,11 @@ function readRows(c: ResolvedVulnCase, s: VulnSubmission): Row[] {
 // ---- components ---------------------------------------------------------------
 
 const round1 = (x: number) => Math.round(x * 10) / 10;
-// A whole percent, rounded down so that 100% is only claimed for a perfect
-// ranking; the nudge keeps the last bit of the nDCG sum (0.9999999999999999)
-// from turning a perfect ranking into 99%.
-const percentDown = (x: number) => Math.floor(x * 100 + 1e-9);
+// A percent to one decimal, rounded down so that 100% is only claimed for a
+// perfect ranking (one decimal agrees with the points beside it to within
+// rounding); the nudge keeps the last bit of the nDCG sum (0.9999999999999999)
+// from turning a perfect ranking into 99.9%.
+export const percentDown = (x: number) => Math.floor(x * 1000 + 1e-6) / 10;
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 const listed = (parts: (string | false)[]) => `${parts.filter(Boolean).join('; ')}.`;
 
@@ -286,6 +288,23 @@ function overflowOrder(a: Row, b: Row): number {
   const pb = b.position ?? Number.POSITIVE_INFINITY;
   if (pa !== pb) return pb > pa ? 1 : -1;
   return b.index - a.index;
+}
+
+// Keyword check for the vulnerability notes, with word boundaries (the SOC
+// detectRubricHits stays a plain substring test). Both sides are normalised the
+// same way: lowercase, every run of characters outside a-z0-9 becomes one space.
+// The note is also trimmed and padded with one space at each end. A keyword keeps
+// its leading and trailing space, so ' oct 3 ' demands a word boundary on both
+// sides: it matches "Oct 3." and "by Oct 3" but not "Oct 31". A keyword without
+// a letter or digit never matches; an empty note hits nothing. Before that, a
+// possessive ('s or ’s after a letter or digit, at a word end) is dropped on both
+// sides, so 'app01 console' matches "APP01's console". "it's" becomes "it"; "its" is untouched.
+const normaliseRubric = (t: string): string => t.toLowerCase().replace(/(?<=[a-z0-9])['’]s(?![a-z0-9])/g, '').replace(/[^a-z0-9]+/g, ' ');
+export function vulnRubricHits(rubric: readonly RubricItem[], notes: string): string[] {
+  const body = normaliseRubric(notes).trim();
+  if (!body) return [];
+  const text = ` ${body} `;
+  return rubric.filter((r) => r.keywords.some((k) => /[a-z0-9]/i.test(k) && text.includes(normaliseRubric(k)))).map((r) => r.id);
 }
 
 export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade {
@@ -346,7 +365,7 @@ export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade
     : isFull(oEarned, 'ordering')
       ? 'Correct — the most urgent findings came first.'
       : listed([
-          `Your order earned ${percentDown(ndcg ?? 0)}% of the ideal urgency score`,
+          `Your order earned ${percentDown(ndcg ?? 0)}% of the ideal urgency score${outsideTopK.length > 0 ? ' before the must-not-miss charge' : ''}`,
           outsideTopK.length > 0 && `${outsideTopK.length} must-not-miss ${plural(outsideTopK.length, 'finding', 'findings')} outside the top ${topK} (−${orderingPenalty})`,
         ]);
 
@@ -390,6 +409,7 @@ export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade
   const jAgainst = reasons.reduce((sum, x) => sum + x.contradicting.length, 0);
   const jUnneeded = reasons.reduce((sum, x) => sum + x.unneeded.length, 0);
   const jZeroed = reasons.filter((x) => x.zeroed).length;
+  const floorNote = "a finding's reason credit runs from 0% to 100% and stops at 0%"; // said once, on the last deduction named
   const jDetail =
     n === 0
       ? 'No findings to justify.'
@@ -397,8 +417,8 @@ export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade
         ? 'Correct — every finding justified.'
         : listed([
             `${jFull} of ${n} findings fully justified`,
-            jAgainst > 0 && `${jAgainst} ${plural(jAgainst, 'reason', 'reasons')} contradicted the evidence (−0.5 each)`,
-            jUnneeded > 0 && `${jUnneeded} ${plural(jUnneeded, 'reason', 'reasons')} not needed for ${plural(jUnneeded, 'its finding', 'their findings')} (−0.25 each)`,
+            jAgainst > 0 && `${jAgainst} ${plural(jAgainst, 'reason', 'reasons')} contradicted the evidence (−50% credit each${jUnneeded > 0 ? '' : `; ${floorNote}`})`,
+            jUnneeded > 0 && `${jUnneeded} ${plural(jUnneeded, 'reason', 'reasons')} not needed for ${plural(jUnneeded, 'its finding', 'their findings')} (−25% credit each; ${floorNote})`,
             jZeroed > 0 && `${jZeroed} with a decision that earned nothing (no reason credit)`,
           ]);
 
@@ -437,7 +457,7 @@ export function gradeVulnCase(c: ResolvedVulnCase, s: VulnSubmission): VulnGrade
   const uncapped = round1(components.reduce((sum, x) => sum + x.earned, 0));
   const cap = missed.length > 0 ? KEY_MISS_CAP : null;
   const score = cap !== null ? Math.min(uncapped, cap) : uncapped;
-  const rubricHits = detectRubricHits(c, s.notes);
+  const rubricHits = vulnRubricHits(c.rubric, s.notes);
   const findings: VulnFindingGrade[] = rows.map((r, i) => ({
     findingId: r.f.findingId,
     weight: r.f.weight,

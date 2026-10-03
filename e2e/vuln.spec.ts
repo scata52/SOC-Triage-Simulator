@@ -4,6 +4,8 @@ import { VULN_TEMPLATES } from '../src/core/vuln/registry.ts';
 import { resolveVulnTemplate, vulnCaseTypes } from '../src/core/vuln/worklist.ts';
 import { buildVulnScenario } from '../src/core/vuln/scenario.ts';
 import { generateWorld } from '../src/core/world/world.ts';
+import { buildPracticeCase } from '../src/core/cases/scenario.ts';
+import { resolveCase, slugOf } from '../src/ui/lib/cases.ts';
 
 // Vulnerability-management mode: acceptance criteria (1)-(10) of WP1e.
 // A fixed profile so every run works in the same fictional organisation.
@@ -149,7 +151,7 @@ const liveCount = (page: Page, text: string) => page.evaluate((t) => (window as 
 // Domains in vuln data are never links (human decision 2026-10-02). Every rendered a[href] is an in-app route (#...)
 // or a documentation-citation host; no anchor's href or text contains a domain that appears in the page data.
 const CITATION_HOSTS = ['www.first.org', 'www.cisa.gov', 'www.comptia.org'];
-async function noDataLinks(page: Page, label: string): Promise<number> {
+async function noDataLinks(page: Page, label: string, citationHosts: string[] = CITATION_HOSTS): Promise<number> {
   const r = await page.evaluate((cites) => {
     const anchors = [...document.querySelectorAll('a')].map((a) => ({ href: a.getAttribute('href'), text: (a.textContent ?? '').toLowerCase() }));
     const hostRe = /(?<![\w.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?![\w-])/gi;
@@ -172,7 +174,7 @@ async function noDataLinks(page: Page, label: string): Promise<number> {
       for (const d of data) if (href.toLowerCase().includes(d) || a.text.includes(d)) bad.push(`data domain ${d} in anchor ${href} "${a.text.trim()}"`);
     }
     return { bad, anchors: anchors.length, data: data.length };
-  }, CITATION_HOSTS);
+  }, citationHosts);
   expect(r.bad, `${label}: links`).toEqual([]);
   expect(r.anchors, `${label}: has anchors`).toBeGreaterThan(0);
   return r.data;
@@ -386,7 +388,7 @@ test.describe('vulnerability mode', () => {
 
     const sortButtons = page.locator('button.th-sort');
     await expect(sortButtons).toHaveCount(6);
-    expect(await page.locator('thead th').evaluateAll((ths) => ths.filter((t) => !t.querySelector('button')).map((t) => t.textContent!.trim()))).toEqual(['Priority', 'Pins', 'Your call', 'Reasons']);
+    expect(await page.locator('thead th').evaluateAll((ths) => ths.filter((t) => !t.querySelector('button')).map((t) => t.textContent!.trim()))).toEqual(['Priority', 'Pins', 'Your call and reasons']);
     const pairs = await sortButtons.evaluateAll((bs) => bs.map((b) => [b.getAttribute('aria-label')!, b.querySelector('.th-label')!.textContent!]));
     expect(pairs.map((p) => p[1])).toEqual(['Finding', 'Host', 'Vulnerability', 'Severity (scanner)', 'CVSS', 'First seen']);
     for (const [label, visible] of pairs) expect(label.startsWith(visible), label).toBe(true);
@@ -938,8 +940,14 @@ test.describe('vulnerability mode', () => {
     }
     expect(await rowIds(page)).toEqual(order);
     await pinOne(page);
+    await watchLive(page);
     await page.locator('#vc-submit-btn').click();
     await expect(page.locator('#debrief-h')).toBeVisible();
+
+    // The announcement names the cap, so a screen-reader user hears what the debrief leads with.
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __live: string[] }).__live.find((x) => x.startsWith('Scored')) ?? ''))
+      .toMatch(/Capped at 60: \d+ key findings? missed\./);
 
     // The cap binds: the sum before the cap is above 60.
     const gate = page.locator('.vd-gate');
@@ -1486,5 +1494,358 @@ test.describe('continuity: vulnerability case to SOC shift', () => {
     await expect(page.locator('.vuln-link-back a')).toBeVisible({ timeout: 30_000 });
     expect(await overflow(page)).toBeLessThanOrEqual(0);
     await axeStrict(page, 'hook debrief 360');
+  });
+});
+
+// WP6 (polish): the nav item, the Help section for the mode and its keyboard routes, the closed-duplicate debrief line.
+test.describe('polish: nav, Help glossary, debrief wording', () => {
+  const NAV_LABELS = ['Console', 'Shift', 'Practice', 'Vulns', 'Study', 'Intel', 'Stats', 'Help'];
+
+  test('nav: Vulns sits between Practice and Study, is current on the library and a case, and the keyboard reaches it', async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = watchErrors(page);
+    await withProfile(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/#/practice');
+    await expect(page.locator('.lib-card').first()).toBeVisible();
+    await expect(page.locator('#primary-nav a')).toHaveText(NAV_LABELS);
+    await expect(page.locator('#primary-nav a[aria-current="page"]')).toHaveText('Practice');
+
+    // Keyboard only: from the Practice link, Tab to Vulns, Enter.
+    const practice = page.locator('#primary-nav a', { hasText: 'Practice' });
+    const vulns = page.locator('#primary-nav a', { hasText: 'Vulns' });
+    await tabTo(page, practice);
+    await page.keyboard.press('Tab');
+    await expect(vulns).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/#\/vuln$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vulnerability cases');
+    await expect(page.locator('main h1')).toBeFocused();
+    await expect(page.locator('#primary-nav a[aria-current="page"]')).toHaveText('Vulns');
+
+    await openCase(page);
+    await expect(page.locator('#primary-nav a[aria-current="page"]')).toHaveText('Vulns');
+    expect(errors).toEqual([]);
+  });
+
+  // The header must fit at every width the menu is not collapsed: no page scroll, no overlap of the nav and the right-hand block.
+  const HEADER_WIDTHS = [901, 920, 938, 1000, 1024, 1041, 1060, 1080, 1100, 1140, 1280];
+  async function headerFits(page: Page): Promise<void> {
+    for (const width of HEADER_WIDTHS) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/#/vuln');
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vulnerability cases');
+      expect(await overflow(page), `page scroll at ${width}`).toBeLessThanOrEqual(0);
+      const gap = await page.evaluate(() => {
+        const last = document.querySelector('#primary-nav a:last-child')!.getBoundingClientRect();
+        const right = document.querySelector('.shell-right')!.getBoundingClientRect();
+        const header = document.querySelector('.shell-header')!.getBoundingClientRect();
+        return { overlap: last.right - right.left, wraps: last.bottom > header.bottom };
+      });
+      expect(gap.overlap, `nav overlaps the right side of the header at ${width}`).toBeLessThanOrEqual(0);
+      expect(gap.wraps, `nav wraps at ${width}`).toBe(false);
+    }
+  }
+
+  test('nav: the header does not overflow with a 3,800+ XP rank and a shift in progress, from 901 px up', async ({ page }) => {
+    test.setTimeout(90_000);
+    await withProfile(page, { ...PROFILE, xp: 4000, activeShift: { number: 1, budget: 30, startedAt: Date.now(), elapsedSec: 0, drafts: {}, submissions: [] } });
+    await headerFits(page);
+    await expect(page.locator('.rank-chip')).toContainText('Incident Responder');
+  });
+
+  test('nav: the header does not overflow with eight items, from 901 px up; the collapsed menu reaches Vulns by keyboard at 360 and 320 px', async ({ page }) => {
+    test.setTimeout(90_000);
+    await withProfile(page);
+    await headerFits(page);
+    for (const width of [360, 320]) {
+      await page.setViewportSize({ width, height: 740 });
+      await page.goto('/#/practice');
+      await expect(page.locator('.lib-card').first()).toBeVisible();
+      const toggle = page.getByRole('button', { name: 'Menu' });
+      await expect(page.locator('#primary-nav')).toBeHidden();
+      await tabTo(page, toggle);
+      await page.keyboard.press('Enter');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.locator('#primary-nav a')).toHaveText(NAV_LABELS);
+      const box = (await page.locator('#primary-nav').boundingBox())!;
+      expect(box.x + box.width, `menu width at ${width}`).toBeLessThanOrEqual(width + 0.5);
+      expect(await overflow(page), `page scroll with the menu open at ${width}`).toBeLessThanOrEqual(0);
+      if (width === 360) await axeStrict(page, 'open menu 360');
+      await tabTo(page, page.locator('#primary-nav a', { hasText: 'Vulns' }));
+      await page.keyboard.press('Enter');
+      await expect(page).toHaveURL(/#\/vuln$/);
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vulnerability cases');
+      await expect(page.locator('#primary-nav')).toBeHidden();
+    }
+  });
+
+  test('Help: the library, the case and the debrief link to the glossary; Tab and Enter reach it with no mouse', async ({ page }) => {
+    test.setTimeout(180_000);
+    const errors = watchErrors(page);
+    await withProfile(page);
+    const helpLink = page.getByRole('link', { name: 'Vulnerability terms (Help)' });
+
+    // Library.
+    await page.goto('/#/vuln');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vulnerability cases');
+    await tabTo(page, helpLink);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/#\/help\/vuln$/);
+    await expect(page.locator('main h1')).toBeFocused();
+    await expect(page.locator('main h1')).toHaveText('Vulnerability management');
+    await expect(page.getByRole('heading', { level: 2, name: 'Glossary' })).toBeVisible();
+
+    // Case screen: from the brief area, no mouse.
+    await openCase(page);
+    await tabTo(page, helpLink);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/#\/help\/vuln$/);
+    await expect(page.locator('main h1')).toBeFocused();
+    await expect(page.getByRole('heading', { level: 2, name: 'Glossary' })).toBeVisible();
+    await page.goBack();
+    await expect(page.locator('.vc-worklist')).toBeVisible({ timeout: 30_000 });
+
+    // Debrief: the link keeps the debrief, so Back returns to the same review, and the attempt is not recorded again.
+    await solveAndSubmit(page);
+    const hero = page.locator('.debrief-hero-text');
+    const heroText = await hero.innerText();
+    const attempts = async () => (await page.evaluate(() => JSON.parse(localStorage.getItem('soc-triage-sim:v2')!))).attempts.length;
+    await expect.poll(attempts).toBe(1);
+    await tabTo(page, helpLink);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/#\/help\/vuln$/);
+    await expect(page.locator('main h1')).toBeFocused();
+    await expect(page.getByRole('heading', { level: 2, name: 'Glossary' })).toBeVisible();
+    await page.goBack();
+    await expect(page.locator('#debrief-h')).toBeVisible({ timeout: 30_000 });
+    expect(await hero.innerText()).toBe(heroText);
+    await expect(page.locator('.vc-worklist')).toHaveCount(0);
+
+    // Debrief to the nav and back: the debrief is still there, the attempt still counts once.
+    await tabTo(page, page.locator('#primary-nav a', { hasText: 'Vulns' }), 'Shift+Tab');
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/#\/vuln$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vulnerability cases');
+    await page.goBack();
+    await expect(page.locator('#debrief-h')).toBeVisible({ timeout: 30_000 });
+    expect(await hero.innerText()).toBe(heroText);
+    expect(await attempts()).toBe(1);
+
+    // Reopening the same case URL in this tab (a reload, or a link such as the SOC alert debrief's) shows the stored debrief, not an empty worklist.
+    await page.reload();
+    await expect(page.locator('#debrief-h')).toBeVisible({ timeout: 30_000 });
+    expect(await attempts()).toBe(1);
+
+    // "Work it again" forgets the finished debrief: Help and Back then show the empty worklist.
+    await page.getByRole('button', { name: 'Work it again' }).click();
+    await expect(page.locator('.vc-worklist')).toBeVisible();
+    await tabTo(page, helpLink);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/#\/help\/vuln$/);
+    await page.goBack();
+    await expect(page.locator('.vc-worklist')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('#debrief-h')).toHaveCount(0);
+
+    // The Help sections list names the section and marks it current.
+    await page.goto('/#/help/start');
+    await tabTo(page, page.locator('.help-nav a', { hasText: 'Vulnerability management' }));
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/#\/help\/vuln$/);
+    await expect(page.locator('main h1')).toBeFocused();
+    await expect(page.locator('.help-nav a[aria-current="page"]')).toHaveText('Vulnerability management');
+
+    // The nav: Help item, then the section entry, keyboard only.
+    await page.goto('/#/vuln');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vulnerability cases');
+    await tabTo(page, page.locator('#primary-nav a', { hasText: 'Help' }), 'Shift+Tab');
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/#\/help/);
+    await tabTo(page, page.locator('.help-nav a', { hasText: 'Vulnerability management' }));
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/#\/help\/vuln$/);
+    await expect(page.locator('main h1')).toBeFocused();
+    await expect(page.locator('.help-nav a[aria-current="page"]')).toHaveText('Vulnerability management');
+    expect(errors).toEqual([]);
+  });
+
+  test('Help glossary: the terms, both feed explainers verbatim with their sources, links open in a new tab safely, no real CVE id', async ({ page }) => {
+    const errors = watchErrors(page);
+    await withProfile(page);
+    await page.goto('/#/help/vuln');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vulnerability management');
+    const main = page.locator('main');
+    for (const term of [
+      'Credentialed vs non-credentialed (unauthenticated) scan', 'Backport', 'Stale result', 'Duplicate finding', 'CVSS base vs environmental', 'Sim-KEV', 'Sim-EPSS', 'Compensating control',
+      'Patch', 'Mitigate', 'Avoid', 'Accept', 'Transfer', 'False positive', 'Schedule', 'SLA by severity class', 'Change freeze', 'Must-not-miss finding', 'Lesson finding and key finding', 'Urgency tier',
+    ]) {
+      await expect(main.locator('dt', { hasText: term }).first(), term).toBeVisible();
+    }
+    const text = (await main.innerText()).replace(/\s+/g, ' ');
+    expect(text).toContain('Simulated list modeled on the CISA Known Exploited Vulnerabilities (KEV) catalog: vulnerabilities with evidence of exploitation in the wild. Entries here are fictional.');
+    expect(text).toContain("Simulated score modeled on FIRST's Exploit Prediction Scoring System (EPSS): estimated probability that a vulnerability is exploited in the wild in the next 30 days, with its percentile rank. Values here are fictional but follow the real distribution.");
+    expect(text).toContain('Ties inside a tier are free');
+    expect(text).toContain('MAV:A');
+    expect(text).not.toMatch(/\bCVE-\d{4}-\d{4,}/i);
+    const kev = main.locator('a[href="https://www.cisa.gov/known-exploited-vulnerabilities-catalog"]');
+    const epss = main.locator('a[href="https://www.first.org/epss/"]');
+    for (const a of [kev, epss]) {
+      await expect(a).toHaveCount(1);
+      await expect(a).toHaveAttribute('target', '_blank');
+      await expect(a).toHaveAttribute('rel', 'noopener noreferrer');
+      await expect(a).toContainText('(opens in a new tab)');
+    }
+    // Every external link in the section follows the same rule.
+    const external = await main.locator('a[href^="http"]').evaluateAll((els) => els.map((a) => ({ href: a.getAttribute('href'), rel: a.getAttribute('rel'), target: a.getAttribute('target') })));
+    expect(external).toHaveLength(2);
+    for (const l of external) expect(l, l.href ?? '').toMatchObject({ rel: 'noopener noreferrer', target: '_blank' });
+    // In-app cross links from the other sections.
+    for (const section of ['start', 'tables', 'grading']) {
+      await page.goto(`/#/help/${section}`);
+      await expect(page.locator('main a[href="#/help/vuln"]').first(), section).toBeVisible();
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test('Help glossary: axe clean (full rule set) in both themes, no page scroll at 360 and 320 px', async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = watchErrors(page);
+    await withProfile(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto('/#/help/vuln');
+      await expect(page.getByRole('heading', { level: 2, name: 'Glossary' })).toBeVisible();
+      await axeStrict(page, `help vuln ${scheme}`);
+      await axeFull(page, `help vuln full rule set ${scheme}`);
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+    for (const width of [360, 320]) {
+      await page.setViewportSize({ width, height: 740 });
+      await page.goto('/#/help/vuln');
+      await expect(page.getByRole('heading', { level: 2, name: 'Glossary' })).toBeVisible();
+      expect(await overflow(page), `page scroll at ${width}`).toBeLessThanOrEqual(0);
+      // Each term sits above its definition: no definition is squeezed into a narrow column.
+      const widths = await page.evaluate(() => {
+        const article = document.querySelector('article.prose')!.getBoundingClientRect().width;
+        return { article, dd: [...document.querySelectorAll('.vuln-glossary dd')].map((d) => d.getBoundingClientRect().width) };
+      });
+      expect(widths.dd.length).toBeGreaterThan(15);
+      for (const w of widths.dd) expect(w, `a glossary definition at ${width}px`).toBeGreaterThanOrEqual(widths.article * 0.8);
+      await axeFull(page, `help vuln full rule set ${width}px`);
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test('Help links on the library, the case and the debrief: no page scroll at 360 px, axe clean', async ({ page }) => {
+    test.setTimeout(120_000);
+    await withProfile(page);
+    await page.setViewportSize({ width: 360, height: 740 });
+    await page.goto('/#/vuln');
+    await expect(page.getByRole('link', { name: 'Vulnerability terms (Help)' })).toBeVisible();
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+    await axeStrict(page, 'library help link 360');
+    await openCase(page);
+    await expect(page.getByRole('link', { name: 'Vulnerability terms (Help)' })).toBeVisible();
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+    await solveAndSubmit(page);
+    await expect(page.getByRole('link', { name: 'Vulnerability terms (Help)' })).toBeVisible();
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+    await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+    await axeStrict(page, 'debrief 360');
+  });
+
+  test('library: a search with no match says so, not that the tier is empty', async ({ page }) => {
+    await withProfile(page);
+    await page.goto('/#/vuln');
+    await page.getByLabel('Search').fill('zzzzz');
+    await expect(page.getByText('No case type matches "zzzzz".')).toBeVisible();
+    await expect(page.getByText('No vulnerability cases at this tier yet.')).toHaveCount(0);
+    await page.getByLabel('Search').fill('');
+    await expect(page.locator('.lib-card').first()).toBeVisible();
+  });
+
+  test('a closed duplicate reads as one in the debrief, not as a plain false positive; each finding has a heading', async ({ page }) => {
+    test.setTimeout(240_000);
+    const errors = watchErrors(page);
+    await withProfile(page);
+    // The twin and its duplicates come from the data: seed `e2e` of the tier-3 case type.
+    const type = vulnCaseTypes(VULN_TEMPLATES).find((t) => t.slug === 'scan-review-shared-services-and-payment-systems')!;
+    const template = resolveVulnTemplate(type, 'e2e');
+    const built = buildVulnScenario({ worldSeed: PROFILE.worldSeed, templateId: template.id, seed: 'e2e', world: generateWorld(PROFILE.worldSeed) });
+    const dups = built.case.findings.filter((f) => f.truth.decision === 'false-positive' && f.truth.reasons.includes('duplicate-root-cause'));
+    expect(dups.length, `closed duplicates in ${template.id}`).toBeGreaterThan(0);
+    const lessonDup = dups.find((f) => f.lesson);
+
+    await openCase(page, CASE_TIER3);
+    // Patch every row (the learner who does not see the duplicates), then submit.
+    for (const id of await rowIds(page)) {
+      await page.locator(`#wl-${id}-decision`).selectOption('patch');
+      await page.locator(`#wl-${id}-schedule`).selectOption('standard-cycle');
+    }
+    await pinOne(page);
+    await page.locator('#vc-submit-btn').click();
+    await expect(page.locator('#debrief-h')).toBeVisible();
+
+    for (const f of dups) {
+      const card = page.locator(`li.vd-finding[data-finding-id="${f.findingId}"]`);
+      const shown = (await card.locator('dd[data-field="decision"]').innerText()).replace(/\s+/g, ' ');
+      expect(shown, f.findingId).toContain('Yours: Patch · Right: False positive (a duplicate: closed with the reason Duplicate root cause) ·');
+      // Each card has a heading that names the finding.
+      await expect(card.getByRole('heading', { level: 3 }).first()).toContainText(f.findingId);
+    }
+    if (lessonDup) {
+      const lead = page.locator(`.vd-lead li[data-miss="${lessonDup.findingId}"]`);
+      await expect(lead).toHaveCount(1);
+      await expect(lead).toContainText('The right call was False positive (closed as a duplicate)');
+    }
+    expect(await page.locator('li.vd-finding > .finding-head > h3').count()).toBe(built.case.findings.length);
+    expect(errors).toEqual([]);
+  });
+});
+
+// Rule 10, SOC side (DESIGN section 9): SOC attacker-role domains are generated names under real TLDs (decision 3), so the
+// UI must never make one clickable. A phishing case: the domain is in a query result and in the debrief; no anchor on
+// either page carries it, and every external anchor is an ATT&CK or reference link of the case.
+test.describe('SOC cases: no data domain is a link', () => {
+  test('query result and debrief of a phishing case', async ({ page }) => {
+    test.setTimeout(120_000);
+    const errors = watchErrors(page);
+    const world = generateWorld(PROFILE.worldSeed);
+    const slug = slugOf('email-phish-credential');
+    const seed = ['e2e', 'e2e-b', 'e2e-d', 'e2e-e', 'e2e-f', 'e2e-g'].find((x) => resolveCase(slug, x)?.id === 'email-phish-credential');
+    expect(seed, 'a seed that resolves to the credential phish').toBeTruthy();
+    const c = buildPracticeCase(world, 'email-phish-credential', seed!).cases[0];
+    const domain = c.indicators.block.find((i) => i.kind === 'domain')!.value;
+    const hosts = ['attack.mitre.org', ...c.references.map((x) => new URL(x.url).host)];
+
+    await withProfile(page);
+    await page.goto(`/#/case/${slug}/${seed}`);
+    await expect(page.locator('.ws-grid')).toBeVisible({ timeout: 30_000 });
+    await runQuery(page, `EmailEvents
+| where SenderFromDomain == "${domain}"
+| project TimeGenerated, SenderFromAddress, SenderFromDomain, Urls
+| take 5`);
+    await expect(page.locator('.results-table')).toContainText(domain);
+    const onCase = await noDataLinks(page, 'SOC case with a query result', hosts);
+    expect(onCase).toBeGreaterThan(0);
+
+    await page.getByRole('radio', { name: 'True positive' }).check();
+    await page.getByRole('radio', { name: 'High' }).check();
+    await page.getByRole('radio', { name: 'Escalate to IR' }).check();
+    const combo = page.getByRole('combobox', { name: 'MITRE ATT&CK' });
+    await combo.fill('T1566.002');
+    await combo.press('Enter');
+    await page.getByLabel('Handover note').fill('Credential phish to a look-alike portal; block the sender domain and reset the affected account.');
+    await page.getByRole('button', { name: 'Pin row 1 as evidence' }).click();
+    await page.getByRole('button', { name: 'Submit verdict' }).click();
+    await expect(page.locator('.debrief-hero h1')).not.toBeEmpty();
+    await expect(page.locator('.debrief')).toContainText(domain);
+    await noDataLinks(page, 'SOC debrief', hosts);
+    // The ATT&CK and reference links are the only external ones and say they open a new tab.
+    const external = page.locator('.debrief a[target="_blank"]');
+    expect(await external.count()).toBeGreaterThan(0);
+    for (const a of await external.all()) await expect(a.locator('.visually-hidden')).toHaveText(/opens in a new tab/);
+    expect(errors).toEqual([]);
   });
 });

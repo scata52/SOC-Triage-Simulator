@@ -288,7 +288,7 @@ export function Workspace({
                     <p>
                       Write a query and press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>. New to KQL? Open{' '}
                       <a href="#/help/kql" target="_blank" rel="noopener">
-                        the five-minute guide
+                        the five-minute guide<span class="visually-hidden"> (opens in a new tab)</span>
                       </a>{' '}
                       or browse the Schema tab.
                     </p>

@@ -80,6 +80,40 @@ function saveVulnDraft(k: string, d: VulnDraft | null): void {
     /* ignore */
   }
 }
+// The finished debrief survives leaving the screen (the Help link, the nav, Back): the submission is kept per case, the
+// grade is recomputed from it on return and must match the stored score, else the case renders normally.
+function saveVulnDone(k: string, templateId: string, percent: number, submission: VulnSubmission): void {
+  try {
+    sessionStorage.setItem(`vdone:${k}`, JSON.stringify({ v: 1, templateId, percent, submission }));
+  } catch {
+    /* ignore */
+  }
+}
+function clearVulnDone(k: string): void {
+  try {
+    sessionStorage.removeItem(`vdone:${k}`);
+  } catch {
+    /* ignore */
+  }
+}
+function loadVulnDone(k: string, c: ResolvedVulnCase, templateId: string): { grade: VulnGrade; submission: VulnSubmission } | null {
+  try {
+    const raw = sessionStorage.getItem(`vdone:${k}`);
+    if (!raw) return null;
+    const o = JSON.parse(raw) as { v?: unknown; templateId?: unknown; percent?: unknown; submission?: Partial<VulnSubmission> | null };
+    const sub = o.submission;
+    if (o.v !== 1 || o.templateId !== templateId || typeof o.percent !== 'number' || !sub || typeof sub !== 'object') return null;
+    if (!sub.answers || typeof sub.answers !== 'object' || Array.isArray(sub.answers)) return null;
+    if (!Array.isArray(sub.order) || !sub.order.every((x) => typeof x === 'string')) return null;
+    if (!Array.isArray(sub.pins) || !sub.pins.every((x) => typeof x === 'string')) return null;
+    if (typeof sub.notes !== 'string' || typeof sub.hintsUsed !== 'number') return null;
+    const submission = sub as VulnSubmission;
+    const grade = gradeVulnCase(c, submission);
+    return grade.percent === o.percent ? { grade, submission } : null;
+  } catch {
+    return null;
+  }
+}
 function loadVulnQuery(k: string): string | null {
   try {
     return sessionStorage.getItem(`vq:${k}`);
@@ -174,6 +208,8 @@ export function VulnCase({ slug, seed }: { slug: string; seed: string }) {
         const d = restoreDraft(loadVulnDraft(key), ids, c.hints.length);
         draftRef.current = d;
         setDraft(d);
+        // Back from Help or the nav: show the debrief again (never records the attempt a second time).
+        setDone(loadVulnDone(key, c, template.id));
         setBundle({
           c,
           view: caseView(c),
@@ -364,10 +400,14 @@ export function VulnCase({ slug, seed }: { slug: string; seed: string }) {
     const grade = gradeVulnCase(c, submission);
     update((p) => recordVulnAttempt(p, { c, grade, submission, now: Date.now(), day: today(), durationSec: Math.round((Date.now() - started.current) / 1000) }).profile);
     saveVulnDraft(key, null);
+    saveVulnDone(key, template.id, grade.percent, submission);
     setDone({ grade, submission });
     const passed = grade.percent >= VULN_PASS_PERCENT;
     play(passed ? 'good' : 'bad');
-    say(`Scored ${grade.percent} out of 100. ${passed ? 'Passed.' : `Below the pass mark of ${VULN_PASS_PERCENT}.`}${grade.mustNotMiss.dismissed.length ? ' You dismissed a must-not-miss finding.' : ''}`);
+    const { gate } = grade;
+    const capSay =
+      gate.cap === null ? '' : ` ${gate.uncapped > gate.cap ? `Capped at ${gate.cap}` : `A missed key finding caps the score at ${gate.cap}`}: ${gate.missed.length} key finding${gate.missed.length === 1 ? '' : 's'} missed.`;
+    say(`Scored ${grade.percent} out of 100. ${passed ? 'Passed.' : `Below the pass mark of ${VULN_PASS_PERCENT}.`}${capSay}${grade.mustNotMiss.dismissed.length ? ' You dismissed a must-not-miss finding.' : ''}`);
     window.scrollTo({ top: 0 });
   };
 
@@ -375,6 +415,7 @@ export function VulnCase({ slug, seed }: { slug: string; seed: string }) {
     const again = () => {
       commit(emptyDraft(bundle.ids));
       saveVulnDraft(key, null);
+      clearVulnDone(key);
       setSortUndo(null);
       setGateShown(false);
       setMovedId(null);
@@ -426,6 +467,9 @@ export function VulnCase({ slug, seed }: { slug: string; seed: string }) {
         <h1 class="vc-h1">{view.title}</h1>
         <span class="diff">{DIFF_LABEL[view.difficulty]}</span>
         <span class="badge badge-accent">vulnerability case</span>
+        <span class="badge" data-simulated="true">
+          Simulated data
+        </span>
         {profile.value.settings.timerEnabled && <Timer since={started.current} />}
       </header>
 
@@ -440,6 +484,10 @@ export function VulnCase({ slug, seed }: { slug: string; seed: string }) {
             consoleApi.current?.load(q);
           }}
         />
+        <p class="small vc-help-link">
+          <Icon name="book" /> <a href="#/help/vuln">Vulnerability terms (Help)</a>
+          <span class="faint"> — your answers are kept in this tab if you leave (unless your browser blocks storage).</span>
+        </p>
       </aside>
 
       <Worklist

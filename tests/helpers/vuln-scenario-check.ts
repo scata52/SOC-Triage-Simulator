@@ -185,7 +185,7 @@ export async function checkVulnTemplate(template: VulnTemplate, runs: VulnRun[],
     checkVulnStructure(s.case, s.corpus);
     checkVulnCorpus(s.corpus, label);
     checkVulnGrading(s.case);
-    expect(syntheticViolations(s.corpus, w), label).toEqual([]);
+    expect(syntheticViolations(s.corpus, w, s.case), label).toEqual([]);
     if (run.db) await checkVulnSolvable(s, undefined, opts.everyEvidenceRow ?? false);
   }
   for (let i = 0; i < sweep; i++) {

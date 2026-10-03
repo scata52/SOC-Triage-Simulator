@@ -102,9 +102,14 @@ src/
       templates/              identity, email, endpoint, network, impact, ops
     grading/                  grade.ts (verdict, evidence, indicators), indicators.ts
     study/                    srs.ts (SM-2), scheduler.ts (due + weakness)
-    shift/                    plan.ts (compose), score.ts (prioritisation)
+    shift/                    plan.ts (compose), score.ts (prioritisation),
+                              vuln-hook.ts (vuln → SOC continuity, §13)
     campaign/                 actors.ts, campaign.ts (stages, consequences)
-  state/                      profile v2 (pure transitions), storage, v1 migration
+    vuln/                     vulnerability-management mode (§13): model, cvss31,
+                              catalogue, coherence, scan-writer, scenario, grade,
+                              worklist, registry, templates/
+  state/                      profile v2 (pure transitions), storage, v1 migration,
+                              vuln-stats.ts
   ui/                         Preact app
     App.tsx, router.ts, main.tsx
     store/app.ts              profile signal + persistence, settings, toasts
@@ -112,7 +117,7 @@ src/
     workers/siem.worker.ts    builds the scenario and hosts it in sql.js
     components/               workspace, editor, results, tools, panels, debrief, ui
     screens/                  home, library, case, shift + handover, intel, study,
-                              stats, help, settings
+                              stats, help, settings; vuln library, case, debrief
     styles/                   tokens, base, components, screens
 public/                       service worker, web manifest, icon
 tests/                        Vitest
@@ -312,6 +317,7 @@ evidence 20, indicators 15**.
   recovery, a full shift with resume and handover, keyboard access, 360 px
   viewport, reduced motion, v1 migration, blocked storage, offline play, and
   axe-core scans of every screen in both themes.
+- Vulnerability-management tests are listed in §13.
 - CI runs `check` (typecheck, test, build) and `e2e` jobs on pull requests and
   pushes to `main`. Deploying to Pages is a manual workflow.
 
@@ -323,8 +329,10 @@ evidence 20, indicators 15**.
 - **EN/DE rendering.** Worth doing, but it doubles every content change while
   the content model is still settling. UI strings and case prose are kept
   separate from logic so this can follow.
-- **Threat-intel content pipeline** (e.g. CISA KEV shapes). A later build-time
-  script; the template model already accommodates it.
+- **Threat-intel content pipeline** (e.g. CISA KEV shapes). The
+  vulnerability-management mode (§13) deliberately ships no real-vulnerability
+  data: its feeds are simulated and calibrated once against aggregate public
+  statistics (docs/vuln-mgmt/DESIGN.md §11, PLAN ADR-13).
 
 ## 12. Migration order (one commit or small group each)
 
@@ -358,3 +366,52 @@ late shift inheriting the day's queue (§9); indicator scoring is coverage plus
 penalties rather than precision/recall (§8); offline support precaches from a
 list the build writes (`precache.json`), since the build manifest omits the
 worker and WebAssembly.
+
+## 13. Vulnerability-management mode
+
+Added 2026-09-28 → 2026-10-03 as a separate workstream; design, plan with its
+decision log (ADR-1 onward), and execution record live in
+[`docs/vuln-mgmt/`](docs/vuln-mgmt/) (`DESIGN.md`, `PLAN.md`, `PROGRESS.md`;
+`AS-BUILT.md` is the baseline before it and the delta after it).
+
+- **A sibling template type.** `VulnTemplate` (`core/vuln/model.ts`) sits beside
+  `CaseTemplate`: SOC verdicts and vuln decisions are graded differently, but
+  both share the world, the corpus builder, the worker and the console. Cases
+  come as twin pairs: same title and headline finding, one clue that flips the
+  answer.
+- **Data.** Six context tables are appended after the SOC tables in
+  `logs/schema.ts`: `VulnFindings`, `ScanRuns`, `VulnIntel`,
+  `SoftwareInventory`, `PatchHistory`, `ControlInventory` (SOC sessions hide
+  them). `catalogue.ts` generates a fictional catalogue per seed: `SIMVULN-`
+  ids, fictional products, CVSS 3.1 vectors scored by `cvss31.ts` (pinned to
+  FIRST oracle rows), and the simulated Sim-KEV / Sim-EPSS feeds;
+  `coherence.ts` keeps each vulnerability class consistent with its vector.
+  `scan-writer.ts` enforces how scanners see a host: banner versions without
+  credentials, package versions with them, failed logins, external scope.
+- **Builder.** `buildVulnScenario` (`vuln/scenario.ts`) derives the case date
+  and catalogue from (world seed, seed) only, so twins pair, and rejects specs
+  the grader could not score fairly (tiers, lesson finding, SLA limits,
+  evidence).
+- **Grading** (`vuln/grade.ts`, 100 points): decisions 40 (near-miss matrix),
+  ordering 20 (urgency tiers, nDCG, must-not-miss in the top places), schedule
+  10 (SLA-aware), reasons 15 (penalties for unneeded and contradicting codes),
+  evidence 15 (the shared pin scoring). A missed key finding caps the case at
+  60. The stakeholder note is coaching and XP only, matched by
+  `vulnRubricHits` (word boundaries; the SOC matcher is unchanged).
+- **UI.** `#/vuln` (library with tier filter), `#/vuln/<slug>/<seed>` (brief,
+  worklist as a table or cards, console, note, debrief), `#/help/vuln`, and a
+  Vulns nav item; pure worklist helpers live in `vuln/worklist.ts`.
+- **Integration.** Vuln attempts join the shared profile and XP, the study
+  pool (CySA+ objectives 2.1–2.5 and 4.1 as skills) and Stats (domain 2.0,
+  objectives, decision confusion matrix: `state/vuln-stats.ts`). A
+  must-not-miss finding left open writes a ledger entry; the next shift gets
+  exactly one extra alert (`endpoint-known-vuln-exploit`, outside the random
+  pool), built after every other item so the rest of the shift is unchanged
+  (`shift/vuln-hook.ts`).
+- **Tests.** `vuln-cvss`, `vuln-catalogue`, `vuln-corpus`, `vuln-grading`,
+  `vuln-guardrails` (no CVE id in scenario data; domain rules), `vuln-hardening`
+  (strategy bounds: naive answers and lesson misses fail, ideal and minor slips
+  pass), `vuln-worklist`, `vuln-stats`, `vuln-continuity`,
+  `scenarios/vuln-link`, and `vuln-scenarios/` (per template, the twin-pair
+  suite, data rules, rubric); `e2e/vuln.spec.ts` and the accessibility sweep
+  `e2e/vuln-a11y.spec.ts`.

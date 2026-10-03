@@ -3,6 +3,7 @@
 
 import { Fragment, type ComponentChildren } from 'preact';
 import type { KeyMissWhy, VulnFindingGrade, VulnGrade, VulnSubmission, VulnDecisionVerdict, VulnScheduleVerdict } from '../../core/vuln/grade.ts';
+import type { VulnDecision } from '../../core/vuln/model.ts';
 import type { ResolvedVulnCase, ResolvedVulnFinding } from '../../core/vuln/scenario.ts';
 import { DECISION_LABELS, REASON_LABELS, SCHEDULE_LABELS, VULN_PASS_PERCENT, type WorklistRow } from '../../core/vuln/worklist.ts';
 import { Icon } from '../components/Icon.tsx';
@@ -33,11 +34,25 @@ const SCHEDULE_VERDICT: Record<VulnScheduleVerdict, string> = {
 const MISS_TEXT: Record<KeyMissWhy, string> = {
   undecided: 'no decision',
   'wrong-decision': 'a wrong decision',
-  'near-miss': 'a half-right decision, and this finding decides the lesson',
-  'wrong-control': 'a control that does not cover the path',
+  'near-miss': 'a half-right decision (a lesson finding needs the full answer)',
+  'wrong-control': 'no control, or one that does not cover the path',
   unscheduled: 'no schedule',
   late: 'a schedule later than its SLA allows',
   'two-steps': 'a schedule two or more steps from the right one',
+};
+
+// A duplicate detection is closed as a false positive with the Duplicate root cause reason: the flaw is real and is
+// fixed once elsewhere. Only the right call is qualified (the grader scores the decision code alone and the reason under
+// Justification), so "Yours" always shows the plain decision label.
+const isDuplicate = (t: { decision: VulnDecision; reasons: readonly string[] }) => t.decision === 'false-positive' && t.reasons.includes('duplicate-root-cause');
+const rightLabel = (t: { decision: VulnDecision; reasons: readonly string[] }, short = false) =>
+  isDuplicate(t) ? `${DECISION_LABELS[t.decision]} (${short ? 'closed as a duplicate' : 'a duplicate: closed with the reason Duplicate root cause'})` : DECISION_LABELS[t.decision];
+
+// Which places of the ideal order a tier fills (tiers are listed most urgent first).
+const tierPlaces = (tiers: readonly (readonly string[])[], tier: number) => {
+  const first = tiers.slice(0, tier).reduce((sum, t) => sum + t.length, 0) + 1;
+  const last = first + tiers[tier].length - 1;
+  return first === last ? `place ${first}` : `places ${first}–${last}`;
 };
 
 const reasonText = (codes: readonly string[]) => (codes.length ? codes.map((c) => REASON_LABELS[c as keyof typeof REASON_LABELS] ?? c).join(', ') : 'none');
@@ -68,6 +83,10 @@ export function VulnDebrief({
   const binds = cap !== null && uncapped > cap;
   const describeMiss = (m: VulnGrade['gate']['missed'][number]) => `${where(m.findingId)}, ${m.lesson ? 'a finding this case turns on' : 'a must-not-miss finding'}, was given ${MISS_TEXT[m.why]}`;
   const topK = c.findings.filter((f) => f.mustNotMiss).length + 1;
+  const penalties = [
+    decisionPenalty > 0 && `−${decisionPenalty} points of Decisions (must-not-miss findings left open)`,
+    orderingPenalty > 0 && `−${orderingPenalty} points of Ordering (must-not-miss findings outside the top ${topK})`,
+  ].filter((x): x is string => x !== false);
 
   // One bullet per finding: missed key findings first, then dismissed, late, and out-of-place must-not-miss ones.
   const leadIds = [...new Set([...missed.map((m) => m.findingId).filter((id) => !dismissed.includes(id)), ...dismissed, ...late, ...outsideTopK])].filter((id) => byId.has(id));
@@ -84,7 +103,12 @@ export function VulnDebrief({
       <section class="card debrief-hero" aria-labelledby="debrief-h">
         <Ring value={g.percent / 100} label={`${g.percent}`} sub="/ 100" color={scoreColor(g.percent)} />
         <div class="debrief-hero-text">
-          <p class="eyebrow">Debrief · {c.title}</p>
+          <p class="eyebrow">
+            Debrief · {c.title}{' '}
+            <span class="badge" data-simulated="true">
+              Simulated data
+            </span>
+          </p>
           <h1 id="debrief-h">{c.lesson}</h1>
           {cap !== null && (
             <p class="vd-gate" data-gate="missed">
@@ -103,7 +127,7 @@ export function VulnDebrief({
           </p>
           {dismissed.length > 0 && (
             <p>
-              Costly mistake: you dismissed {dismissed.map(where).join(', ')}, a real must-not-miss finding, as a false positive.
+              Costly mistake: you dismissed {dismissed.map(where).join(', ')}, {dismissed.length === 1 ? 'a real must-not-miss finding' : 'real must-not-miss findings'}, as a false positive.
             </p>
           )}
           <p class="faint small vd-xp">
@@ -128,12 +152,12 @@ export function VulnDebrief({
                 <li data-miss={m ? id : undefined}>
                   {dismissed.includes(id) ? (
                     <>
-                      You dismissed <strong>{id}</strong> on <strong>{r?.host ?? 'its host'}</strong> ({r?.title ?? 'finding'}) as a false positive. It is real: the right call was <strong>{DECISION_LABELS[t.decision]}</strong>,{' '}
+                      You dismissed <strong>{id}</strong> on <strong>{r?.host ?? 'its host'}</strong> ({r?.title ?? 'finding'}) as a false positive. It is real: the right call was <strong>{rightLabel(t, true)}</strong>,{' '}
                       <strong>{SCHEDULE_LABELS[t.schedule].toLowerCase()}</strong>. {g.evidence.find((e) => e.findingId === id)?.why ?? ''}
                     </>
                   ) : m ? (
                     <>
-                      <strong>{where(id)}</strong> {m.lesson ? 'is a finding this case turns on' : 'is a must-not-miss finding'}, and it was given {MISS_TEXT[m.why]}. The right call was <strong>{DECISION_LABELS[t.decision]}</strong>,{' '}
+                      <strong>{where(id)}</strong> {m.lesson ? 'is a finding this case turns on' : 'is a must-not-miss finding'}, and it was given {MISS_TEXT[m.why]}. The right call was <strong>{rightLabel(t, true)}</strong>,{' '}
                       <strong>{SCHEDULE_LABELS[t.schedule].toLowerCase()}</strong>
                       {t.slaLatest ? ` (latest within the SLA: ${SCHEDULE_LABELS[t.slaLatest].toLowerCase()})` : ''}.
                     </>
@@ -142,7 +166,9 @@ export function VulnDebrief({
                       <strong>{where(id)}</strong> was left open: {gradeOf.get(id)?.schedule.given ? 'scheduled later than its SLA allows' : 'not scheduled'}. A real must-not-miss finding has to be fixed in time.
                     </>
                   ) : (
-                    <strong>{where(id)}</strong>
+                    <>
+                      <strong>{where(id)}</strong> is a must-not-miss finding.
+                    </>
                   )}
                   {outsideTopK.includes(id) && (
                     <>
@@ -154,10 +180,12 @@ export function VulnDebrief({
               );
             })}
           </ul>
-          <p class="faint small">
-            Penalty: −{decisionPenalty} decisions for findings left open, −{orderingPenalty} ordering (a component never goes below 0).
-            {cap !== null && ` The cap of ${cap} applies to the total, whatever the components add up to.`}
-          </p>
+          {(penalties.length > 0 || cap !== null) && (
+            <p class="faint small">
+              {penalties.length > 0 && `Penalty: ${penalties.join(', ')} (a component never goes below 0).`}
+              {cap !== null && `${penalties.length > 0 ? ' ' : ''}The cap of ${cap} applies to the total, whatever the components add up to.`}
+            </p>
+          )}
         </section>
       )}
 
@@ -189,10 +217,14 @@ export function VulnDebrief({
             ))}
           </tbody>
         </table>
+        <p class="faint small">
+          Unsure what a term here means? <a href="#/help/vuln">Vulnerability terms (Help)</a>.
+        </p>
       </section>
 
       <section class="card" aria-labelledby="vd-findings-h">
         <h2 id="vd-findings-h">Finding by finding</h2>
+        <p class="muted small">Missed key findings first, then every finding in the ideal urgency order.</p>
         <ol class="vd-findings">
           {ordered.map((id) => {
             const f = byId.get(id)!;
@@ -206,8 +238,9 @@ export function VulnDebrief({
             return (
               <li class="card vd-finding" data-finding-id={id}>
                 <div class="finding-head">
-                  <strong class="mono">{id}</strong>
-                  <span>· {r?.host ?? ''} · {r?.title ?? ''}</span>
+                  <h3 class="vd-finding-h">
+                    <span class="mono">{id}</span> · {r?.host ?? ''} · {r?.title ?? ''}
+                  </h3>
                   {r?.vulnId ? <span class="mono small">{r.vulnId}</span> : null}
                   {f.mustNotMiss && <span class="badge badge-bad">must-not-miss</span>}
                   {fg.lesson && <span class="badge">Lesson finding</span>}
@@ -217,7 +250,7 @@ export function VulnDebrief({
                 <dl class="vd-dl">
                   <dt>Decision</dt>
                   <dd data-field="decision">
-                    Yours: {fg.decision.given ? DECISION_LABELS[fg.decision.given] : 'not decided'} · Right: {DECISION_LABELS[t.decision]} · <strong>{DECISION_VERDICT[fg.decision.verdict]}</strong>
+                    Yours: {fg.decision.given ? DECISION_LABELS[fg.decision.given] : 'not decided'} · Right: {rightLabel(t)} · <strong>{DECISION_VERDICT[fg.decision.verdict]}</strong>
                     {mitigates && (
                       <>
                         <br />
@@ -236,7 +269,9 @@ export function VulnDebrief({
                     )}
                   </dd>
                   <dt>Priority</dt>
-                  <dd data-field="priority">Your position: {fg.position === null ? 'not ranked' : fg.position + 1} of {n}</dd>
+                  <dd data-field="priority">
+                    Your position: {fg.position === null ? 'not ranked' : fg.position + 1} of {n} · {tier >= 0 ? `urgency tier ${tier + 1} fills ${tierPlaces(c.tiers, tier)}` : 'no urgency tier: after the tiered findings'}
+                  </dd>
                   <dt>Reasons</dt>
                   <dd data-field="reasons">
                     {fg.reasons.matched.map((code) => (
@@ -246,10 +281,10 @@ export function VulnDebrief({
                       <span class="vd-reason">Missed: {REASON_LABELS[code]} </span>
                     ))}
                     {fg.reasons.contradicting.map((code) => (
-                      <span class="vd-reason text-bad">✗ {REASON_LABELS[code]} (contradicts the evidence, −0.5) </span>
+                      <span class="vd-reason text-bad">✗ {REASON_LABELS[code]} (contradicts the evidence: −50% credit) </span>
                     ))}
                     {fg.reasons.unneeded.map((code) => (
-                      <span class="vd-reason">− {REASON_LABELS[code]} (not needed here, −0.25) </span>
+                      <span class="vd-reason">− {REASON_LABELS[code]} (not needed here: −25% credit) </span>
                     ))}
                     <br />
                     Credit {Math.round(fg.reasons.credit * 100)}%
@@ -274,7 +309,7 @@ export function VulnDebrief({
         </ol>
         {g.irrelevantPins > 0 && (
           <p class="faint small">
-            {g.irrelevantPins} of your pins were not evidence for any finding. The grade frees one such pin per evidence point ({g.evidence.length}) and takes a point off each further one, so a blanket pin of every row does not pay.
+            {g.irrelevantPins} of your pins {g.irrelevantPins === 1 ? 'was' : 'were'} not evidence for any finding. The grade frees one such pin per evidence point ({g.evidence.length}) and takes a point off each further one, so a blanket pin of every row does not pay.
           </p>
         )}
       </section>
@@ -283,7 +318,7 @@ export function VulnDebrief({
         <section class="card" aria-labelledby="vd-over-h">
           <h2 id="vd-over-h">Over capacity</h2>
           <p class="small">
-            Your emergency and next-window changes exceeded the capacity of {c.constraints.capacityPerWindow} per window. These findings lost their schedule credit, lowest urgency first:
+            Your emergency and next-window changes exceeded the capacity of {c.constraints.capacityPerWindow} per window. These findings went over capacity, lowest urgency first; any schedule credit they had is gone:
           </p>
           <ul class="small">
             {g.overflow.map((id) => (
@@ -345,6 +380,7 @@ export function VulnDebrief({
                   <li>
                     <a href={r.url} target="_blank" rel="noopener noreferrer">
                       {r.label} <Icon name="external" />
+                      <span class="visually-hidden"> (opens in a new tab)</span>
                     </a>
                   </li>
                 ))}

@@ -30,9 +30,19 @@ nothing leaves your machine.
   eventually gives up. Miss it and it moves on. The indicators you report land
   in the `ThreatIntel` table on your next shift; every verdict you give,
   including the wrong ones, appears in `IncidentHistory`.
+- **Review vulnerability scans.** Twenty scan-review cases (ten twin pairs,
+  tiers 1–3) put a worklist of scanner findings in front of you, with the same
+  console and the company's device inventory, software and patch history, change
+  calendar and control inventory. For each finding you decide — patch, mitigate,
+  avoid, accept, transfer or false positive — pick a schedule that meets the SLA
+  and the change windows, give up to three reasons, order the worklist, pin the
+  evidence and write a short note to the system owner. Exploitation signals come
+  from **Sim-KEV** and **Sim-EPSS**, simulated feeds modelled on CISA KEV and
+  FIRST EPSS. A must-not-miss finding you leave open can come back as an
+  exploitation alert on your next shift.
 - **Study.** Every case type is a spaced-repetition card (SM-2). Due reviews
   come first; new picks lean toward your weakest ATT&CK tactics, CySA+ domains
-  and alert categories.
+  and objectives, and alert categories.
 - **Practise** any of 21 alert types (25 scenarios — several detections come
   as twins with opposite answers), or the **case of the day**, which is the
   same for everyone.
@@ -61,14 +71,18 @@ must look up: change tickets, device inventory, identity data.
 30, severity 10, action 10, ATT&CK 15, **evidence pinned 20, indicators 15**.
 Indicators are matched however you write them (defanged, as URLs,
 `DOMAIN\user`, FQDNs) — and reporting your own office's IP or the sanctioned
-scanner costs points.
+scanner costs points. Scan reviews score decisions 40, ordering 20, schedule
+10, reasons 15 and evidence 15; missing a finding the case turns on caps the
+score at 60, below the pass mark.
 
 **Synthetic by construction.** Organisations are Microsoft's fictitious
 companies; external addresses come only from the RFC 5737 documentation
 ranges (and `2001:db8::/32`), internal ones from RFC 1918, ASNs from the
 private range; attacker domains and hashes are generated; threat actors are
-invented. A test scans every cell of every generated corpus to keep it that
-way. Attacker activity appears only as a defender sees it in telemetry.
+invented; vulnerabilities carry `SIMVULN-` ids on fictional products, scored by
+a CVSS 3.1 calculator checked against FIRST's specification. Tests scan every
+cell of every generated corpus to keep it that way, and fail the build on any
+CVE id in scan-review data. Attacker activity appears only as a defender sees it in telemetry.
 
 **Accessible and offline.** Keyboard-complete (the editor never traps Tab),
 screen-reader labelled, usable at 360 px, light and dark themes, reduced
@@ -107,6 +121,13 @@ Chromium.
   indicator the grade expects; checks that the perfect answer scores exactly
   100 and an untouched alert 0; scans every generated cell for non-synthetic
   data; sweeps 30 more seeds for crashes; and checks determinism.
+- **Scan reviews**: every template × 20 seeds builds deterministically, its
+  reference investigation returns every evidence row, the perfect answer scores
+  100 and an empty one 0, and twins share their title, headline finding, first
+  hint and table sizes, so only the clue tells them apart. Strategy
+  tests keep naive answers (patch everything by CVSS, tick every reason, pin
+  every row) and answers that miss the case's lesson below the pass mark, while
+  the ideal answer and one with minor slips pass.
 - **Shifts and campaigns** are built end to end — every case in a shared
   corpus must stay solvable — and whole campaigns are played through (miss
   everything → breach on one foothold; contain everything → eviction).
@@ -144,8 +165,23 @@ CI runs all of it on every pull request.
 | Threat hunt: outbound data movement | Data Exfiltration | 3 |
 | Mass file modification on a file server | Ransomware | 1 |
 
-Answers are deliberately not listed — "twins" fire the same alert with
-opposite verdicts, and the titles are neutral on purpose.
+Vulnerability management (`#/vuln`, all twins; CySA+ objectives 2.1–2.5 and 4.1):
+
+| Scan review | Tier |
+|---|---|
+| Internal servers | 1 |
+| File servers | 1 |
+| Edge and internal servers | 1 |
+| Laboratory controller and internal servers | 1 |
+| Intranet application servers | 1 |
+| Third-party ticketing service and internal servers | 1 |
+| Optional admin consoles and internal servers | 1 |
+| Web servers | 2 |
+| Public web applications and servers | 2 |
+| Shared services and payment systems | 3 |
+
+Answers are deliberately not listed — "twins" fire the same alert (or show the
+same scan) with opposite answers, and the titles are neutral on purpose.
 
 ## Project layout
 
@@ -158,16 +194,20 @@ src/
     query/             KQL lexer, parser, transpiler, reference; SQL guard; sql.js engine
     cases/             template model, picker, attacker infra, scenario builder, 25 templates
     grading/           verdict grading, indicator matching
+    vuln/              vulnerability-management mode: model, CVSS 3.1, fictional catalogue,
+                       scan writer, scenario builder, grader, 20 templates
     shift/  campaign/  study/   the game engines
   state/               profile v2, storage, v1 migration
   ui/                  Preact app — screens, components, the SIEM worker, styles
-tests/                 Vitest: engine, scenarios, shifts, campaigns, grading, profile
+tests/                 Vitest: engine, scenarios, shifts, campaigns, grading, profile;
+                       vuln-* and vuln-scenarios/ for the scan reviews
 e2e/                   Playwright + axe
 ```
 
 [`ARCHITECTURE.md`](ARCHITECTURE.md) explains the design: the world and log
 model, the case template contract, the query engine, grading, and the shift,
-campaign and study engines.
+campaign and study engines; its last section covers the vulnerability-management
+mode, whose design lives in [`docs/vuln-mgmt/`](docs/vuln-mgmt/).
 
 ## Adding a scenario
 
@@ -181,6 +221,16 @@ part of one); `ctx.infra` mints attacker IPs, domains and hashes that respect
 the synthetic-data policy. Register it in `templates/index.ts`, add a line to
 a `tests/scenarios/*.test.ts` file, and the harness will tell you if the case
 is unsolvable, leaks, or scores a perfect answer below 100.
+
+A scan review is a `VulnTemplate` in `src/core/vuln/templates/`, usually a twin
+pair. Its `build(ctx)` writes scanner findings and context rows through
+`ctx.vuln.scan` and the corpus builder, and returns the worklist with each
+finding's truth (decision, schedule, reasons, weight, lesson or must-not-miss),
+the urgency tiers and ideal order, evidence handles, a reference investigation,
+hints and a stakeholder-note rubric. Register it in `templates/index.ts`; the
+vuln harness (`tests/helpers/vuln-scenario-check.ts`, `tests/vuln-scenarios/`,
+`tests/vuln-hardening.test.ts`) checks solvability, 100/0, twins and the
+strategy bounds.
 
 ## Deploying
 
@@ -196,7 +246,9 @@ serve `dist/`.
 Everything is generated in your browser and none of it is real — see
 Help → About the data in the app. Progress lives in this browser's local
 storage (`soc-triage-sim:v2`); a v1 profile is migrated automatically and
-kept as a backup. Export and import are in Settings. There is no server, no
+kept as a backup. An unfinished scan review is kept in the tab's session
+storage until you submit it, and its debrief until you work the case again;
+Reset and Move to a new organisation clear both. Export and import are in Settings. There is no server, no
 account and no tracking.
 
 MITRE ATT&CK® is a registered trademark of The MITRE Corporation; CySA+ is a

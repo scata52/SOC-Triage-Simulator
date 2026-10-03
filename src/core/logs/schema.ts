@@ -392,7 +392,7 @@ export const SCHEMA = {
       Finished: ['datetime', 'When the run finished.'],
       TargetsPlanned: ['int', 'Devices in the scan scope.'],
       TargetsScanned: ['int', 'Devices the scanner actually reached.'],
-      AuthFailures: ['int', 'Devices where the login failed (those results fall back to banner-level checks).'],
+      AuthFailures: ['int', 'Devices where the login failed, so no local checks ran there. The run shows a banner-level result (the Evidence says so) or only an "Authentication failure: local checks not run" row, in which case nothing was re-tested and an older result stays shown.'],
       RecordId: ['string', 'Unique id of this record (use it to pin evidence).'],
     },
   },

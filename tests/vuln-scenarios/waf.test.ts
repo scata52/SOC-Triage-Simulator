@@ -84,7 +84,7 @@ describe('T5 truths', () => {
       expect(tb.reasons.length, `${label}: the worklist allows 3 codes per finding, so more than 3 required could never all be matched`).toBeLessThanOrEqual(3);
       expect(a.case.findings[0].evidence.concat(b.case.findings[0].evidence).map((e) => e.label).join(' '), label).not.toContain('cannot go in before');
       expect(a.case.explanation.join(' '), `${label}: A says the virtual patch does not replace the code fix`).toContain('does not replace the code fix');
-      expect(b.case.explanation.join(' '), `${label}: B says why avoid is not accepted`).toContain('avoid is not accepted');
+      expect(b.case.explanation.join(' '), `${label}: B says why avoid is not accepted`).toContain('Avoid (switching the feature off) is not accepted');
     }
   });
 

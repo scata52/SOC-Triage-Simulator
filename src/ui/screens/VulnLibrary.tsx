@@ -32,7 +32,13 @@ export function VulnLibrary() {
         <div>
           <p class="eyebrow">Vulnerability management</p>
           <h1>Vulnerability cases</h1>
-          <p>Each card is a scan review. Some share a title and differ in the one clue that decides them. Every start is a fresh variation.</p>
+          <p>
+            Each card is a scan review. Many hold two variations that look alike and differ in the one clue that decides them; which one you get is random, and every start
+            is a fresh variation.
+          </p>
+          <p class="small">
+            New to the terms? Read <a href="#/help/vuln">Vulnerability terms (Help)</a>: scan types, backports, Sim-KEV, Sim-EPSS and the six decisions.
+          </p>
         </div>
       </div>
 
@@ -53,10 +59,10 @@ export function VulnLibrary() {
       </div>
 
       <p class="visually-hidden" role="status">
-        {list.length} case types shown
+        {list.length} {list.length === 1 ? 'case type' : 'case types'} shown
       </p>
       {list.length === 0 ? (
-        <p class="muted">No vulnerability cases at this tier yet.</p>
+        <p class="muted">{q.trim() ? `No case type matches "${q.trim()}".` : 'No vulnerability cases at this tier yet.'}</p>
       ) : (
         <ul class="lib-grid" aria-label="Vulnerability case types">
           {list.map((t) => {

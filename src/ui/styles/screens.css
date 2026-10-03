@@ -261,6 +261,9 @@
 .editor .cm-editor {
   height: 100%;
 }
+.lang-toggle {
+  position: relative; /* contain the visually-hidden legend, or it widens the page */
+}
 .lang-toggle label {
   padding: 2px 8px;
   font-size: 0.75rem;
@@ -1164,9 +1167,6 @@
 .vc-console .panel-head {
   flex-wrap: wrap;
 }
-.vc-console .lang-toggle {
-  position: relative;
-}
 .vc-tool .tool-panel {
   max-height: 420px;
 }
@@ -1184,7 +1184,7 @@
 .vc-submit .submit-btn {
   margin-top: var(--space-3);
 }
-@media (min-width: 1101px) {
+@media (min-width: 1200px) {
   .vc {
     grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
     grid-template-areas:
@@ -1227,8 +1227,23 @@
   flex-basis: 100%;
   margin: 0;
 }
-.wl-table th {
-  white-space: nowrap;
+/* Fit the table in its region from 1200 px up: header labels and the priority controls wrap, the reasons button sits
+   under the two selects. */
+.wl-table th,
+.wl-table .th-sort {
+  white-space: normal;
+}
+.wl-table .th-sort {
+  text-align: left;
+}
+.wl-your-call {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+.wl-your-call .wl-reasons-cell {
+  align-items: flex-start;
 }
 .wl-table td {
   vertical-align: top;
@@ -1237,7 +1252,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  min-width: 11em;
+  min-width: 9em;
 }
 .wl-call select {
   width: 100%;
@@ -1254,6 +1269,10 @@
   align-items: center;
   gap: 2px;
   flex-wrap: nowrap;
+}
+.wl-table .wl-priority {
+  flex-wrap: wrap;
+  max-width: 5.5em;
 }
 .wl-prio {
   width: 3.5em;
@@ -1398,6 +1417,11 @@
   margin: 0;
   min-width: 0;
 }
+.card .vd-finding-h {
+  margin: 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
 .vd-dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -1415,9 +1439,15 @@
 .vd-evidence {
   margin-top: var(--space-2);
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .vd-pts {
   margin-left: var(--space-2);
+}
+/* Case text (explanations, pitfalls, rubric lines) may carry long identifiers, e.g. ACL and rule names: wrap them. */
+.vd .card p,
+.vd .card li {
+  overflow-wrap: anywhere;
 }
 .vd-lead {
   border-left: 3px solid var(--warn);
@@ -1457,4 +1487,48 @@
 .table .row > .bar {
   flex: 1 1 80px;
   min-width: 60px;
+}
+
+/* Eight nav items (WP6) do not fit beside the brand, the rank chip and the shift badge between the menu breakpoint (900 px)
+   and about 1100 px; the icons are decorative (aria-hidden), so drop them there, and the XP bar too up to 1000 px, instead
+   of letting the page scroll sideways. */
+@media (min-width: 901px) and (max-width: 1140px) {
+  .nav a > svg {
+    display: none;
+  }
+}
+@media (min-width: 901px) and (max-width: 1000px) {
+  .rank-chip .xpbar {
+    display: none;
+  }
+}
+
+/* The open mobile menu is fixed: on a short landscape screen it scrolls instead of hiding its last links. */
+@media (max-width: 900px) {
+  .nav {
+    max-height: calc(100dvh - var(--shell-h));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/* Vulnerability glossary: the term above its definition at every width (a two-column grid left 50-90 px for the definition
+   on a phone). */
+.vuln-glossary {
+  margin: 0 0 var(--space-4);
+}
+.vuln-glossary dt {
+  font-weight: 600;
+  color: var(--text);
+  margin-top: var(--space-3);
+}
+.vuln-glossary dd {
+  margin: var(--space-1) 0 0;
+}
+
+/* The Help link on the case screen sits apart from the hint ladder above it. */
+.vc-help-link {
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
 }

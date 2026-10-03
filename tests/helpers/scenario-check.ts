@@ -118,7 +118,7 @@ export async function checkTemplate(templateId: string, runs: { world: string; s
     const c = s.cases[0];
     checkStructure(c);
     checkGrading(c);
-    expect(syntheticViolations(s.corpus, w), `${templateId} ${run.world}/${run.seed}`).toEqual([]);
+    expect(syntheticViolations(s.corpus, w, s.cases), `${templateId} ${run.world}/${run.seed}`).toEqual([]);
     if (run.db) await checkSolvable(s, c);
   }
   // Crash sweep: many more seeds and worlds, structure only. Catches signal

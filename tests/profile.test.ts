@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addQueryHistory, asStudyAttempts, coerceProfile, dayNumber, defaultProfile, finishShift, migrateV1, nextShiftNumber, rankFor, recordAttempt, moveToNewOrganisation, recordVulnAttempt, recentShiftTemplates, startShift, MAX_ATTEMPTS, type Profile } from '../src/state/profile.ts';
-import { exportProfile, importProfile, loadProfile, saveProfile, V1_KEY, V2_KEY, type KeyValueStore } from '../src/state/storage.ts';
+import { clearTabSession, exportProfile, HANDOVER_KEY, importProfile, loadProfile, saveProfile, V1_KEY, V2_KEY, type KeyValueStore } from '../src/state/storage.ts';
 import { buildPracticeCase } from '../src/core/cases/scenario.ts';
 import { emptyVerdict, gradeCase, perfectVerdict } from '../src/core/grading/grade.ts';
 import { scoreShift, CLEAN_SHIFT_BONUS } from '../src/core/shift/score.ts';
@@ -507,7 +507,7 @@ describe('vulnerability continuity ledger', () => {
     });
 
     it('keeps valid entries, drops malformed ones, and caps the ledger', () => {
-      const p = run({ vulnLedger: [goodEntry, { ...goodEntry, id: 'bad', vulnId: 'CVE-2021-44228' }, 'x', null, { ...goodEntry, id: 'e2', consumed: true }] });
+      const p = run({ vulnLedger: [goodEntry, { ...goodEntry, id: 'bad', vulnId: 'CVE' + '-0000-00000' }, 'x', null, { ...goodEntry, id: 'e2', consumed: true }] });
       expect(p.vulnLedger!.map((e) => e.id)).toEqual(['e1', 'e2']);
       expect(run({ vulnLedger: 'not a list' }).vulnLedger).toBeUndefined();
       expect(run({ vulnLedger: Array.from({ length: 80 }, (_, i) => ({ ...goodEntry, id: `e${i}` })) }).vulnLedger).toHaveLength(50);
@@ -560,5 +560,40 @@ describe('recentShiftTemplates and the continuity hook', () => {
     expect(out[11]).toBe('c-1');
     expect(out[0]).toBe('soc-4');
     expect(recentShiftTemplates(withAttempts([]))).toEqual([]);
+  });
+});
+
+describe('clearTabSession (Reset everything, Move to a new organisation)', () => {
+  class FakeSession {
+    data = new Map<string, string>();
+    get length() {
+      return this.data.size;
+    }
+    key(i: number) {
+      return [...this.data.keys()][i] ?? null;
+    }
+    removeItem(k: string) {
+      this.data.delete(k);
+    }
+  }
+
+  it("removes this app's keys and leaves every other key alone", () => {
+    const s = new FakeSession();
+    for (const k of ['draft:a', 'q:b', 'vdraft:c', 'vdone:d', 'vq:e', HANDOVER_KEY, 'other:key', 'drafty', 'x-vq:y']) s.data.set(k, '1');
+    clearTabSession(s);
+    expect([...s.data.keys()].sort()).toEqual(['drafty', 'other:key', 'x-vq:y']);
+  });
+
+  it('never throws, whatever the store does', () => {
+    const broken = {
+      get length(): number {
+        throw new Error('denied');
+      },
+      key: () => null,
+      removeItem: () => undefined,
+    };
+    expect(() => clearTabSession(broken)).not.toThrow();
+    expect(() => clearTabSession(null)).not.toThrow();
+    expect(() => clearTabSession()).not.toThrow(); // no sessionStorage in node
   });
 });

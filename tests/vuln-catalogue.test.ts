@@ -105,7 +105,7 @@ describe('Sim-KEV listing dates and vendor names', () => {
   });
   it('uses none of the names that collide with real vendors (fact-check 2026-09-29)', () => {
     for (const c of catalogues)
-      for (const e of c.entries) expect(`${e.vendor} ${e.product} ${e.title}`).not.toMatch(/fenwick|northmere|quillon|larkfield/i);
+      for (const e of c.entries) expect(`${e.vendor} ${e.product} ${e.title}`).not.toMatch(/fenwick|northmere|quillon|larkfield|vantorn|foxglove/i);
   });
   it('a re-branded (placed) entry carries the vendor the catalogue gives that product, so a rename in one list cannot drift from the other', () => {
     const entries = catalogues[0].entries;

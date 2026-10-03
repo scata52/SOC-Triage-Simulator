@@ -52,6 +52,11 @@ import {
   writeRiskException,
   writeUnrelatedPatches,
   ymd,
+  dateRubricKeywords,
+  dismissOn,
+  lowered,
+  verbsOn,
+  VERBS_PATCH,
 } from './common.ts';
 
 const HEAD_HOST = 'WEBLX01';
@@ -100,13 +105,17 @@ function build(ctx: VulnContext, real: boolean): VulnCaseSpec {
   // A quiet entry published before it is first seen (else dated so it was known by then), placed on the host and
   // shaped from the worklist table to what the case needs; a brand re-names its product first.
   const allIds = catalogue.entries.map((e) => e.id);
+  // Worklist flaws on different hosts sit on different products (version realism): a host never runs a product below the
+  // fix of another worklist vulnerability on that product unless it carries that finding too.
+  const taken = new Set<string>();
   const choose = (want: ShapeWant, firstSeen: number, epss: number, host: string, brand?: { product: string; vendor: string }): CatalogueEntry => {
     const pool = free().filter(quiet);
     const known = pool.filter((x) => x.published <= firstSeen);
     const base = rng.pick(known.length > 0 ? known : pool);
     const dated = withPublished(base, Math.min(base.published, dayStart(firstSeen - DAY)), allIds);
-    const e = brand ? shaped({ ...dated, ...brand }, rng, want) : shapedOn(dated, host, rng, want);
+    const e = brand ? shaped({ ...dated, ...brand }, rng, want) : shapedOn(dated, host, rng, want, taken);
     used.add(e.id);
+    taken.add(e.product);
     return withEpss(withFix(e, rng), epss);
   };
 
@@ -374,7 +383,7 @@ function build(ctx: VulnContext, real: boolean): VulnCaseSpec {
   const ids = { head: headF.findingId, decoy: decoyF.findingId, kev: kevF.findingId, build: buildF.findingId, sql: sqlF.findingId, app: appF.findingId, jump: jumpF.findingId };
 
   return {
-    briefing: `${world.org.name}: review of the latest scan results for the web servers and internal servers (a non-credentialed run, a credentialed run and a newer credentialed run that did not cover every target). The scanner reports a Critical remote code execution on a Linux web server. Decide for each worklist finding whether to patch, mitigate, accept or dismiss it, order the worklist, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), software inventory, patch, asset and ticket data are in the SIEM tables. All data is simulated.`,
+    briefing: `${world.org.name}: review of the latest scan results for the web servers and internal servers (a non-credentialed run, a credentialed run and a newer credentialed run that did not cover every target). The scanner reports a Critical remote code execution on a Linux web server. Decide for each worklist finding whether to patch, mitigate, avoid, accept, transfer or dismiss it as a false positive, order the worklist, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), software inventory, patch, asset and ticket data are in the SIEM tables. All data is simulated.`,
     attachments: policyAttachments(world.org.name, cal),
     findings,
     constraints: cal.constraints,
@@ -442,14 +451,18 @@ function build(ctx: VulnContext, real: boolean): VulnCaseSpec {
       },
     ],
     rubric: [
-      { id: 'owner', text: `Names who acts: ${ownerText}.`, keywords: ['owner', ...ownerMap.keys()].map((k) => k.toLowerCase()) },
+      { id: 'owner', text: `Names who acts: ${ownerText}.`, keywords: lowered([...ownerMap.keys()]) },
       real
-        ? { id: 'risk', text: 'Explains that the banner shows only the upstream version, that the fix was backported on the distro-package server but that on the source-built one the banner is accurate (nothing was backported), that the vulnerability affecting the public website appears on Sim-KEV (exploitation observed) and unpatched, and that the file server finding is stale.', keywords: ['banner', 'backport', 'source', 'known exploited', 'sim-kev', 'internet', 'stale'] }
-        : { id: 'risk', text: 'Explains that the banner shows only the upstream version, that the fix was backported on one server, that the vulnerability affecting the public website appears on Sim-KEV (exploitation observed) and unpatched, and that the file server finding is stale.', keywords: ['banner', 'backport', 'known exploited', 'sim-kev', 'internet', 'stale'] },
+        ? { id: 'risk', text: 'Explains that the banner shows only the upstream version, that on the source-built server (built from source, nothing was backported) the banner is accurate, that the fix was backported on the distro-package server, that the vulnerability affecting the public website appears on Sim-KEV (exploitation observed) and unpatched, and that the file server finding is stale.', keywords: lowered(['source-built', 'source built', 'built from source', 'compiled from source', 'source build', 'no backport applies', `nothing was backported on ${HEAD_HOST}`, `nothing backported on ${HEAD_HOST}`, `no backport on ${HEAD_HOST}`, `${HEAD_HOST} has no backport`, `${HEAD_HOST} banner is accurate`, `${HEAD_HOST} banner is right`, `${HEAD_HOST} banner is correct`, `banner on ${HEAD_HOST} is accurate`, `banner on ${HEAD_HOST} is right`, `banner on ${HEAD_HOST} is correct`, 'banner version is the real', 'banner version is accurate']) }
+        : { id: 'risk', text: 'Explains that the banner shows only the upstream version, that the fix was backported on one server (the distro package carries the fix, so the banner is wrong there) while the other server still has a pre-fix package, that the vulnerability affecting the public website appears on Sim-KEV (exploitation observed) and unpatched, and that the file server finding is stale.', keywords: lowered([`fix backported on ${HEAD_HOST}`, `a backport on ${HEAD_HOST}`, `the backport on ${HEAD_HOST}`, `${HEAD_HOST} has the backport`, `${HEAD_HOST} has a backported`, `${HEAD_HOST} carries the fix`, `${HEAD_HOST} banner is wrong`, `${HEAD_HOST} banner is misleading`, `banner on ${HEAD_HOST} is wrong`, `banner on ${HEAD_HOST} is misleading`, `on ${HEAD_HOST} the fix`, `on ${HEAD_HOST} the distro`, `backported the fix on ${HEAD_HOST}`, `backported the security fix on ${HEAD_HOST}`, `fix on ${HEAD_HOST} was backported`, `fix was backported on ${HEAD_HOST}`, `${HEAD_HOST} distro package`, `${HEAD_HOST} package carries`, `${DECOY_HOST} has the old package`, `${DECOY_HOST} has a pre-fix`, `${DECOY_HOST} is pre-fix`, `${DECOY_HOST} is still vulnerable`, `pre-fix package on ${DECOY_HOST}`]) },
       real
-        ? { id: 'action', text: `Dismisses the ${DECOY_HOST} and ${STALE_HOST} findings (and asks for rescans), patches ${HEAD_HOST} and the public website by emergency change, accepts the print server exception.`, keywords: ['dismiss', 'rescan', 'emergency', 'patch', 'accept'] }
-        : { id: 'action', text: `Dismisses the ${HEAD_HOST} and ${STALE_HOST} findings (and asks for rescans), patches ${DECOY_HOST} and the public website by emergency change, accepts the print server exception.`, keywords: ['dismiss', 'rescan', 'emergency', 'patch', 'accept'] },
-      { id: 'date', text: 'Gives dates or deadlines, ties them to the policy and states when the exception expires.', keywords: ['3 days', '7 days', 'deadline', 'window', 'expire', 'expiry', 'review'] },
+        ? { id: 'action', text: `Dismisses the ${DECOY_HOST} and ${STALE_HOST} findings (and asks for rescans), patches ${HEAD_HOST} and the public website by emergency change, accepts the print server exception.`, keywords: lowered(dismissOn(DECOY_HOST), verbsOn(VERBS_PATCH, HEAD_HOST)) }
+        : { id: 'action', text: `Dismisses the ${HEAD_HOST} and ${STALE_HOST} findings (and asks for rescans), patches ${DECOY_HOST} and the public website by emergency change, accepts the print server exception.`, keywords: lowered(dismissOn(HEAD_HOST), verbsOn(VERBS_PATCH, DECOY_HOST)) },
+      {
+        id: 'date',
+        text: 'Gives dates, not just "soon": the deadline of each urgent finding and the window or cycle it goes in, tied to the policy, and when the print server exception expires.',
+        keywords: dateRubricKeywords(cal, [decoyDeadline, expires], [3, 7]),
+      },
     ],
     explanation: [
       real

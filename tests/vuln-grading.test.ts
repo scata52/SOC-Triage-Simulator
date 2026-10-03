@@ -7,7 +7,7 @@ import { DIFFICULTY_MULTIPLIER } from '../src/core/grading/grade.ts';
 import { DAY, HOUR } from '../src/core/logs/time.ts';
 import { REASON_CODES, VULN_DECISIONS, VULN_SCHEDULES, type FindingTruth, type ReasonCode, type VulnDecision, type VulnSchedule } from '../src/core/vuln/model.ts';
 import { buildVulnScenario, type ResolvedVulnCase, type ResolvedVulnFinding } from '../src/core/vuln/scenario.ts';
-import { emptyVulnSubmission, gradeVulnCase, perfectVulnSubmission, VULN_MAX_SCORE, VULN_POINTS, type VulnFindingAnswer, type VulnGrade, type VulnSubmission } from '../src/core/vuln/grade.ts';
+import { emptyVulnSubmission, gradeVulnCase, percentDown, perfectVulnSubmission, vulnRubricHits, VULN_MAX_SCORE, VULN_POINTS, type VulnFindingAnswer, type VulnGrade, type VulnSubmission } from '../src/core/vuln/grade.ts';
 import { world } from './helpers/scenario-check.ts';
 import { fixtureTier3, FIXTURE_TEMPLATE_ID } from './helpers/vuln-fixture.ts';
 
@@ -179,7 +179,7 @@ describe('DESIGN 5.6 worked examples', () => {
     expect(g.findings.map((f) => f.relevance)).toEqual([3, 1, 0, 2]);
     expect(g.components.map((x) => x.detail)).toEqual([
       '3 of 4 decided right; 1 wrong; 1 real must-not-miss finding left open: dismissed as false positive or not fixed within the SLA (−5).',
-      'Your order earned 69% of the ideal urgency score.', // 0.698, rounded down: 100% is kept for a perfect order
+      'Your order earned 69.7% of the ideal urgency score.', // 0.6978, one decimal, rounded down: 100% is kept for a perfect order
       '2 of 4 scheduled right; 1 later than the SLA allows; 1 wrong.',
       '0 of 4 findings fully justified.',
       '1 of 3 evidence points pinned.',
@@ -204,7 +204,7 @@ describe('DESIGN 5.6 worked examples', () => {
     expect(earned(g, 'ordering')).toBe(round1(20 * ndcg - 4));
     expect(earned(g, 'ordering')).toBe(7.1);
     expect(part(g, 'decisions').detail).toBe('3 of 4 decided right; 1 wrong; 1 real must-not-miss finding left open: dismissed as false positive or not fixed within the SLA (−5).');
-    expect(part(g, 'ordering').detail).toBe('Your order earned 55% of the ideal urgency score; 1 must-not-miss finding outside the top 2 (−4).');
+    expect(part(g, 'ordering').detail).toBe('Your order earned 55.2% of the ideal urgency score before the must-not-miss charge; 1 must-not-miss finding outside the top 2 (−4).');
   });
 
   it('answering F1 like its twin (patch, standard cycle, the twin\'s reason) is 83.4 before the cap and 60 after it', () => {
@@ -739,7 +739,7 @@ describe('ordering', () => {
       expect(g.mustNotMiss).toMatchObject({ dismissed: [], outsideTopK: ['M'], orderingPenalty: 4 });
       expect(g.ndcg).toBeCloseTo(1, 12); // a tie inside a tier is free: the penalty is the whole loss
       expect(earned(g, 'ordering')).toBe(16);
-      expect(part(g, 'ordering').detail).toBe('Your order earned 100% of the ideal urgency score; 1 must-not-miss finding outside the top 2 (−4).');
+      expect(part(g, 'ordering').detail).toBe('Your order earned 100% of the ideal urgency score before the must-not-miss charge; 1 must-not-miss finding outside the top 2 (−4).');
       // Place 2 is still inside.
       expect(gradeVulnCase(tied, submit({}, { order: ['X', 'M', 'Y'] })).mustNotMiss.outsideTopK).toEqual([]);
     });
@@ -791,7 +791,30 @@ describe('ordering', () => {
       expect(g.ndcg).toBeGreaterThanOrEqual(0.995);
       expect(earned(g, 'ordering')).toBe(19.9);
       expect(part(g, 'ordering').ok).toBe(false);
-      expect(part(g, 'ordering').detail).toBe('Your order earned 99% of the ideal urgency score.');
+      expect(part(g, 'ordering').detail).toBe('Your order earned 99.6% of the ideal urgency score.');
+    });
+
+    it('shows one decimal, rounded down: the percent agrees with the points to within a tenth and never over-claims', () => {
+      expect(percentDown(1)).toBe(100);
+      expect(percentDown(0.9999999999999999)).toBe(100); // the last bit of a perfect nDCG sum
+      expect(percentDown(0.9999)).toBe(99.9);
+      expect(percentDown(0.9961)).toBe(99.6);
+      expect(percentDown(0.6978)).toBe(69.7);
+      expect(percentDown(0)).toBe(0);
+      for (const order of permutations(ids)) {
+        const g = rank(order);
+        const x = part(g, 'ordering');
+        const shown = Number(/earned ([\d.]+)%/.exec(x.detail)?.[1] ?? 'NaN');
+        if (x.ok) {
+          expect(Number.isNaN(shown), order.join('')).toBe(true); // an ideal order reads "Correct", never a percent
+          expect(percentDown(g.ndcg ?? 0), order.join('')).toBe(100);
+        } else {
+          expect(shown, order.join('')).toBeLessThan(100);
+          expect(shown, order.join('')).toBeLessThanOrEqual((g.ndcg ?? 0) * 100 + 1e-9);
+          expect(shown, order.join('')).toBeGreaterThan((g.ndcg ?? 0) * 100 - 0.1 - 1e-9);
+          expect(Math.abs(shown * 0.2 - x.earned), order.join('')).toBeLessThan(0.1 + 1e-9); // beside the points: 20 x percent
+        }
+      }
     });
 
     it('never says 100% below full marks, in any of the 720 orders of six findings', () => {
@@ -816,7 +839,7 @@ describe('ordering', () => {
       const tied = vcase(tie.map((id) => finding(id, {}, { mustNotMiss: id === 'M' })), { tiers: [tie] });
       for (const order of permutations(tie)) {
         const g = gradeVulnCase(tied, submit({}, { order }));
-        const expected = order.indexOf('M') < 2 ? 'Correct — the most urgent findings came first.' : 'Your order earned 100% of the ideal urgency score; 1 must-not-miss finding outside the top 2 (−4).';
+        const expected = order.indexOf('M') < 2 ? 'Correct — the most urgent findings came first.' : 'Your order earned 100% of the ideal urgency score before the must-not-miss charge; 1 must-not-miss finding outside the top 2 (−4).';
         expect(part(g, 'ordering').detail, order.join('')).toBe(expected);
       }
     });
@@ -854,8 +877,11 @@ describe('justification', () => {
     expect(grade(t, ['known-exploited', 'banner-only', 'internet-exposed']).f.reasons).toMatchObject({ unneeded: ['banner-only', 'internet-exposed'], credit: 0.5 });
     expect(grade(t, ['known-exploited', 'stale-scan']).f.reasons).toMatchObject({ unneeded: [], contradicting: ['stale-scan'], credit: 0.5 });
     expect(grade(t, ['known-exploited', 'stale-scan', 'banner-only']).f.reasons.credit).toBe(0.25);
-    expect(part(grade(t, ['banner-only']).g, 'justification').detail).toBe('0 of 1 findings fully justified; 1 reason not needed for its finding (−0.25 each).');
-    expect(part(grade(t, ['stale-scan']).g, 'justification').detail).toBe('0 of 1 findings fully justified; 1 reason contradicted the evidence (−0.5 each).');
+    expect(part(grade(t, ['banner-only']).g, 'justification').detail).toBe('0 of 1 findings fully justified; 1 reason not needed for its finding (−25% credit each; a finding\'s reason credit runs from 0% to 100% and stops at 0%).');
+    expect(part(grade(t, ['stale-scan']).g, 'justification').detail).toBe('0 of 1 findings fully justified; 1 reason contradicted the evidence (−50% credit each; a finding\'s reason credit runs from 0% to 100% and stops at 0%).');
+    const both = part(grade(t, ['known-exploited', 'stale-scan', 'banner-only']).g, 'justification').detail;
+    expect(both.split('stops at 0%').length - 1, 'the floor note is said once').toBe(1);
+    expect(both).toContain('contradicted the evidence (−50% credit each)');
   });
 
   it('takes half off for each contradicting code and clamps at 0', () => {
@@ -1331,5 +1357,54 @@ describe('robustness', () => {
     expect(g.decision.verdict).toBe('exact');
     expect(g.schedule.verdict).toBe('missing');
     expect(g.reasons).toMatchObject({ given: [], credit: 0 });
+  });
+});
+
+describe('vulnRubricHits (word boundaries)', () => {
+  const item = (id: string, ...keywords: string[]) => ({ id, text: '', keywords });
+  const hits = (keywords: string[], note: string) => vulnRubricHits([item('x', ...keywords)], note);
+
+  it("' oct 3 ' matches the date at a word boundary, wherever it stands, and never Oct 31 or Oct 30", () => {
+    const k = [' oct 3 '];
+    for (const note of ['Oct 3.', 'Patch by Oct 3', 'oct 3', 'Deadline (Oct 3).', 'Due: Oct 3, then Oct 5', 'OCT   3!']) expect(hits(k, note), note).toEqual(['x']);
+    for (const note of ['Patch by Oct 31.', 'Oct 30', 'October 3', 'Oct 3rd', 'Oct 2026']) expect(hits(k, note), note).toEqual([]);
+  });
+  it('punctuation is a separator on both sides: sim-kev matches Sim-KEV, ISO dates match with dashes or spaces', () => {
+    expect(hits(['sim-kev'], 'It is on Sim-KEV.')).toEqual(['x']);
+    expect(hits(['sim-kev'], 'listed on the sim kev list')).toEqual(['x']);
+    expect(hits(['2026-10-03'], 'by 2026-10-03')).toEqual(['x']);
+    expect(hits(['2026-10-03'], 'by 2026 10 03')).toEqual(['x']);
+    expect(hits([' 2026-10-03 '], 'by 2026-10-031')).toEqual([]);
+  });
+  it('a keyword with a leading or trailing space demands a boundary; one without matches inside a word', () => {
+    expect(hits([' acl '], 'the ACL blocks it')).toEqual(['x']);
+    expect(hits([' acl '], 'a placlement')).toEqual([]);
+    expect(hits(['acl'], 'a placlement')).toEqual(['x']);
+  });
+  it('a keyword with no letter or digit never matches; an empty or blank note hits nothing', () => {
+    expect(hits(['', ' ', '-', '. '], 'Anything - at all. ')).toEqual([]);
+    expect(hits(['patch'], '')).toEqual([]);
+    expect(hits(['patch'], ' \n\t ')).toEqual([]);
+  });
+  it("possessives: APP01's and APP01’s match 'app01 console' (and the reverse); a keyword may carry the possessive too", () => {
+    expect(hits(['app01 console'], "Isolate APP01's console now")).toEqual(['x']);
+    expect(hits(['app01 console'], 'Isolate APP01’s console now')).toEqual(['x']);
+    expect(hits(["app01's console"], 'Isolate the app01 console')).toEqual(['x']);
+    expect(hits(['app01’s console'], "APP01's console")).toEqual(['x']);
+    expect(hits([' app01 '], "APP01's.")).toEqual(['x']);
+    expect(hits(['app01 console'], 'APP01s console')).toEqual([]);
+  });
+  it("its / it's: 'its' is untouched; \"it's\" becomes 'it' on both sides, so it never matches 'its' and 'its' never matches it", () => {
+    expect(hits([' its '], 'Patch its host')).toEqual(['x']);
+    expect(hits([' its '], "Patch it's host")).toEqual([]);
+    expect(hits([' it '], 'Patch its host')).toEqual([]);
+    expect(hits([' it '], "Patch it's host")).toEqual(['x']);
+    expect(hits(["it's"], "Patch it's host")).toEqual(['x']);
+    expect(hits([" it's "], 'Patch its host')).toEqual([]);
+    expect(hits(["it's"], 'Patch its host')).toEqual(['x']); // no edge spaces: plain substring, 'it' is inside 'its' (as before for 'it')
+  });
+  it('returns the ids of the matching items in rubric order, an item once however many keywords match', () => {
+    const rubric = [item('a', 'patch', 'fix'), item('b', 'zzz'), item('c', 'fix')];
+    expect(vulnRubricHits(rubric, 'Patch and fix it')).toEqual(['a', 'c']);
   });
 });

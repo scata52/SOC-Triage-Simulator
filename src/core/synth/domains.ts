@@ -152,7 +152,7 @@ export function registeredDomain(host: string): string {
   return lastTwo;
 }
 
-const REGISTRARS = ['Namehold Registrar', 'Quillon Domains', 'Brightmark Names', 'Parcel Registry Services', 'Offshore Name Co.', 'Lattice Domains'];
+const REGISTRARS = ['Namehold Registrar', 'Ardovane Domains', 'Halvern Names', 'Parcel Registry Services', 'Skerrin Name Co.', 'Lattice Domains'];
 
 export function registrar(rng: Rng): string {
   return rng.pick(REGISTRARS);

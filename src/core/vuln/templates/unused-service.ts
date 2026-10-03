@@ -54,6 +54,11 @@ import {
   writeChangeTickets,
   writeUnrelatedPatches,
   ymd,
+  dateRubricKeywords,
+  lowered,
+  verbsOn,
+  VERBS_AVOID,
+  VERBS_PATCH,
 } from './common.ts';
 
 type Variant = 'unused' | 'needed';
@@ -383,7 +388,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
         {
           id: 'inventory-above-fix',
           label: `SoftwareInventory shows ${f4Entry.product} on ${JOB} above the fixed version, and the credentialed run reached the host`,
-          why: `The sweep (${newRun.id}, Method Unauthenticated) read ${f4Banner} from a banner on ${JOB}, below the fix in ${f4Entry.fixedVersion}; its Evidence says the version was taken from the banner only. SoftwareInventory has ${f4Entry.product} ${f4Newer} on ${JOB}, installed ${ymd(Number(f4Soft.row.InstalledOn))}, before the older credentialed run (${oldRun.id}), which logged in to ${JOB} (a local check row, no authentication failure). The installed release is itself above the fix (VulnIntel), so this is no backport: the banner was a guess. Dismiss it and ask for a credentialed rescan.`,
+          why: `The sweep (${newRun.id}, Method Unauthenticated) read ${f4Banner} from a banner on ${JOB}, below the fix in ${f4Entry.fixedVersion}; its Evidence says the version was taken from the banner only. SoftwareInventory has ${f4Entry.product} ${f4Newer} on ${JOB}, installed ${ymd(Number(f4Soft.row.InstalledOn))}, before the older credentialed run (${oldRun.id}), which logged in to ${JOB} (a local check row, no authentication failure). The installed release is itself above the fix (VulnIntel), so this is no backport: the banner was a guess. A banner string can lag the installed release, so a banner alone cannot outvote the package record; had the service simply not been restarted since an update, the credentialed rescan would show that. Dismiss it and ask for a credentialed rescan.`,
           rows: [f4Soft, f4Intel, covered.row],
         },
       ],
@@ -394,7 +399,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const ids = { f1: f1.findingId, f2: f2.findingId, f3: f3.findingId, f4: f4.findingId, f5: f5.findingId };
   const ownerNames = [...new Set([...ownersOf(ctx, [APP, DEV, DB, JOB, JUMP]), 'IT Infrastructure'])]; // the change tickets are assigned to IT Infrastructure
 
-  const briefing = `${world.org.name}: review of the latest scan results for the application server, the developer test server, the database server and the other internal servers in scope (an older credentialed run and a newer unauthenticated sweep that did not reach every target). Three of the findings are in the optional admin console that comes with a product. Decide for each worklist finding whether to patch, mitigate, avoid, accept, transfer or dismiss it, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, software inventory, ticket and firewall data are in the SIEM tables. All data is simulated.`;
+  const briefing = `${world.org.name}: review of the latest scan results for the application server, the developer test server, the database server and the other internal servers in scope (an older credentialed run and a newer unauthenticated sweep that did not reach every target). Three of the findings are in the optional admin console that comes with a product. Decide for each worklist finding whether to patch, mitigate, avoid, accept, transfer or dismiss it as a false positive, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, software inventory, ticket and firewall data are in the SIEM tables. All data is simulated.`;
 
   // Hints 1 and 2 are the same text in both twins: they must not tell which one this is.
   const lead = 'Fixing a flaw in an optional component is not the only answer: sometimes the better one is to remove the component. What shows whether anything really uses it, and how long a period of records is enough to say so? Which tables show that?';
@@ -461,18 +466,26 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
       },
     ],
     rubric: [
-      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: ['owner', ...ownerNames.map((o) => o.toLowerCase())] },
+      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: lowered(ownerNames) },
       {
         id: 'risk',
         text: unused ? `States the risk in plain words: a High remote code execution flaw in an admin console nobody uses on ${APP}; removing the console removes the attack surface.` : `States the risk in plain words: a High remote code execution flaw in an admin console that the stock export needs on ${APP}, so it cannot simply be switched off.`,
-        keywords: unused ? ['unused', 'not used', 'attack surface', 'remove', 'admin console'] : ['export', 'needed', 'depends', 'uses', 'business'],
+        keywords: unused
+          ? lowered([`removing the console on ${APP} removes`, `removes the attack surface on ${APP}`, `removing the console on ${APP}`, `removing the ${APP} console`, `remove the console on ${APP}`, `remove the ${APP} console`, `nobody uses the ${APP}`, `no one uses the ${APP}`, `nobody uses the console on ${APP}`, `nobody uses the admin console on ${APP}`, `no one uses the console on ${APP}`, `no one uses the admin console on ${APP}`, `nobody uses it on ${APP}`, `${APP} console is unused`, `${APP} admin console is unused`, `console on ${APP} is unused`, `admin console on ${APP} is unused`, `${APP} console is not used`, `console on ${APP} is not used`, `not used by ${APP}`, `no business process uses the console on ${APP}`, `no business process uses the ${APP}`, `no business process on the ${APP}`, `unused console on ${APP}`, `unused admin console on ${APP}`, `unused ${APP} console`, `unused ${APP} admin console`, `no business process on ${APP}`, ...['nobody uses', 'no one uses', 'nobody is using', 'no one is using', 'no business process uses'].flatMap((p) => [`${p} ${APP}`, `${p} ${APP} console`, `${p} ${APP} admin console`])])
+          : lowered([`stock export needs the console on ${APP}`, `stock export uses the console on ${APP}`, `stock export calls the console on ${APP}`, `stock export depends on the console on ${APP}`, `export needs the console on ${APP}`, `needs the console on ${APP}`, `depends on the console on ${APP}`, `the ${APP} console cannot be switched off`, `the ${APP} console cannot be disabled`, `console on ${APP} cannot be switched off`, `console on ${APP} cannot simply be switched off`, `console on ${APP} cannot be disabled`, `console on ${APP} cannot simply be disabled`, `${APP} console is needed`, `${APP} console is in use`, `${APP} console is used`, `console on ${APP} is needed`, `console on ${APP} is in use`, `console on ${APP} is used`]),
       },
       {
         id: 'action',
         text: unused ? `Avoids the console on ${APP} and on ${DEV} (disable it, then rescan), patches the console on ${DB}, which is used, and dismisses the banner-only Medium on ${JOB}.` : `Patches the console on ${APP} and on ${DB}, which are used, avoids the unused one on ${DEV} and dismisses the banner-only Medium on ${JOB}.`,
-        keywords: unused ? ['avoid', 'disable', 'rescan', 'patch', 'next window'] : ['patch', 'update', 'avoid', 'disable', 'next window'],
+        keywords: unused
+          ? lowered(verbsOn(VERBS_AVOID, APP), VERBS_AVOID.map((v) => `console on ${APP} ${v}`), [`disable it on ${APP}`, ...['is switched off', 'is disabled', 'is removed', 'is turned off', 'is uninstalled'].flatMap((p) => [`${APP} console ${p}`, `console on ${APP} ${p}`, `${APP} admin console ${p}`]), `${APP} console is unused`, `${APP} admin console is unused`, `console on ${APP} is unused`, `admin console on ${APP} is unused`])
+          : lowered(verbsOn(VERBS_PATCH, APP), [`${APP} console is needed`, `${APP} console is in use`, `console on ${APP} is needed`, `console on ${APP} is in use`, `${APP} console is used`, `console on ${APP} is used`]),
       },
-      { id: 'date', text: 'Gives dates or deadlines and ties them to the policy.', keywords: ['30 days', 'deadline', 'sla', 'window', 'standard cycle'] },
+      {
+        id: 'date',
+        text: 'Gives dates, not just "soon": the deadline of each urgent finding and the window or cycle it goes in, tied to the policy.',
+        keywords: dateRubricKeywords(cal, [f1Deadline, f2Deadline, f3Deadline], [30]),
+      },
     ],
     explanation: unused
       ? [
@@ -517,7 +530,7 @@ export const unusedService: VulnTemplate = {
   id: 'vm-unused-service',
   twin: 'vm-needed-service',
   lesson:
-    "FirewallLogs show no session to the optional admin console's port in two weeks, longer than twice the longest cycle the owner documents (the scanner's own connections are not use), Tickets holds the owner's confirmation that no process needs it, and SoftwareInventory shows it is an optional component installed by default: remove or disable it (avoid) instead of patching, because a patch fixes the flaw but keeps the attack surface. The twin has the same flaw, but FirewallLogs show regular sessions from a job and Tickets a process record: the business needs the console, so patch it.",
+    "FirewallLogs show no session to the optional admin console's port in two weeks, longer than twice the longest cycle the owner documents (the scanner's own connections are not use), and Tickets holds the owner's confirmation that no process needs it: remove or disable it (avoid) instead of patching, because a patch fixes the flaw but keeps the attack surface. SoftwareInventory shows only that it is an optional component installed by default, which alone proves nothing. The twin has the same flaw, but FirewallLogs show regular sessions from a job and Tickets a process record: the business needs the console, so patch it.",
   build: (ctx) => build('unused', ctx),
 };
 

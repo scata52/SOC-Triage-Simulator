@@ -13,6 +13,12 @@ import { checkGrading, checkSolvable, checkStructure, world } from './helpers/sc
 import { syntheticViolations } from './helpers/guardrails.ts';
 import { sqljs } from './helpers/sql.ts';
 
+// Domains the engine generated in earlier shifts: they come back through the campaign state (reported intel,
+// incident history, the actor's infrastructure), though this shift's own DomainIntel does not list them.
+function carriedDomains(state: CampaignState): string[] {
+  return [...JSON.stringify({ intel: state.intel, history: state.history, infra: state.infra }).matchAll(/[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi)].map((m) => m[0]);
+}
+
 type Policy = (c: ResolvedCase) => Verdict;
 const miss: Policy = (c) => ({ ...perfectVerdict(c), disposition: 'benign', action: 'close', techniques: [], indicators: [] });
 const catchAll: Policy = perfectVerdict;
@@ -36,7 +42,7 @@ async function play(worldSeed: string, actorId: string, policy: Policy, maxShift
     const campaignCase = scenario.cases.find((c) => c.alertId === plan.campaignAlertId);
     expect(campaignCase?.templateId).toBe(slot.templateId);
     if (verify) {
-      expect(syntheticViolations(scenario.corpus, w)).toEqual([]);
+      expect(syntheticViolations(scenario.corpus, w, scenario.cases, carriedDomains(state))).toEqual([]);
       const db = new SiemDatabase(await sqljs(), scenario.corpus);
       try {
         for (const c of scenario.cases) {
@@ -148,7 +154,7 @@ describe('campaign consequences', () => {
     const mine = ih.rows.filter((r) => r[ih.columns.indexOf('Analyst')] === 'You');
     expect(mine).toHaveLength(state.history.length);
     expect(new Set(mine.map((r) => r[ih.columns.indexOf('IncidentId')])).size).toBe(mine.length);
-    expect(syntheticViolations(s.corpus, w)).toEqual([]);
+    expect(syntheticViolations(s.corpus, w, s.cases, carriedDomains(state))).toEqual([]);
   });
 
   it('keeps the infrastructure you did not block and rotates what you did', async () => {

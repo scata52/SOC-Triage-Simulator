@@ -58,7 +58,7 @@ describe('the written text', () => {
         for (const hint of s.hints.slice(0, 2)) expect(hint, `${run.seed}: ${s.templateId} hint tells the twin`).not.toMatch(/vendor-hosted|installed and operated|self-managed edition|committed date|hosted and operates/i);
         // Every mention of the vendor's systems (in any text of the case) is a limit, never an instruction.
         const texts = [...s.hints, ...s.explanation, ...s.pitfalls, ...s.solution.flatMap((x) => [x.title, x.why]), ...s.rubric.map((x) => x.text), ...s.findings.flatMap((f) => f.evidence.flatMap((e) => [e.label, e.why])), JSON.stringify(s.attachments)];
-        for (const t of texts.filter((x) => /vendor's systems|vendor\\'s systems/.test(x))) expect(t, `${run.seed}: ${s.templateId}: "${t.slice(0, 80)}"`).toMatch(/\b(not|never|no)\b|written permission/i);
+        for (const t of texts.filter((x) => /vendor's (systems|platform)|vendor\\'s (systems|platform)/.test(x))) expect(t, `${run.seed}: ${s.templateId}: "${t.slice(0, 80)}"`).toMatch(/\b(not|never|no)\b|written permission|forbid/i);
         // The two twins read the same pre-submit text.
         expect(s.hints[0]).toBe(a.hints[0]);
       }

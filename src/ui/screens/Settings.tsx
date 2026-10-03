@@ -4,7 +4,7 @@ import { Icon } from '../components/Icon.tsx';
 import { Dialog, Notice } from '../components/ui.tsx';
 import { BudgetPicker } from './Home.tsx';
 import { defaultProfile, moveToNewOrganisation, type MotionPref, type Settings as S, type ThemePref } from '../../state/profile.ts';
-import { exportProfile, importProfile, newWorldSeed } from '../../state/storage.ts';
+import { clearTabSession, exportProfile, importProfile, newWorldSeed } from '../../state/storage.ts';
 import { play } from '../lib/sound.ts';
 
 function set<K extends keyof S>(k: K, v: S[K]): void {
@@ -168,9 +168,11 @@ export function Settings() {
               onClick={() => {
                 if (confirm === 'reset') {
                   replaceProfile({ ...defaultProfile(Date.now(), newWorldSeed()), settings: p.settings });
+                  clearTabSession();
                   toast('Progress reset.');
                 } else {
                   update((x) => moveToNewOrganisation(x, newWorldSeed()));
+                  clearTabSession();
                   toast('Welcome to your new organisation.');
                 }
                 setConfirm(null);

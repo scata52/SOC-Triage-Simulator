@@ -376,7 +376,7 @@ const T8: PairRow = {
       // The policy states the vendor-operated rule, with the written-permission limit, in both twins.
       const row = (s.case.attachments.find((x) => x.title.includes('remediation standard'))!.body as [string, string][]).find(([k]) => k === 'Vendor-operated service')!;
       expect(row, `${label}: the policy has the vendor-operated service row`).toBeDefined();
-      expect(row[1], `${label}: the row forbids testing the vendor's systems without written permission`).toContain("Do not scan or test the vendor's systems without the vendor's written permission");
+      expect(row[1], `${label}: the row forbids scanning or testing the vendor's platform and allows only the version read of our own hostname`).toContain("Do not scan or test the vendor's platform");
       // Nothing in the scan store is an active scan of a vendor system: the external run has rows only on the organisation's own public hostnames.
       const ext = rows(s.corpus, 'ScanRuns').find((r) => r.Vantage === 'External')!;
       const devices = new Map(rows(s.corpus, 'DeviceInfo').map((d) => [String(d.DeviceName), d]));
@@ -533,7 +533,7 @@ const T10: PairRow = {
   pair: 'T10',
   a: 'vm-dup-plugins',
   b: 'vm-distinct',
-  lesson: { a: ['SoftwareInventory', 'system package', 'package-level finding', 'duplicate-root-cause', 'restart', 'DeviceInfo', 'payments database'], b: ['SoftwareInventory', 'bundled copy', 'not a duplicate', 'own update', 'DeviceInfo', 'payments database'] },
+  lesson: { a: ['SoftwareInventory', 'system package', 'package-level finding', 'Duplicate root cause', 'restart', 'DeviceInfo', 'payments database'], b: ['SoftwareInventory', 'bundled copy', 'not a duplicate', 'own update', 'DeviceInfo', 'payments database'] },
   clue: ({ a, b, label }) => {
     const [fa, fb] = [tier3Facts(a), tier3Facts(b)];
     for (const [name, f] of [['A', fa], ['B', fb]] as const) {
@@ -577,7 +577,7 @@ const T10: PairRow = {
       }
       // The policy states the duplicate rule (honest wording, bundled copies first, restart) and the asset tier row (deadline, not class), in both twins.
       const dupRow = f.policy.find(([k]) => k === 'Duplicate detections')?.[1] ?? '';
-      for (const phrase of ['SoftwareInventory', 'bundles with itself', 'separate component with its own fix', 'false-positive with the reason duplicate-root-cause', 'it is not a claim that the vulnerability is absent', 'is real and is fixed once, on the package-level finding', 'restart every service', 'keeps the old library in memory'])
+      for (const phrase of ['SoftwareInventory', 'bundles with itself', 'separate component with its own fix', 'False positive and the reason Duplicate root cause', 'it is not a claim that the vulnerability is absent', 'is real and is fixed once, on the package-level finding', 'restart every service', 'keeps the old library in memory'])
         expect(dupRow, `${label}: ${name} the duplicate row says "${phrase}"`).toContain(phrase);
       const tier = f.policy.find(([k]) => k === 'Asset tier')?.[1] ?? '';
       for (const phrase of ['never changes the severity class', 'holds payment or customer data', 'a Medium in 30 days', 'a Critical in 30 days', 'isolated non-production host', 'Every other host follows the table'])
@@ -725,7 +725,7 @@ const T10: PairRow = {
     // The twins' ideal orders differ only by the portal's place (a standard-cycle Medium: tier 3 in B, untiered in A).
     expect(a.case.tiers.flat(), `${label}: A leaves the closed duplicate out`).not.toContain(a.case.findings[0].findingId);
     expect(b.case.tiers[2], `${label}: B ranks the portal's own update in tier 3`).toContain(b.case.findings[0].findingId);
-    expect(byId('vm-dup-plugins').objectives, `${label}: objectives`).toEqual(['2.2', '2.3', '2.5', '4.1']);
+    expect(byId('vm-dup-plugins').objectives, `${label}: objectives`).toEqual(['2.1', '2.2', '2.3', '2.5', '4.1']);
   },
 };
 

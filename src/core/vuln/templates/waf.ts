@@ -53,6 +53,10 @@ import {
   writeRiskException,
   writeUnrelatedPatches,
   ymd,
+  dateRubricKeywords,
+  lowered,
+  KW_EMERGENCY,
+  KW_MITIGATE,
 } from './common.ts';
 
 type Variant = 'covers' | 'bypass';
@@ -67,7 +71,7 @@ const BUILD = 'BUILD01';
 const JUMP = 'JUMP01';
 const PRINT = 'PRINT01';
 const HTTPS = 443;
-const PORTAL_PRODUCTS = ['Larkspur Portal', 'Velmarrow Forms', 'Foxglove Helpdesk', 'Thistledown CMS'] as const;
+const PORTAL_PRODUCTS = ['Larkspur Portal', 'Velmarrow Forms', 'Wickerlow Helpdesk', 'Thistledown CMS'] as const;
 // What customers do with each component the headline can sit in: the portal's role in DeviceInfo says so (the avoid ruling rests on it).
 const COMPONENT_USE: Record<string, string> = { 'search endpoint': 'customers search their orders here', 'login form': 'customers sign in here to track their orders', 'API query parameter': 'the order-status page calls it' };
 
@@ -94,10 +98,14 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const lastSeen = (run: typeof oldRun, label: string): number => run.started + sharedRng(ctx, `last-seen/${label}`).int(1, Math.max(1, Math.round((run.finished - run.started) / 60_000))) * 60_000;
 
   // ---- entries (twins share every choice)
+  // Worklist flaws on different hosts sit on different products (version realism): a host never runs a product below the
+  // fix of another worklist vulnerability on that product unless it carries that finding too.
+  const taken = new Set<string>();
   const choose = (want: ShapeWant, bound: number, host: string, avoid: ReadonlySet<string> = new Set()): CatalogueEntry => {
     const known = free().filter((x) => quiet(x) && x.published <= bound);
-    const e = shapedOn(withFix(rng.pick(known), rng), host, rng, want, avoid);
+    const e = shapedOn(withFix(rng.pick(known), rng), host, rng, want, new Set([...avoid, ...taken]));
     used.add(e.id);
+    taken.add(e.product);
     return e;
   };
   // The headline: a quiet entry published well before the application was installed, placed on a customer-facing web
@@ -396,7 +404,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const ownerNames = [...new Set([...owners, 'IT Infrastructure'])]; // the change tickets are assigned to IT Infrastructure
   const f1Age = Math.round((now - f1FirstSeen) / DAY);
 
-  const briefing = `${world.org.name}: review of the latest scan results for the public web applications and the internal servers in scope (two scan runs, the newer one partial). Decide for each worklist finding whether to patch, mitigate, accept or dismiss it, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch, ticket, firewall and control data are in the SIEM tables. All data is simulated.`;
+  const briefing = `${world.org.name}: review of the latest scan results for the public web applications and the internal servers in scope (two scan runs, the newer one partial). Decide for each worklist finding whether to patch, mitigate, avoid, accept, transfer or dismiss it as a false positive, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch, ticket, firewall and control data are in the SIEM tables. All data is simulated.`;
 
   // Hints 1 and 2 are the same text in both twins: they must not tell which one this is.
   const lead = 'The headline is an injection flaw in a public web application whose fix is a code release. What stands in front of the vulnerable page, and does it stop an attack on this flaw or only record it?';
@@ -466,22 +474,30 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
       },
     ],
     rubric: [
-      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: ['owner', ...ownerNames.map((o) => o.toLowerCase())] },
+      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: lowered(ownerNames) },
       {
         id: 'risk',
         text: covers
           ? 'States the risk in plain words: a public application with an injection flaw, covered for now by a verified blocking WAF rule that is only temporary until the code release.'
           : 'States the risk in plain words: a public application with an injection flaw, and a WAF rule that only detects, so nothing blocks the attack and the fix cannot wait for the release.',
-        keywords: covers ? ['waf', 'virtual patch', 'block', 'temporary', 'release'] : ['waf', 'detect', 'not blocking', 'exposed', 'sql injection'],
+        keywords: covers
+          ? lowered(['rule in block mode', 'waf in block mode', 'set to block mode', 'is in block mode', 'rule blocks the', 'waf blocks the', 'rule is blocking', 'waf is blocking', 'waf rule is blocking', 'blocking waf rule', 'requests are denied', 'requests were denied', 'a virtual patch for', 'virtual patch until', 'as a virtual patch', 'acts as a virtual patch', 'verified control', 'verified blocking', 'waf rule until the release', 'waf rule until the code release', 'covered by the waf rule until', 'only temporary'])
+          : lowered(['detect mode', 'detect-only', 'detect only', 'only detects', 'detects but', 'log only', 'logging only', 'not blocking', 'does not block', "doesn't block", 'nothing blocks', 'allowed through', 'not enforcing']),
       },
       {
         id: 'action',
         text: covers
           ? 'Recommends the WAF rule as the mitigation now, the code release in the next window after the freeze (the rule ends when it is deployed), the next window for the public website, the standard cycle for the remaining patches and a rescan of the file server.'
           : 'Recommends an emergency change to deploy the fix through the freeze, the next window for the public website, the standard cycle for the remaining patches and a rescan of the file server, and hands the requests that reached the vulnerable page to the SOC for a compromise check.',
-        keywords: covers ? ['mitigate', 'next window', 'freeze', 'in effect', 'rescan'] : ['emergency', 'patch', 'freeze', 'next window', 'rescan', 'compromise'],
+        keywords: covers
+          ? lowered(KW_MITIGATE, ['keep the rule', 'keep the waf rule', 'waf rule stays in effect until', 'rule stays in effect until the', 'rule stays in place until', 'rule has to stay in', 'rule must stay in', 'rule remains in effect until', 'waf rule in effect until the', 'in place until the release', 'in place until the code release', 'mitigate the portal with', 'waf rule is the mitigation', 'release in the next window', 'release goes in the next window', 'release after the freeze', 'use the waf rule', 'rely on the waf rule', 'waf rule as the'])
+          : lowered(KW_EMERGENCY, ['despite the freeze', 'break the freeze', 'override the freeze', 'bypass the freeze', 'deploy the fix through the freeze', 'deploy the fix during the freeze', 'compromise check', 'check for compromise', 'for compromise']),
       },
-      { id: 'date', text: 'Gives dates or deadlines and ties them to the policy and the freeze.', keywords: ['7 days', 'deadline', 'sla', 'window', '30 days'] },
+      {
+        id: 'date',
+        text: 'Gives dates, not just "soon": the deadline of each urgent finding and the window or cycle it goes in, tied to the policy and the freeze, and when the print server exception expires.',
+        keywords: dateRubricKeywords(cal, [f1Deadline, f2Deadline, cal.freeze.end, expires], [7, 30]),
+      },
     ],
     explanation: covers
       ? [
@@ -492,7 +508,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
         ]
       : [
           `The headline is a Critical SQL injection (CVSS ${f1Entry.base.toFixed(1)}) in ${f1Entry.product} on ${portal}, a public web application, reachable without login. Its 7-day deadline, counted from first detection ${f1Age} days ago, is ${ymd(f1Deadline)} (end of day). The fix is a code release and the next window (${ymd(cal.next.start)}), the first after the change freeze that runs until ${ymd(cal.freeze.end)} 00:00, is after the deadline; the freeze allows only approved emergency changes, so that is the way to meet it. The deciding clue is that "we have a WAF" is not "it is covered": ControlInventory has ${wafId} for this vulnerability on that endpoint, but its Mode is detect, and the WAF's own records in FirewallLogs show the requests matching the rule allowed through. A control counts only if it blocks (the policy: block mode, covering this vulnerability, confirmed in the logs), so nothing is in front of the flaw and the deadline needs an emergency change through the freeze: patch, emergency.`,
-          `Switching the rule to block mode is not the answer the data supports: its Evidence in ControlInventory records that a block-mode trial on ${ymd(trial)} was rolled back after it rejected legitimate customer requests, and the policy asks for a control that is in effect and confirmed in the logs, which this is not today. The same applies to the rule on the public website. avoid is not accepted: the portal's role in DeviceInfo says ${f1Entry.component}: ${use}, so turning the feature off would break a needed business process, and nothing in the data shows it can be switched off safely. Requests that matched the rule and reached the vulnerable page (and any other unknown internet traffic that did) are handed to the SOC for a compromise check; that is separate from the remediation decision and does not change it. The twin has the same score, intel, rule id, target and vulnerability, but its rule blocks and the requests are denied.`,
+          `Switching the rule to block mode is not the answer the data supports: its Evidence in ControlInventory records that a block-mode trial on ${ymd(trial)} was rolled back after it rejected legitimate customer requests, and the policy asks for a control that is in effect and confirmed in the logs, which this is not today. The same applies to the rule on the public website. Avoid (switching the feature off) is not accepted: the portal's role in DeviceInfo says ${f1Entry.component}: ${use}, so turning the feature off would break a needed business process, and nothing in the data shows it can be switched off safely. Requests that matched the rule and reached the vulnerable page (and any other unknown internet traffic that did) are handed to the SOC for a compromise check; that is separate from the remediation decision and does not change it. The twin has the same score, intel, rule id, target and vulnerability, but its rule blocks and the requests are denied.`,
           `The decoys are in ControlInventory: a WAF rule in detect mode for the High finding on the public website (it blocks nothing, so that finding is a normal next-window patch: its 30-day deadline, ${ymd(f2Deadline)}, is after the next window and before the standard cycle ${ymd(cal.cycle.start)}; the requests its rule let through reached the vulnerable ${PUBLIC} and go to the SOC for a compromise check, which does not change the patch decision), and an enforcing MFA control on the portal's administrator console (a different path, so it protects nothing here). The remaining patches are standard-cycle (long deadlines), and the print server finding is an accepted risk with an approved, unexpired exception.`,
           `The file server's High finding is no longer valid: PatchHistory shows the update installed after the older run started, Result Installed and no reboot pending, and the newer (partial) run only logged an authentication failure for the host ("local checks not run"), so nothing re-tested it. Remediated after the scan: close it and request a rescan to confirm.`,
         ],

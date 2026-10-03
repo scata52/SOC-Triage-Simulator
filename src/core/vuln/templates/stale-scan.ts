@@ -53,9 +53,21 @@ import {
   writeRiskException,
   writeUnrelatedPatches,
   ymd,
+  dateRubricKeywords,
+  dismissOn,
+  lowered,
 } from './common.ts';
 
 const HEAD_HOST = 'FS01'; // findings[0] in both twins
+
+// The reboot keywords of the fresh twin tick only on its deciding fact: HEAD_HOST has a reboot pending. A bare "reboot is pending" or
+// "old library" also fits the stale twin's honest note ("no reboot is pending", "FS02 still runs the old library"), so each is bound
+// to the host or phrased so that a negation does not contain it.
+const FRESH_RISK = [
+  ...['is pending a reboot', 'is still pending a reboot', 'is pending a restart', 'is still pending a restart', 'reboot is pending', 'reboot is still pending', 'restart is pending', 'restart is still pending', 'reboot still pending', 'restart still pending', 'needs a reboot', 'needs a restart', 'needs to be rebooted', 'needs to restart', 'requires a reboot', 'requires a restart', 'still loads the old library', 'still has the old library', 'still runs the old library', 'still loading the old library', 'still using the old library', 'has the old library loaded', 'is not in effect', 'is not yet in effect', 'update is not in effect', 'not in effect until'].flatMap((p) => [`${HEAD_HOST} ${p}`, `${HEAD_HOST} update ${p}`, `${HEAD_HOST} service ${p}`]),
+  ...['pending a reboot on', 'pending a restart on', 'old library on', 'old library is still loaded on'].map((p) => `${p} ${HEAD_HOST}`),
+  'rebootpending true', 'but a reboot is pending', 'but a restart is pending', 'a reboot is pending', 'a restart is pending', 'a reboot is still pending', 'a restart is still pending', 'until the reboot', 'until it restarts', 'until the restart', 'until the host restarts', 'until it is rebooted', 'installed but not in effect', 'installed but not yet in effect',
+];
 const SIB_HOST = 'FS02'; // findings[1] in both twins
 const MEDIUM_HOST = 'BUILD01';
 const CRIT_HOST = 'APP01';
@@ -298,7 +310,7 @@ function build(ctx: VulnContext, fresh: boolean): VulnCaseSpec {
   const daysAgo = Math.round((now - oldRun.started) / DAY);
 
   return {
-    briefing: `${world.org.name}: review of the latest scan results for the file servers and other internal servers in scope (two scan runs; the second did not cover every target). Decide for each worklist finding whether to patch, mitigate, accept or dismiss it, order the worklist, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch and ticket data are in the SIEM tables. All data is simulated.`,
+    briefing: `${world.org.name}: review of the latest scan results for the file servers and other internal servers in scope (two scan runs; the second did not cover every target). Decide for each worklist finding whether to patch, mitigate, avoid, accept, transfer or dismiss it as a false positive, order the worklist, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch and ticket data are in the SIEM tables. All data is simulated.`,
     attachments: policyAttachments(world.org.name, cal),
     findings,
     constraints: cal.constraints,
@@ -362,14 +374,18 @@ function build(ctx: VulnContext, fresh: boolean): VulnCaseSpec {
       },
     ],
     rubric: [
-      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: ['owner', ...ownerNames.map((o) => o.toLowerCase())] },
+      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: lowered(ownerNames) },
       fresh
-        ? { id: 'risk', text: `Explains that the update on ${HEAD_HOST} is installed but not in effect until the reboot (the service still loads the old library), so its finding is current, while the ${SIB_HOST} result is out of date.`, keywords: ['reboot', 'restart', 'pending', 'old library', 'stale', 'out of date', 'vulnerable'] }
-        : { id: 'risk', text: 'Explains that one scanner result is out of date and the other file server is still vulnerable (its package is below the fix).', keywords: ['stale', 'out of date', 'patched', 'still vulnerable', 'vulnerable'] },
+        ? { id: 'risk', text: `Explains that the update on ${HEAD_HOST} is installed but not in effect until the reboot (the service still loads the old library), so its finding is current, while the ${SIB_HOST} result is out of date.`, keywords: lowered(FRESH_RISK) }
+        : { id: 'risk', text: `Explains that the ${HEAD_HOST} result is out of date, while ${SIB_HOST} is still vulnerable: its only update after the scan was an operating system rollup, so its package is still below the fix.`, keywords: lowered([`${SIB_HOST} rollup`, 'only a rollup', 'only an os rollup', 'only an operating system rollup', 'only a cumulative rollup', 'was a rollup', 'was an os rollup', 'was an operating system rollup', `${SIB_HOST} is below the fix`, `${SIB_HOST} is still below the fix`, `${SIB_HOST} still below the fix`, `${SIB_HOST} package is below`, `${SIB_HOST} package is still below`, 'no application fix', 'bugfix update', `${HEAD_HOST} result is out of date`, `${HEAD_HOST} finding is out of date`, `${HEAD_HOST} is out of date`, `${HEAD_HOST} is stale`, `${HEAD_HOST} result is stale`, `${HEAD_HOST} finding is stale`, `${HEAD_HOST} was patched after`, `${HEAD_HOST} was updated after`, `${SIB_HOST} is still vulnerable`, `${SIB_HOST} is still unpatched`, `${SIB_HOST} still vulnerable`, `${SIB_HOST} still unpatched`, `${SIB_HOST} never got the fix`]) },
       fresh
-        ? { id: 'action', text: `Patches ${HEAD_HOST} by scheduling the reboot in the next window; dismisses the ${SIB_HOST} finding and requests a rescan; patches the others in the emergency or standard cycle; accepts the print server finding.`, keywords: ['reboot', 'rescan', 'dismiss', 'next window', 'standard cycle', 'emergency'] }
-        : { id: 'action', text: `Dismisses the ${HEAD_HOST} finding and requests a rescan; patches the others in the emergency, next window or standard cycle; accepts the print server finding.`, keywords: ['rescan', 'dismiss', 'next window', 'standard cycle', 'emergency'] },
-      { id: 'date', text: 'Gives dates or deadlines and ties them to the policy.', keywords: ['30 days', '7 days', 'deadline', 'sla', 'window'] },
+        ? { id: 'action', text: `Patches ${HEAD_HOST} by scheduling the reboot in the next window; dismisses the ${SIB_HOST} finding and requests a rescan; patches the others in the emergency or standard cycle; accepts the print server finding.`, keywords: lowered([`schedule the reboot of ${HEAD_HOST}`, `schedule a reboot of ${HEAD_HOST}`, `schedule the restart of ${HEAD_HOST}`, `reboot of ${HEAD_HOST}`, `restart of ${HEAD_HOST}`, `reboot ${HEAD_HOST}`, `restart ${HEAD_HOST}`, `reboot the ${HEAD_HOST}`, `restart the ${HEAD_HOST}`, `${HEAD_HOST} needs a reboot`, `${HEAD_HOST} needs a restart`, `${HEAD_HOST} needs to be rebooted`, `${HEAD_HOST} needs to restart`, `${HEAD_HOST} is rebooted`, `${HEAD_HOST} is restarted`, `${HEAD_HOST} gets a reboot`, `${HEAD_HOST} gets a restart`, `schedule ${HEAD_HOST} reboot`, `${HEAD_HOST} reboot is scheduled`, `${HEAD_HOST} restart is scheduled`], dismissOn(SIB_HOST)) }
+        : { id: 'action', text: `Dismisses the ${HEAD_HOST} finding and requests a rescan; patches ${SIB_HOST} and the others in the emergency, next window or standard cycle; accepts the print server finding.`, keywords: lowered(dismissOn(HEAD_HOST)) },
+      {
+        id: 'date',
+        text: 'Gives dates, not just "soon": the deadline of each urgent finding and the window or cycle it goes in, tied to the policy, and when the print server exception expires.',
+        keywords: dateRubricKeywords(cal, [highDeadline, critDeadline, expires], [30, 7]),
+      },
     ],
     explanation: [
       fresh
