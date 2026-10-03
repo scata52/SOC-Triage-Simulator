@@ -1,6 +1,6 @@
 // Twin T8 (DESIGN section 4): the same Critical remote flaw in a third-party ticketing product,
 // read by the external scan as a version string from the organisation's own public hostname
-// (a passive version read: nothing is sent to the vendor's systems that a visitor would not send).
+// (a non-intrusive version read: nothing is sent to the vendor's systems that a visitor would not send).
 // The headline, the host, the versions, the dates and the vendor's advisory are identical in both
 // twins. What differs is who operates the system.
 //
@@ -8,7 +8,7 @@
 // Tickets holds the subscription agreement: the vendor hosts it and installs the fixes. The
 // advisory commits to patch every hosted tenant by a date before our own deadline. The policy row
 // on vendor-operated services says what to do: transfer, track the vendor's date, verify on the
-// vendor's confirmation, and never test the vendor's systems. No change of ours is scheduled.
+// vendor's confirmation, and never scan or test the vendor's platform. No change of ours is scheduled.
 //
 // vm-self-hosted (B): DeviceInfo shows an IT-managed server in the DMZ and Tickets holds the
 // installation record: IT runs the self-managed edition, the advisory's hosted-tenant sentences
@@ -55,6 +55,9 @@ import {
   writeChangeTickets,
   writeUnrelatedPatches,
   ymd,
+  dateRubricKeywords,
+  lowered,
+  KW_EMERGENCY,
 } from './common.ts';
 
 type Variant = 'transfer' | 'self';
@@ -64,6 +67,12 @@ const HEAD_PRODUCT = 'Foxglove Helpdesk';
 const HEAD_VENDOR = 'Dravenholt Software';
 const HEAD_CLOUD = 'dravenholt-cloud.example'; // the vendor's hosting domain (reserved name)
 const SAAS_HOST = 'DASHSVC01'; // findings[2] in both twins: a second vendor-hosted service
+// The action keywords of the hosted twin name the ticketing service itself. The dashboards service is a transfer in both twins, with
+// the same vendor confirmation notice, so "record transfer for DASHSVC01, wait for the confirmation" must not tick this item.
+const HEAD_SUBJECTS = [HEAD_HOST, 'the ticketing service', 'the ticketing system', 'the ticketing platform', 'the hosted ticketing', 'the helpdesk service', 'the helpdesk system', 'the helpdesk'];
+const HEAD_VERBS = ['transfer', 'transfer for', 'record transfer for', 'track the vendor date for', "track the vendor's date for", 'track the vendor fix for', 'track the vendor fix date for', 'monitor the vendor for', 'monitor the vendor fix for', 'monitor the vendor fix date for', 'monitor the vendor date for', 'wait for the vendor to confirm', 'wait for the vendor confirmation for', "wait for the vendor's confirmation for", 'written confirmation for', 'vendor confirmation for', "vendor's confirmation for", 'confirmation for', 'do not test', 'not scan or test', 'never scan', 'never test', 'no testing of', 'no scanning of'];
+const HEAD_AFTER = ['is recorded as transfer', 'is marked as transfer', 'goes to transfer', 'as transfer', ': transfer', 'is transfer', 'is a transfer', 'to transfer', 'vendor confirmation', 'vendor confirms', "vendor's confirmation", 'written confirmation'];
+const HEAD_ACTIONS: string[] = [...HEAD_SUBJECTS.flatMap((s) => [...HEAD_VERBS.map((v) => `${v} ${s}`), ...HEAD_AFTER.map((a) => `${s} ${a}`)]), 'ticketing transfer', 'ticketing vendor confirmation', 'monitor the ticketing vendor'];
 const SAAS_PRODUCT = 'Pinecrest Dashboards';
 const SAAS_VENDOR = 'Pinecrest Analytics';
 const SAAS_CLOUD = 'pinecrest-cloud.example';
@@ -79,7 +88,7 @@ const TITLE = 'Scan review: third-party ticketing service and internal servers';
 // The template-local policy row (identical in both twins): who must fix a flaw follows who operates the system.
 const VENDOR_ROW: [string, string] = [
   'Vendor-operated service',
-  "Who fixes a flaw follows who operates the system. If a vendor hosts and operates the service (DeviceInfo shows a hosted service that IT does not manage, and Tickets holds the subscription agreement), the vendor fixes it on its own platform: record the finding as transfer (no change of ours, so no schedule), track the committed fix date in the vendor's advisory (Tickets), and close the finding on the vendor's confirmation of the fix. Do not scan or test the vendor's systems without the vendor's written permission: reading the version our own public hostname shows is not such a test. If IT installs and runs the product on its own server (DeviceInfo shows an IT-managed server, Tickets the installation record), the vendor's update is ours to apply: patch by the standard rules. A vendor support contract alone transfers nothing: a product we run ourselves is still ours to patch.",
+  "Who fixes a flaw follows who operates the system. If a vendor hosts and operates the service (DeviceInfo shows a hosted service that IT does not manage, and Tickets holds the subscription agreement), the vendor fixes it on its own platform: record the finding as transfer (no change of ours, so no schedule), track the committed fix date in the vendor's advisory (Tickets), and close the finding on the vendor's confirmation of the fix. Do not scan or test the vendor's platform: many SaaS terms forbid it or restrict it to published rules or the vendor's written permission. The only check we make on a vendor-hosted service is a non-intrusive read of the version string an ordinary request to our own public hostname returns (what any visitor receives); no probes, payloads or logins are sent; confirm the fix from the vendor's advisory and its confirmation notice. If IT installs and runs the product on its own server (DeviceInfo shows an IT-managed server, Tickets the installation record), the vendor's update is ours to apply: patch by the standard rules. A vendor support contract alone transfers nothing: a product we run ourselves is still ours to patch.",
 ];
 
 const quiet = (e: CatalogueEntry): boolean => !e.knownExploited && e.vendorFix;
@@ -109,7 +118,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const intId = `SCN-${runRng.int(1000, 4999)}`;
   const extId = `SCN-${runRng.int(5000, 9999)}`;
   const intRun = scan.run({ id: intId, durationMin: runRng.int(45, 180), method: 'Credentialed', started: now - 9 * DAY, targetsPlanned: 12, targetsScanned: 12 });
-  const extRun = scan.run({ id: extId, durationMin: runRng.int(45, 180), method: 'Unauthenticated', vantage: 'External', started: now - 4 * DAY, targetsPlanned: 4, targetsScanned: 4 }); // sized to the devices that have a row
+  const extRun = scan.run({ id: extId, durationMin: runRng.int(1, 10), method: 'Unauthenticated', vantage: 'External', started: now - 4 * DAY, targetsPlanned: 4, targetsScanned: 4 }); // sized to the devices that have a row
   const lastSeen = (run: typeof intRun, label: string): number => run.started + sharedRng(ctx, `last-seen/${label}`).int(1, Math.max(1, Math.round((run.finished - run.started) / MIN))) * MIN;
 
   // ---- dates (all relative to the case date, shared by the twins)
@@ -177,7 +186,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   placeInVendorCloud(SAAS_HOST, SAAS_VENDOR, saasIp);
 
   const fingerprint = (e: CatalogueEntry, version: string, host: string): string =>
-    `Remote check: the https service on ${PORT}/tcp announces "${e.product.replace(/\s+/g, '-')}/${version}" (version read from the response header served at ${host}, the organisation's own public hostname; no exploit and no intrusive test was sent). Version taken from the banner only; installed packages were not inspected. Fixed in ${e.fixedVersion}.`;
+    `Version fingerprint (non-intrusive): the https service on ${PORT}/tcp announces "${e.product.replace(/\s+/g, '-')}/${version}" (version read from the response header served at ${host}, the organisation's own public hostname; no exploit and no intrusive test was sent). Version taken from the banner only; installed packages were not inspected. Fixed in ${e.fixedVersion}.`;
 
   // ---- F1 headline and F3 second hosted service, from the external run
   const f1 = scan.finding(extRun, { host: HEAD_HOST, entry: head, port: PORT, firstSeen, lastSeen: lastSeen(extRun, 'f1'), installedVersion: headVersion, bannerVersion: headVersion, title: head.title, evidence: fingerprint(head, headVersion, headAlias) });
@@ -301,7 +310,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
           {
             id: 'vendor-committed-date',
             label: `The vendor's advisory commits to update every hosted tenant by ${ymd(committed)}`,
-            why: `Tickets has the advisory for ${head.id}: for the hosted service the vendor commits to finish the rollout by ${ymd(committed)}, a day before our Critical deadline (7 days from first detection ${firstAgo} days ago, due ${ymd(critDeadline)}, end of day), and will send a confirmation notice. Record transfer, track that date and close the finding on the vendor's confirmation; a re-read of the version our own public hostname shows is allowed, a scan or test of the vendor's systems is not (VulnIntel shows the fix exists: ${head.fixedVersion}).`,
+            why: `Tickets has the advisory for ${head.id}: for the hosted service the vendor commits to finish the rollout by ${ymd(committed)}, a day before our Critical deadline (7 days from first detection ${firstAgo} days ago, due ${ymd(critDeadline)}, end of day), and will send a confirmation notice. Record transfer, track that date and close the finding on the vendor's confirmation; the only check we make is a non-intrusive read of the version string an ordinary request to our own public hostname returns (no probes, payloads or logins); we never scan or test the vendor's platform (many SaaS terms forbid it or restrict it to published rules or the vendor's written permission) (VulnIntel shows the fix exists: ${head.fixedVersion}).`,
             rows: [advisory],
           },
         ],
@@ -365,7 +374,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const ids = { f1: f1.findingId, f2: f2.findingId, f3: f3.findingId, f4: f4.findingId, f5: f5.findingId };
   const ownerNames = [...new Set([...ownersOf(ctx, [HEAD_HOST, SAAS_HOST, APP, BUILD, JUMP]), 'IT Infrastructure'])]; // the change tickets are assigned to IT Infrastructure
 
-  const briefing = `${world.org.name}: review of the latest scan results for the public ticketing service, a second public service and the internal servers in scope (an older credentialed run of the servers and a newer external run that reads the version strings of our own public hostnames; neither covered every target). Decide for each worklist finding whether to patch, mitigate, accept, transfer or dismiss it, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, software inventory and ticket data are in the SIEM tables. All data is simulated.`;
+  const briefing = `${world.org.name}: review of the latest scan results for the public ticketing service, a second public service and the internal servers in scope (an older credentialed run of the servers and a newer external run that reads the version strings of our own public hostnames; neither covered every target). Decide for each worklist finding whether to patch, mitigate, avoid, accept, transfer or dismiss it as a false positive, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, software inventory and ticket data are in the SIEM tables. All data is simulated.`;
 
   // Hints 1 and 2 are the same text in both twins: they must not tell which one this is.
   const lead = 'A scanner reports a flaw in a product; it does not say who must fix it. Who operates the system the finding is on, and what has the vendor said about fixing it? Which tables show that?';
@@ -425,22 +434,30 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
       },
     ],
     rubric: [
-      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: ['owner', ...ownerNames.map((o) => o.toLowerCase())] },
+      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: lowered(ownerNames) },
       {
         id: 'risk',
         text: hosted ? `States the risk in plain words: the ticketing service is hosted and operated by the vendor, whose advisory commits to fix it by ${ymd(committed)}; the fix is the vendor's, but accountability for our data stays with us, so the finding stays open until the vendor confirms the fix.` : 'States the risk in plain words: the ticketing server is ours (installed and run by IT) and the vendor will not update it; a Critical on a server reachable from the internet.',
-        keywords: hosted ? ['vendor', 'hosted', 'responsib', 'advisory', 'commit'] : ['self-managed', 'installed', 'internet', 'critical', 'update'],
+        keywords: hosted
+          ? lowered([`${HEAD_HOST} is vendor-hosted`, `${HEAD_HOST} is saas`, `${HEAD_HOST} is a saas`, `${HEAD_HOST} is hosted`, `${HEAD_HOST} is operated by`, `${HEAD_HOST} is run by the vendor`, 'ticketing service is hosted', 'ticketing service is vendor', 'ticketing service is saas', 'ticketing service is operated', 'ticketing service is run by the vendor', 'ticketing system is hosted', 'ticketing system is vendor', 'ticketing system is saas', 'helpdesk is saas', 'helpdesk is hosted', 'helpdesk is vendor', 'vendor hosted ticketing', 'saas ticketing', 'vendor operates the ticketing', 'we do not run the ticketing', 'we do not run the helpdesk', 'we do not manage the ticketing', 'vendor runs the ticketing', 'vendor operated ticketing', 'hosted ticketing service', 'ticketing is hosted', 'ticketing is vendor hosted', 'vendor hosts the ticketing', 'vendor installs the fixes itself', 'vendor installs the update itself', 'vendor installs the fixes on the hosted', 'vendor installs the update on the hosted'])
+          : lowered(['ticketing server is self-managed', 'ticketing server is self managed', 'ticketing server is self-hosted', 'ticketing server is ours', 'ticketing server is installed and run by it', 'ticketing server is run by it', 'it installed and runs the ticketing', 'it installed the ticketing', 'it runs the ticketing', 'it manages the ticketing', 'our ticketing server', 'our own ticketing server', 'we run the ticketing', 'we installed and run the ticketing', 'run the ticketing server ourselves', 'run this instance ourselves', 'we installed it ourselves', 'installed it ourselves', 'we installed the ticketing', 'no vendor update', 'vendor does not update', 'vendor does not patch', 'vendor will not patch', `${HEAD_HOST} is self-managed`, `${HEAD_HOST} is self-hosted`, `${HEAD_HOST} is ours`, `we run ${HEAD_HOST}`, 'vendor will not update']),
       },
       {
         id: 'action',
-        text: hosted ? `Records transfer for the two hosted services (track the vendor's date, ask for its written confirmation, no testing of its systems) and patches the contract-covered server on ${APP} in the next window.` : `Patches the ticketing server by emergency change, records transfer for the hosted dashboards service and patches the contract-covered server on ${APP} in the next window.`,
-        keywords: hosted ? ['transfer', 'track', 'confirm', 'verify', 'next window'] : ['patch', 'emergency', 'transfer', 'next window', 'update'],
+        text: hosted ? `Records transfer for the hosted ticketing service and the second hosted service (track the vendor's date, ask for its written confirmation, no scanning or testing of its platform) and patches the contract-covered server on ${APP} in the next window.` : `Patches the ticketing server by emergency change, records transfer for the hosted dashboards service and patches the contract-covered server on ${APP} in the next window.`,
+        keywords: hosted
+          ? lowered(HEAD_ACTIONS)
+          : lowered(KW_EMERGENCY),
       },
-      { id: 'date', text: 'Gives dates or deadlines and ties them to the policy.', keywords: ['7 days', '30 days', 'deadline', 'sla', 'window'] },
+      {
+        id: 'date',
+        text: hosted ? "Gives dates, not just \"soon\": the deadline of each urgent finding, the vendor's committed fix date, and the window or cycle each goes in, tied to the policy." : 'Gives dates, not just "soon": the deadline of each urgent finding and the window or cycle it goes in, tied to the policy.',
+        keywords: dateRubricKeywords(cal, [critDeadline, f2Deadline, f4Deadline, committed], [7, 30]),
+      },
     ],
     explanation: hosted
       ? [
-          `The headline is a Critical (7 days from first detection ${firstAgo} days ago, due ${ymd(critDeadline)}, end of day) in a third-party ticketing product, read from the version string of our own public hostname by the external run. The deciding clue is who operates the system. DeviceInfo shows ${HEAD_HOST} is a service hosted by ${HEAD_VENDOR} that IT does not manage (IsManaged false, OSPlatform "${VENDOR_OS}"), and Tickets holds the subscription agreement: the vendor hosts it and installs the fixes; IT has no access to the servers. The vendor's advisory commits to update every hosted tenant by ${ymd(committed)}, before our deadline. The policy row on vendor-operated services says what to do: record transfer (no change of ours, no schedule), track that date, close the finding on the vendor's written confirmation, and never scan or test the vendor's systems without its permission. Transfer moves the fix, not the accountability for our data: until the vendor confirms, keep the finding open and tracked, and escalate if the committed date slips.`,
+          `The headline is a Critical (7 days from first detection ${firstAgo} days ago, due ${ymd(critDeadline)}, end of day) in a third-party ticketing product, read from the version string of our own public hostname by the external run. The deciding clue is who operates the system. DeviceInfo shows ${HEAD_HOST} is a service hosted by ${HEAD_VENDOR} that IT does not manage (IsManaged false, OSPlatform "${VENDOR_OS}"), and Tickets holds the subscription agreement: the vendor hosts it and installs the fixes; IT has no access to the servers. The vendor's advisory commits to update every hosted tenant by ${ymd(committed)}, before our deadline. The policy row on vendor-operated services says what to do: record transfer (no change of ours, no schedule), track that date, close the finding on the vendor's written confirmation, and never scan or test the vendor's platform (many SaaS terms forbid it or restrict it to published rules or the vendor's written permission). Transfer moves the fix, not the accountability for our data: until the vendor confirms, keep the finding open and tracked, and escalate if the committed date slips.`,
           `The twin has the same flaw, the same advisory and the same host name, but there DeviceInfo shows an IT-managed server and Tickets holds an installation record: IT runs it, the advisory's committed date is for hosted tenants, and the update is ours to apply (patch, emergency change). "Vendor product, so the vendor's problem" and "every finding is ours to patch" are both wrong somewhere in this pair.`,
           `The decoys: a support contract in Tickets for ${f2Entry.product} on ${APP}, but IT installed and runs that product, so a contract transfers nothing: patch it (High, first detected ${Math.round((now - f2First) / DAY)} days ago, due ${ymd(f2Deadline)}: the next window). ${SAAS_HOST} is a second vendor-hosted service: transfer, with the vendor's date in its own advisory. The High on ${BUILD} (due ${ymd(f4Deadline)}) goes in the standard cycle and the Low is standard cycle too.`,
         ]
@@ -452,7 +469,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
     pitfalls: hosted
       ? [
           'Patching the headline: IT cannot patch a service the vendor hosts and operates; the finding is recorded as transfer, tracked and verified.',
-          'Scanning or testing the vendor\'s systems to "verify" the fix: that needs the vendor\'s written permission; wait for its confirmation (our own hostname\'s version string may be re-read).',
+          'Scanning or testing the vendor\'s platform to "verify" the fix: many SaaS terms forbid it or restrict it to published rules or the vendor\'s written permission; wait for its confirmation (a non-intrusive read of the version string an ordinary request to our own hostname returns is the only check we make).',
           'Reading a vendor support contract as a transfer: the support contract on the application server only means the vendor answers calls; IT installed and runs that product, so patch it.',
           'Treating transfer as "done": the finding stays open until the vendor confirms the fix by its committed date; escalate if the date passes.',
           'Scheduling an emergency change for a finding whose fix is not ours to make.',
@@ -481,7 +498,7 @@ export const saasTransfer: VulnTemplate = {
   id: 'vm-saas-transfer',
   twin: 'vm-self-hosted',
   lesson:
-    "DeviceInfo shows the headline system is a vendor-hosted service IT does not manage, and Tickets holds the subscription agreement and the vendor's advisory with its committed fix date: the vendor operates and fixes it, so record transfer, track the date and verify on the vendor's confirmation (never test the vendor's systems). The twin has the same flaw, but DeviceInfo shows an IT-managed server and Tickets an installation record: it is ours to patch.",
+    "DeviceInfo shows the headline system is a vendor-hosted service IT does not manage, and Tickets holds the subscription agreement and the vendor's advisory with its committed fix date: the vendor operates and fixes it, so record transfer, track the date and verify on the vendor's confirmation (never scan or test the vendor's platform). The twin has the same flaw, but DeviceInfo shows an IT-managed server and Tickets an installation record: it is ours to patch.",
   build: (ctx) => build('transfer', ctx),
 };
 

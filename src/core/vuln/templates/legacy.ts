@@ -47,6 +47,8 @@ import {
   writeRiskException,
   writeUnrelatedPatches,
   ymd,
+  dateRubricKeywords,
+  lowered,
 } from './common.ts';
 
 type Variant = 'accept' | 'isolate';
@@ -110,14 +112,18 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const f5First = now - 20 * DAY;
 
   // ---- entries (twins share every choice)
+  // Worklist flaws on different hosts sit on different products (version realism): a host never runs a product below the
+  // fix of another worklist vulnerability on that product unless it carries that finding too.
+  const taken = new Set<string>();
   const choose = (want: ShapeWant, firstSeen: number, epss: number, host: string, brand?: { product: string; vendor: string }): CatalogueEntry => {
     const pool = free().filter(quiet);
     const known = pool.filter((x) => x.published <= firstSeen);
     const base = rng.pick(known.length > 0 ? known : pool);
     const dated = withPublished(base, Math.min(base.published, dayStart(firstSeen - DAY)), allIds);
-    const e = brand ? shaped({ ...dated, ...brand }, rng, want) : shapedOn(dated, host, rng, want);
+    const e = brand ? shaped({ ...dated, ...brand }, rng, want) : shapedOn(dated, host, rng, want, taken);
     used.add(base.id);
     used.add(e.id);
+    taken.add(e.product);
     return withEpss(withFix(e, rng), epss);
   };
   const lower = (label: string) => lowerHalfEpss(rng.fork(label), 0.45);
@@ -379,7 +385,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const ownerNames = [...new Set([...owners, 'IT Infrastructure'])]; // the change tickets are assigned to IT Infrastructure
   const f1Age = Math.round((now - f1First) / DAY);
 
-  const briefing = `${world.org.name}: review of the latest scan results for a laboratory process controller and the internal servers in scope (two scan runs, the newer one an unauthenticated sweep that did not reach every target). Decide for each worklist finding whether to patch, mitigate, accept or dismiss it, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch, ticket, firewall and control data are in the SIEM tables. All data is simulated.`;
+  const briefing = `${world.org.name}: review of the latest scan results for a laboratory process controller and the internal servers in scope (two scan runs, the newer one an unauthenticated sweep that did not reach every target). Decide for each worklist finding whether to patch, mitigate, avoid, accept, transfer or dismiss it as a false positive, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch, ticket, firewall and control data are in the SIEM tables. All data is simulated.`;
 
   // Hints 1 and 2 are the same text in both twins: they must not tell which one this is.
   const lead = 'A vendor that has ended support publishes no fix, so patch is not on the table for the headline. Which tables show whether someone has formally accepted the risk, and what actually limits who can reach the controller?';
@@ -437,18 +443,28 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
       },
     ],
     rubric: [
-      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: ['owner', ...ownerNames.map((o) => o.toLowerCase())] },
+      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: lowered(ownerNames) },
       {
         id: 'risk',
         text: isAccept ? 'States the risk in plain words: the vendor has ended support, no fix will come, and the controller is reachable only from the OT management hosts and the authorised scanner, which is the condition of the approved exception.' : 'States the risk in plain words: the vendor has ended support, no fix will come, and corporate workstations can reach the controller, with no approved exception.',
-        keywords: isAccept ? ['end of support', 'no fix', 'exception', 'isolat', 'management'] : ['end of support', 'no fix', 'corporate', 'reach', 'exposed'],
+        keywords: isAccept
+          ? lowered(['the approved exception for the controller', 'the approved exception on the controller', `the approved exception for ${HOST}`, `the approved exception on ${HOST}`, 'approved exception covers the controller', 'controller approved exception', 'controller exception is still valid', 'controller exception is valid', 'the controller has an approved exception', `${HOST} has an approved exception`, 'controller is covered by the approved exception', 'condition of the controller exception', 'condition of the approved exception', 'already reachable only from the ot', 'already only reachable from the ot', 'currently reachable only from the ot', 'currently only reachable from the ot', 'is already restricted to the ot', 'is already limited to the ot', 'already behind the acl', 'the controller is reachable only from the ot', 'the controller is only reachable from the ot', `${HOST} is reachable only from the ot`, `${HOST} is only reachable from the ot`])
+          : lowered(['no approved exception for the controller', 'no approved exception on the controller', `no approved exception for ${HOST}`, 'controller has no approved exception', 'controller has no exception', `${HOST} has no approved exception`, `${HOST} has no exception`, 'no exception for the controller', `no exception for ${HOST}`, 'no valid exception for the controller', 'no waiver for the controller', 'without an exception for the controller', 'exception request is still open', 'exception request is open', 'request for an exception is still open', 'only a request', 'not yet approved', 'workstations can reach the controller', 'workstations can reach it', 'workstations are allowed', 'workstations reach the controller', 'workstations reached the controller', 'reachable from corporate', 'reachable from the corporate', 'reachable from user', 'reachable from workstations', 'reachable from the workstations']),
       },
       {
         id: 'action',
         text: isAccept ? `Recommends accepting the controller finding under the approved exception, with its expiry date (${ymd(expires)}) to re-assess, patching the print server (its exception expired) and the standard cycle for the rest.` : 'Recommends moving the controller behind the OT controller VLAN ACL in the next window, raising a risk exception once it is in effect, patching the print server (its exception expired) and the standard cycle for the rest.',
-        keywords: isAccept ? ['accept', 'expiry', 're-assess', 'review', 'print server'] : ['mitigate', 'acl', 'isolate', 'next window', 'print server'],
+        keywords: isAccept
+          ? lowered(['accept the controller under the approved', 'accept the controller finding under the approved', 'accept the controller under the existing', 'accept the controller finding under the existing', 'accepts the controller under the approved', 'accepting the controller under the approved', 'accept it under the approved', 'accept it under the existing', 'accepted under the approved', 'accepted under the existing', 'under the approved exception', 'accept the risk on the controller under the approved', 'accept the risk for the controller under the approved', `accept ${HOST} under the approved`, `accept ${HOST} under the existing`, 're-assess the approved exception', 're-assess the controller exception', 'reassess the approved exception', 'reassess the controller exception', 'before the approved exception expires', 'when the approved exception expires', 'at the expiry of the approved exception', 'renew the approved exception'])
+          : lowered(['move the controller', 'moving the controller', 'move it behind', 'put the controller behind', 'place the controller behind', 'put it behind', 'move it into', 'apply the acl to the controller', 'apply the acl to it', 'into the ot controller vlan', 'to the ot controller vlan', 'isolate the controller', 'isolate it', 'isolating the controller', 'the controller goes behind', 'controller is moved behind', 'moved behind the ot', 'is put behind the ot', 'risk exception is raised', 'risk exception is filed', 'risk exception is requested', 'isolation of the controller', 'segregat', `move ${HOST}`, `moving ${HOST}`, `put ${HOST} behind`, `place ${HOST} behind`, `isolate ${HOST}`, `${HOST} goes behind`, `${HOST} is moved behind`, 'raise a risk exception', 'file a risk exception', 'once the acl is in effect', 'once it is in effect']),
       },
-      { id: 'date', text: 'Gives dates or deadlines and ties them to the policy.', keywords: ['30 days', 'deadline', 'sla', 'window', 'expir'] },
+      {
+        id: 'date',
+        text: isAccept
+          ? 'Gives dates, not just "soon": the deadline of each urgent finding and the window or cycle it goes in, tied to the policy, and when the exception expires or is re-assessed.'
+          : 'Gives dates, not just "soon": the deadline of each urgent finding and the window or cycle it goes in, tied to the policy, and when the new risk exception is to be raised (after the control is in effect) and reviewed.',
+        keywords: dateRubricKeywords(cal, isAccept ? [f1Deadline, f2Deadline, expires] : [f1Deadline, f2Deadline], [30, 90]),
+      },
     ],
     explanation: isAccept
       ? [

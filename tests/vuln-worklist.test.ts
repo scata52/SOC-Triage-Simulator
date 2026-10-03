@@ -341,6 +341,13 @@ describe('reasons and labels', () => {
     expect(toggleReason([], 'known-exploited', 1).reasons).toEqual(['known-exploited']);
   });
 
+  it('the decision options gloss the two codes the labels leave unclear; the labels and codes stay', () => {
+    expect(DECISION_OPTION_TEXT['false-positive']).toBe('False positive: not affected, fixed or a duplicate');
+    expect(DECISION_OPTION_TEXT.transfer).toBe('Transfer: another party owns the fix');
+    expect(DECISION_LABELS['false-positive']).toBe('False positive');
+    expect(DECISION_LABELS.transfer).toBe('Transfer');
+  });
+
   it('REASON_GROUPS partition REASON_CODES exactly', () => {
     const flat = REASON_GROUPS.flatMap((g) => g.codes);
     expect([...flat].sort()).toEqual([...REASON_CODES].sort());

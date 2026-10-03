@@ -48,6 +48,10 @@ import {
   writeChangeTickets,
   writeUnrelatedPatches,
   ymd,
+  dateRubricKeywords,
+  lowered,
+  KW_EMERGENCY,
+  KW_MITIGATE,
 } from './common.ts';
 
 type Variant = 'exposed' | 'segmented';
@@ -82,10 +86,14 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const lastSeen = (run: typeof oldRun, label: string): number => run.started + sharedRng(ctx, `last-seen/${label}`).int(1, Math.max(1, Math.round((run.finished - run.started) / 60_000))) * 60_000;
 
   // ---- entries (twins share every choice)
+  // Worklist flaws on different hosts sit on different products (version realism): a host never runs a product below the
+  // fix of another worklist vulnerability on that product unless it carries that finding too.
+  const taken = new Set<string>();
   const choose = (want: ShapeWant, bound: number, host: string, avoid: ReadonlySet<string> = new Set()): CatalogueEntry => {
     const known = free().filter((x) => quiet(x) && x.published <= bound);
-    const e = shapedOn(withFix(rng.pick(known), rng), host, rng, want, avoid);
+    const e = shapedOn(withFix(rng.pick(known), rng), host, rng, want, new Set([...avoid, ...taken]));
     used.add(e.id);
+    taken.add(e.product);
     return e;
   };
   // The headline: a quiet entry, published well before the host's software was installed, placed on an edge appliance product
@@ -294,7 +302,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const ownerNames = [...new Set([...owners, 'IT Infrastructure'])]; // the change tickets are assigned to IT Infrastructure
   const f1Age = Math.round((now - f1FirstSeen) / DAY);
 
-  const briefing = `${world.org.name}: review of the latest scan results for an edge appliance and the internal servers in scope (two scan runs, the newer one partial). Decide for each worklist finding whether to patch, mitigate, accept or dismiss it, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch, ticket, firewall and control data are in the SIEM tables. All data is simulated.`;
+  const briefing = `${world.org.name}: review of the latest scan results for an edge appliance and the internal servers in scope (two scan runs, the newer one partial). Decide for each worklist finding whether to patch, mitigate, avoid, accept, transfer or dismiss it as a false positive, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, patch, ticket, firewall and control data are in the SIEM tables. All data is simulated.`;
 
   // Hints 1 and 2 are the same text in both twins: they must not tell which one this is.
   const lead = 'A CVSS score describes the flaw, not the place it sits. For the headline, which tables show who can actually reach the vulnerable interface, and what stands in front of it?';
@@ -357,18 +365,26 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
       },
     ],
     rubric: [
-      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: ['owner', ...ownerNames.map((o) => o.toLowerCase())] },
+      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: lowered(ownerNames) },
       {
         id: 'risk',
         text: isExposed ? 'States the risk in plain words: an internet-reachable management interface with an unauthenticated remote code execution flaw and nothing blocking it.' : 'States that the management interface is reachable only from the management VLAN and that a verified blocking ACL is compensating for the missing patch for now.',
-        keywords: isExposed ? ['internet', 'exposed', 'remote code execution', 'reachable'] : ['acl', 'compensating', 'management vlan', 'segment'],
+        keywords: isExposed
+          ? lowered(['internet-facing', 'internet facing', 'internet-reachable', 'internet reachable', 'reachable from the internet', 'open to the internet', 'public internet', 'is exposed to the internet', 'are exposed to the internet', 'exposed to the internet with', 'exposed to the internet and', 'exposed on the internet', 'internet-exposed', 'internet exposed', 'nothing blocks', 'nothing is blocking', 'nothing in front', 'no control in front', 'no acl'])
+          : lowered(['management vlan', 'management network', 'blocking acl', 'verified acl', 'acl in block', 'acl blocks', 'compensating for', 'acts as a compensating', 'reachable only from', 'only reachable from', 'is segmented', 'segmented from']),
       },
       {
         id: 'action',
         text: isExposed ? 'Recommends an emergency patch of the edge appliance, a compromise check on it (the internet sources that reached its management port), the next window for the application server, the standard cycle for the Medium, and a rescan of the file server.' : 'Recommends the blocking ACL as the mitigation now, the permanent fix in the next window, a check that the control stays in effect until then, and a rescan of the file server.',
-        keywords: isExposed ? ['emergency', 'patch', 'standard cycle', 'rescan', 'compromise'] : ['mitigate', 'permanent fix', 'next window', 'in effect'],
+        keywords: isExposed
+          ? lowered(KW_EMERGENCY, ['compromise check', 'check for compromise', 'check it for compromise', 'for compromise', 'signs of compromise'])
+          : lowered(KW_MITIGATE, ['keep the acl', 'acl stays', 'acl has to stay in effect', 'acl must stay in effect', 'acl is kept in effect', 'acl remains in effect', 'control stays in effect', 'control remains in effect', 'acl is the mitigation', 'acl as the mitigation', `mitigate ${EDGE_HOST} with`, 'keep it in effect', 'keep the control in effect', 'in effect until the permanent', 'in effect until the patch', 'in effect until the fix', 'permanent fix in the next', 'permanent fix goes in the next']),
       },
-      { id: 'date', text: 'Gives dates or deadlines and ties them to the policy.', keywords: ['7 days', 'deadline', 'sla', 'window', '30 days'] },
+      {
+        id: 'date',
+        text: 'Gives dates, not just "soon": the deadline of each urgent finding and the window or cycle it goes in, tied to the policy.',
+        keywords: dateRubricKeywords(cal, [f1Deadline, f2Deadline], [7, 30]),
+      },
     ],
     explanation: isExposed
       ? [

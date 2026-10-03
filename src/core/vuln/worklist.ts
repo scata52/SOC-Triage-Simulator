@@ -28,8 +28,8 @@ export const DECISION_OPTION_TEXT: Record<VulnDecision | '', string> = {
   mitigate: 'Mitigate: put a control in front',
   avoid: 'Avoid: remove or disable the component',
   accept: 'Accept the risk',
-  transfer: 'Transfer',
-  'false-positive': 'False positive',
+  transfer: 'Transfer: another party owns the fix',
+  'false-positive': 'False positive: not affected, fixed or a duplicate',
 };
 
 export const DECISION_LABELS: Record<VulnDecision, string> = {

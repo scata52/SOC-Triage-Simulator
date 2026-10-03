@@ -486,6 +486,84 @@ export function ownersOf(ctx: VulnContext, hosts: readonly string[]): string[] {
   return [...new Set(hosts.map((h) => String(ctx.log.deviceRef(h).row.Owner)))];
 }
 
+// ---- stakeholder-note rubric keywords (WP6) ----------------------------------
+
+// The vulnerability notes are matched by vulnRubricHits (grade.ts): the note and every keyword are lowercased and every run of
+// characters outside a-z0-9 becomes one space, the note is padded with one space at each end, and a keyword is a plain substring
+// test that keeps its own leading and trailing space. A keyword with a space at its edge therefore demands a word boundary there
+// (' oct 3 ' matches "Oct 3." and "(Oct 3)" but not "Oct 31"); one without is a stem (mitigat). Punctuation does not matter in
+// either text ('sim-kev' matches "Sim KEV"). A keyword is only as good as its text: a bare generic word (owner, patch, window,
+// vulnerable, critical, deadline, SLA) ticks an item for a note with no content; a word both twins share ticks it for a note that
+// has the answer backwards; a bare noun that fits the opposite recommendation ('the console') ticks the wrong action; and a phrase
+// that a negation leaves intact ('emergency change' in "no emergency change is needed") ticks an item for the opposite advice.
+// Keywords are therefore stems of the wanted phrase, the phrase in its common spellings and synonyms, in an affirmative form that a
+// negation breaks where a cheap one exists (the rubric is coaching and XP only: ADR-3), a team or host name, or a date written
+// out from the case's own calendar; and each twin's risk and action lists hold only what differs between the twins.
+export const lowered = (...lists: readonly (readonly string[])[]): string[] => [...new Set(lists.flat().map((k) => k.toLowerCase()))];
+
+const MONTHS_SHORT = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const MONTHS_LONG = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+const ordinalOf = (n: number): string => (n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'));
+
+// A date as a note writes it, each form fenced with a space on both sides so that it needs a word boundary: 2026-10-03, 3 oct,
+// 03 oct, 3rd oct, 3rd of october, oct 3, october 3rd, 03/10/2026 and 3-Oct-2026. "Oct 31", "Oct 2026" and "13 oct" do not match a
+// case date of 3 October. A bare weekday ("by Friday") is not a date.
+export function dateKeywords(...epochs: readonly number[]): string[] {
+  const out: string[] = [];
+  for (const ms of epochs) {
+    const d = new Date(ms);
+    const day = d.getUTCDate();
+    const m = d.getUTCMonth();
+    const padded = String(day).padStart(2, '0');
+    const mm = String(m + 1).padStart(2, '0');
+    const ord = ordinalOf(day);
+    out.push(` ${ymd(ms)} `, ` ${padded} ${mm} ${d.getUTCFullYear()} `, ` ${day} ${mm} ${d.getUTCFullYear()} `);
+    for (const month of [MONTHS_SHORT[m], MONTHS_LONG[m], ...(m === 8 ? ['sept'] : [])]) {
+      out.push(
+        ` ${day} ${month} `, ` ${padded} ${month} `, ` ${day}${ord} ${month} `, ` ${day}${ord} of ${month} `,
+        ` ${month} ${day} `, ` ${month} ${padded} `, ` ${month} ${day}${ord} `,
+      );
+    }
+  }
+  return lowered(out);
+}
+
+// "7 days", "7-day", "(7 days)", "7 calendar days", "seven days": each fenced with spaces so that 7 days does not match 17 days.
+const COUNT_WORDS: Record<number, string> = { 3: 'three', 7: 'seven', 14: 'fourteen', 30: 'thirty', 90: 'ninety' };
+export const dayCountKeywords = (...days: readonly number[]): string[] =>
+  days.flatMap((n) => [n, ...(COUNT_WORDS[n] ? [COUNT_WORDS[n]] : [])].flatMap((x) => [` ${x} days `, ` ${x} day `, ` ${x} calendar days `, ` ${x} calendar day `]));
+
+// The date item: dates and day counts only a note that states the deadline and the schedule can hold. `extra` are the
+// case's other dates (deadlines, an exception's expiry). A word such as "expires" is not a keyword: "expires soon" gives no date.
+export function dateRubricKeywords(cal: Calendar, extra: readonly number[], days: readonly number[]): string[] {
+  return lowered(dateKeywords(cal.next.start, cal.cycle.start, ...extra), dayCountKeywords(...days));
+}
+
+// Affirmative forms: "no emergency change is needed" and "not a mitigation" contain none of them, so the notes of the twin that
+// says no do not tick the item of the twin that says yes.
+export const KW_EMERGENCY: readonly string[] = [
+  'by emergency change', 'via emergency change', 'through an emergency change', 'in an emergency change', 'under an emergency change', 'raise an emergency change', 'raise emergency change',
+  'request an emergency change', 'needs an emergency change', 'emergency change now', 'emergency change today', 'emergency change tonight', 'emergency change immediately',
+  'file an emergency change', 'open an emergency change', 'submit an emergency change', 'log an emergency change',
+  'emergency patch now', 'emergency patch today', 'emergency patch tonight', 'emergency fix now',
+  'an emergency change patches', 'an emergency change fixes', 'an emergency change deploys', 'an emergency change applies', 'an emergency change updates', 'an emergency change is raised', 'an emergency change is requested', 'an emergency change is needed', 'an emergency change is required', 'an emergency change is filed', 'an emergency change is opened', 'an emergency change is submitted',
+  'by emergency', 'via emergency', 'as an emergency', 'as emergency',
+];
+export const KW_MITIGATE: readonly string[] = [
+  'mitigate with', 'mitigate it with', 'mitigated by', 'mitigated with', 'mitigate now', 'mitigate it now', 'mitigation now', 'as the mitigation', 'as a mitigation',
+  'the mitigation is', 'apply the mitigation', 'as a compensating control', 'as the compensating control', 'keep the compensating control', 'compensating control stays', 'compensating control remains', 'compensating control now',
+];
+// A verb that names a host in the same breath ("dismiss the FS01 finding", "patch FS02"): the keyword that tells twins apart
+// when both twins use the same verbs on different hosts. The verbs are given in the forms a note uses.
+export const VERBS_DISMISS: readonly string[] = ['dismiss', 'dismisses', 'dismissed', 'close', 'closes', 'closed'];
+export const VERBS_PATCH: readonly string[] = ['patch', 'patches', 'patched', 'update', 'updates', 'updated', 'upgrade', 'upgrades', 'upgraded', 'fix', 'fixes', 'fixed'];
+export const VERBS_AVOID: readonly string[] = ['avoid', 'avoids', 'avoided', 'disable', 'disables', 'disabled', 'remove', 'removes', 'removed', 'uninstall', 'uninstalls', 'uninstalled', 'switch off', 'turn off'];
+export const verbsOn = (verbs: readonly string[], ...hosts: readonly string[]): string[] =>
+  lowered(hosts.flatMap((h) => verbs.flatMap((v) => [`${v} ${h}`, `${v} the ${h}`, `${v} the ${h} finding`, `${v} the console on ${h}`, `${v} ${h} console`, `${v} the ${h} console`, `${v} the ${h} admin console`])));
+// Dismissing a host's finding, in the other spellings of the same step: "FS01 as a false positive", "mark FS01 as stale".
+export const dismissOn = (...hosts: readonly string[]): string[] =>
+  lowered(verbsOn(VERBS_DISMISS, ...hosts), hosts.flatMap((h) => [`${h} is dismissed`, `${h} finding is dismissed`, `${h} result is dismissed`, `${h} is closed`, `${h} finding is closed`, `${h} result is closed`, `${h} finding as a false positive`, `${h} result as a false positive`, `${h} is marked as a false positive`, `${h} finding as stale`, `${h} result as stale`, `${h} as a false positive`, `${h} is a false positive`, `${h} false positive`, `${h} as stale`, `mark ${h} as a false`, `mark ${h} as false`, `mark ${h} as stale`]));
+
 // ---- catalogue helpers ------------------------------------------------------
 
 // A seeded stream for choices that twins must share: derived from the

@@ -142,7 +142,8 @@ a laptop line). The `Sim-` prefix plus the "Simulated data" badge keeps the fict
     exploitation in the wild. Entries here are fictional."
   - Sim-EPSS: "Simulated score modeled on FIRST's Exploit Prediction Scoring System (EPSS): estimated probability that a vulnerability
     is exploited in the wild in the next 30 days, with its percentile rank. Values here are fictional but follow the real distribution (§11)."
-- Help glossary (WP6) repeats both entries. Sources for the definitions: https://www.cisa.gov/known-exploited-vulnerabilities-catalog and
+- Help glossary (WP6) repeats both entries (as built: `#/help/vuln`, with the terms of the mode, the six decisions and the
+  schedules; linked from the vuln library, the case brief and the debrief). Sources for the definitions: https://www.cisa.gov/known-exploited-vulnerabilities-catalog and
   https://www.first.org/epss/ (retrieved 2026-09-28).
 
 ## 4. Twin catalogue
@@ -182,7 +183,9 @@ one real finding on the two look-alike hosts and the same row counts; the headli
 Clarified 2026-10-02 (WP3, coordinator): rules a twin pair alone needs are template-local policy rows, identical in both twins
 (`policyAttachments` extra rows): T6 *No vendor fix* (put the system behind a covering control by the deadline, record
 `mitigate` naming it, raise a risk exception), T8 *Vendor-operated service* (record `transfer`, track the vendor's committed
-date, verify; never test vendor systems without written permission), T11 *Unused component*, T10 *Duplicate detections* and
+date, verify; no scanning or testing of the vendor platform: many SaaS terms forbid it or restrict it to published rules or
+the vendor's written permission, so the only check is a non-intrusive read of the version an ordinary request to our own hostname
+returns — WP6 wording, fact-checker), T11 *Unused component*, T10 *Duplicate detections* and
 *Asset tier*. As built: T6-B names the OT isolation ACL whose scope does not yet include the host (a control to apply, not one
 in effect). T7's sweep is internal, not external (the credentialed run must reach the hosts, and exposed hosts carry no
 background rows), and B is confirmed by SoftwareInventory at the vulnerable release plus a failed credentialed login on that
@@ -211,6 +214,11 @@ Reason: same philosophy and helpers, different components; keeps "perfect = 100,
 | evidence | 15 | pinned rows satisfying evidence points |
 Free-text stakeholder note: rubric keyword hits → coaching + XP bonus only (as today). Reason: keyword grading of prose
 is gameable; judgment is graded through structured choices + evidence.
+*Clarified 2026-10-03 (WP6):* vuln notes are matched by `vulnRubricHits` (`vuln/grade.ts`), not the SOC substring
+matcher: both sides lowercased, possessives dropped, every run of other characters turned into one space, the note padded with a
+space at each end, so a keyword can demand word boundaries (`' oct 3 '` does not match "Oct 31"). SOC keeps `detectRubricHits`.
+Rubric tests per template: a model note ticks all four items, a content-free note at most one, the other twin's note never the
+action item (`tests/vuln-scenarios/rubric.test.ts`). Keyword coaching stays approximate (negations, unusual phrasing).
 Lesson gate (§5.8, WP1f): a missed key finding caps the case at 60, below the pass mark, whatever the components add up to.
 Coherence (WP1f): a finding whose decision earns 0 earns 0 for its schedule and its reasons (they qualify a decision).
 
@@ -425,7 +433,7 @@ examples for joins (`VulnFindings | join kind=inner VulnIntel on VulnId | where 
 
 ## 7. UI flow and accessibility
 Routes (add to `router.ts`): `#/vuln` (library of vuln cases), `#/vuln/<slug>/<seed>` (case), debrief inline as SOC.
-Home gets a "Vulnerability Management" card next to Practice/Shift.
+Home gets a "Vulnerability Management" card next to Practice/Shift. The primary nav gets a **Vulns** item between Practice and Study (WP6).
 
 **Not XP-gated.** The card and every vuln case are open from the first visit, as on the SOC side; XP and rank only display progress.
 Difficulty works as in the SOC Library: each case has a tier (tier1–3, sizes per §2.3) and the vuln library offers the same

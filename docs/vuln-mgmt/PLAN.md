@@ -160,6 +160,20 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 - Goal: Help section for the mode (terms: credentialed scan, backport, compensating control, avoid vs mitigate, Sim-KEV and Sim-EPSS with their real-world equivalents per DESIGN §3.1), hint ladders, debrief copy review, stakeholder-note rubric tuning.
 - Owner: implementer + scenario-author (separate files). Deps: WP3.
 - Acceptance: Help reachable by keyboard; every template has ≥ 2 hints; reviewer PASS.
+- Readings (coordinator, 2026-10-03; the criteria were thin as written, see PROGRESS): Help section `#/help/vuln` reached by
+  Tab/Enter from library, case, debrief and nav, axe full rule set both themes, 360/320 px; hints ≥ 2, twins share hint 1,
+  named tables exist; debrief copy display only (scores identical vs HEAD); rubric: model note ticks all four, content-free
+  note ≤ 1, the other twin's notes never tick the action item; glossary fact-checked.
+- As built (2026-10-03): implementer — `src/ui/App.tsx` (Vulns nav item), `src/ui/screens/Help.tsx` (section `vuln`,
+  glossary, cross-links), `VulnDebrief.tsx`, `VulnCase.tsx` (Help link, debrief kept in sessionStorage, cap in the live
+  region), `VulnLibrary.tsx`, `src/ui/styles/screens.css`, `src/core/vuln/worklist.ts` (glosses), `src/core/vuln/grade.ts`
+  (display strings, one-decimal percent, `vulnRubricHits`), `tests/vuln-grading.test.ts`, `tests/vuln-worklist.test.ts`,
+  `e2e/vuln.spec.ts`; scenario-author — `src/core/vuln/templates/**` (rubric keywords and date helpers in `common.ts`, T8
+  wording and external run length, briefings, kev risk text, product placement in five pairs), new
+  `tests/vuln-scenarios/rubric.test.ts`, `data-rules` (V1 version consistency, H1 hints), `batch-b`, `saas`, `waf`. Outside
+  the vuln area, reviewer sign-off on each: `src/core/logs/schema.ts` (`ScanRuns.AuthFailures` doc text), the shared header
+  CSS on SOC screens (ADR-24, display only), the shared Help page; coordinator inline — three glossary sentences after the
+  fact-check, DESIGN §3.1/§4 (T8)/§5/§7.
 
 ## WP7 — Hardening
 - Goal: full accessibility audit (all new screens, both themes, 360 px, keyboard, screen-reader names), fact-check sweep of all vuln content, guardrail-auditor run, update `ARCHITECTURE.md`, `README.md`, AS-BUILT.md, close PROGRESS.md.

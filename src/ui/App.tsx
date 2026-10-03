@@ -20,6 +20,7 @@ const NAV: { to: Route; label: string; icon: IconName; match: Route['name'][] }[
   { to: { name: 'home' }, label: 'Console', icon: 'terminal', match: ['home'] },
   { to: { name: 'shift' }, label: 'Shift', icon: 'bolt', match: ['shift', 'shift-alert', 'handover'] },
   { to: { name: 'practice' }, label: 'Practice', icon: 'target', match: ['practice', 'case', 'daily'] },
+  { to: { name: 'vuln' }, label: 'Vulns', icon: 'shield', match: ['vuln', 'vuln-case'] },
   { to: { name: 'study' }, label: 'Study', icon: 'cap', match: ['study'] },
   { to: { name: 'intel' }, label: 'Intel', icon: 'globe', match: ['intel'] },
   { to: { name: 'stats' }, label: 'Stats', icon: 'chart', match: ['stats'] },

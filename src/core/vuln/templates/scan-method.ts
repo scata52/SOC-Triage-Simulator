@@ -60,6 +60,11 @@ import {
   writeChangeTickets,
   writeUnrelatedPatches,
   ymd,
+  dateRubricKeywords,
+  dismissOn,
+  lowered,
+  verbsOn,
+  VERBS_PATCH,
 } from './common.ts';
 
 type Variant = 'noncred' | 'cred';
@@ -107,14 +112,18 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
 
   // ---- entries (twins share every choice)
   // `by` is the date the flaw must have been published by (default: the first detection). The headline is published before the credentialed run started, so that run's silence about it means something.
+  // Worklist flaws on different hosts sit on different products (version realism): a host never runs a product below the
+  // fix of another worklist vulnerability on that product unless it carries that finding too.
+  const taken = new Set<string>();
   const choose = (want: ShapeWant, first: number, epss: number, host: string | null, pool: (e: CatalogueEntry) => boolean = () => true, by: number = first): CatalogueEntry => {
     const candidates = free().filter((e) => quiet(e) && pool(e));
     const known = candidates.filter((x) => x.published <= by);
     const base = rng.pick(known.length > 0 ? known : candidates);
     const dated = withPublished(base, Math.min(base.published, dayStart(by - DAY)), allIds);
-    const e = host === null ? shaped(dated, rng, want) : shapedOn(dated, host, rng, want);
+    const e = host === null ? shaped(dated, rng, want) : shapedOn(dated, host, rng, want, taken);
     used.add(base.id);
     used.add(e.id);
+    taken.add(e.product);
     return withEpss(withFix(e, rng), epss);
   };
   // The headline: a Critical network flaw in a web-facing application component, the same on both servers.
@@ -272,7 +281,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
   const ownerNames = [...new Set([...ownersOf(ctx, [HOST_1, HOST_2, DB, APP, JUMP]), 'IT Infrastructure'])]; // the change tickets are assigned to IT Infrastructure
   const sweepCov = coverageOf(sweepRun);
 
-  const briefing = `${world.org.name}: review of the latest scan results for two intranet application servers and the internal servers in scope (a credentialed run and a newer unauthenticated sweep; neither covered every target). The sweep reports the same Critical on both application servers. Decide for each worklist finding whether to patch, mitigate, accept or dismiss it, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, software inventory, patch and ticket data are in the SIEM tables. All data is simulated.`;
+  const briefing = `${world.org.name}: review of the latest scan results for two intranet application servers and the internal servers in scope (a credentialed run and a newer unauthenticated sweep; neither covered every target). The sweep reports the same Critical on both application servers. Decide for each worklist finding whether to patch, mitigate, avoid, accept, transfer or dismiss it as a false positive, put the worklist in order, choose when each change should happen and cite your reasons. Our remediation standard and the change calendar are attached. Scan results, vulnerability intelligence (simulated Sim-KEV and Sim-EPSS feeds), asset, software inventory, patch and ticket data are in the SIEM tables. All data is simulated.`;
 
   // Hints 1 and 2 are the same text in both twins: they must not tell which one this is.
   const lead = 'How did the scanner learn the version of the application component on each server: from a service banner, or from the installed packages? Which scan runs touched these servers, and by what method?';
@@ -331,18 +340,35 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
       },
     ],
     rubric: [
-      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: ['owner', ...ownerNames.map((o) => o.toLowerCase())] },
+      { id: 'owner', text: `Names who acts: ${ownerNames.join(', ')} (the Owner values in DeviceInfo; the change tickets are assigned to IT Infrastructure).`, keywords: lowered(ownerNames) },
       {
         id: 'risk',
         text: `States that the sweep read only the service banner, that the credentialed run tested ${fpHost} (inventory above the fix: the banner was wrong) but not ${realHost} (its login failed; inventory shows the vulnerable release: the banner is right).`,
-        keywords: ['banner', 'credentialed', 'authentication', 'installed', 'version'],
+        keywords: lowered(
+          [realHost, fpHost].flatMap((h) =>
+            h === realHost
+              ? [
+                  `login failed on ${h}`, `login on ${h} failed`, `login to ${h} failed`, `authentication failed on ${h}`, `authentication failure on ${h}`, `authentication failed for ${h}`, `${h} login failed`, `${h} authentication failed`, `${h} credentialed login failed`, `${h} credentialed check failed`, `${h} credentialed scan failed`, `${h} credentialed run failed`,
+                  `could not log in to ${h}`, `couldn't log in to ${h}`, `unable to log in to ${h}`, `could not log on to ${h}`, `credentialed check failed on ${h}`, `credentialed login failed on ${h}`, `credentialed scan failed on ${h}`,
+                  `${h} was not tested`, `${h} was never tested`, `${h} was not reached`, `${h} could not be tested`, `not tested on ${h}`, `no credentialed check of ${h}`, `never tested ${h}`, `not tested ${h}`, `did not test ${h}`, `never reached ${h}`, `${h} was reached but`, `reached ${h} but the login failed`, `reached ${h} but login failed`, `reached ${h} but could not log in`, `reached ${h} but authentication failed`, `credentialed run never tested ${h}`, `${h} banner is right`, `${h} banner is accurate`, `${h} banner is correct`,
+                ]
+              : [
+                  `${h} was tested`, `${h} was checked by the credentialed`, `run tested ${h}`, `scan tested ${h}`, `check tested ${h}`, `credentialed check of ${h} showed`, `credentialed check of ${h} shows`, `credentialed check of ${h} found`, `credentialed check of ${h} confirmed`, `credentialed check of ${h} confirms`, `credentialed check of ${h} read`, `credentialed check of ${h} saw`, `credentialed check of ${h} passed`, `credentialed check of ${h} succeeded`, `credentialed check of ${h} worked`, `${h} banner was wrong`, `${h} banner is wrong`,
+                  `${h} is above the fix`, `${h} has the fixed version`, `${h} has the fixed release`, `${h} inventory is above`,
+                ],
+          ),
+        ),
       },
       {
         id: 'action',
         text: `Dismisses the ${fpHost} finding and asks for a credentialed rescan; patches ${realHost} by emergency change; patches the others in the next window and the standard cycle.`,
-        keywords: ['dismiss', 'rescan', 'emergency', 'next window', 'standard cycle'],
+        keywords: lowered(dismissOn(fpHost), verbsOn(VERBS_PATCH, realHost), [`${realHost} by emergency`, `emergency change for ${realHost}`, `emergency patch for ${realHost}`]),
       },
-      { id: 'date', text: 'Gives dates or deadlines and ties them to the policy.', keywords: ['7 days', '30 days', 'deadline', 'sla', 'window'] },
+      {
+        id: 'date',
+        text: 'Gives dates, not just "soon": the deadline of each urgent finding and the window or cycle it goes in, tied to the policy.',
+        keywords: dateRubricKeywords(cal, [critDeadline, f4Deadline], [7, 30]),
+      },
     ],
     explanation: [
       `The unauthenticated sweep (${sweepRun.id}, ${sweepAgo} days ago) reports the same Critical ${head.base.toFixed(1)} on ${HOST_1} and ${HOST_2}, from the version in the service banner (${bannerVersion}, below the fix in ${head.fixedVersion}). An unauthenticated scan sees only what the service shows remotely (its banner and its responses), not the installed packages or the local configuration; those are what a credentialed or agent check reads. So the question for each server is whether anything package-level has tested it.`,

@@ -15,6 +15,7 @@ const SECTIONS = [
   ['reference', 'Query reference'],
   ['tables', 'Tables'],
   ['grading', 'Grading'],
+  ['vuln', 'Vulnerability management'],
   ['keys', 'Keyboard'],
   ['about', 'About the data'],
 ] as const;
@@ -82,6 +83,9 @@ function Start() {
         <li>
           Scan reviews (<a href="#/vuln">Vulnerability cases</a>) ask for a decision, a schedule and up to three reasons per scanner finding, and for the order you would work
           them in. Query the scan data the same way as in a SOC case.
+        </li>
+        <li>
+          New to the terms (credentialed scan, backport, Sim-KEV, avoid vs mitigate)? See <a href="#/help/vuln">Vulnerability management</a> in this Help.
         </li>
       </ul>
     </>
@@ -212,7 +216,8 @@ function Tables() {
       ))}
       <h2 id="vuln-tables">Vulnerability-management tables</h2>
       <p class="small">
-        Filled only in vulnerability cases (<a href="#/vuln">#/vuln</a>). SOC cases leave them out of the schema browser and autocomplete.
+        Filled only in vulnerability cases (<a href="#/vuln">#/vuln</a>). SOC cases leave them out of the schema browser and autocomplete. What the scans, versions and
+        controls in them mean: <a href="#/help/vuln">Vulnerability management</a>.
       </p>
       {vulnTables.map((t) => (
         <TableDetails t={t} vulnOnly />
@@ -269,7 +274,8 @@ function Grading() {
       </table>
       <h2>Vulnerability cases</h2>
       <p>
-        Also out of 100; the pass mark is {VULN_PASS_PERCENT}. Decisions and reasons are weighted per finding (must-not-miss findings weigh more); the schedule is the plain average over all findings. Ordering judges the
+        Also out of 100; the pass mark is {VULN_PASS_PERCENT}. Terms used here are explained in <a href="#/help/vuln">Vulnerability management</a>. A must-not-miss finding is a
+        real flaw the case cannot afford to leave open, for example a known-exploited one; the worklist does not mark them, the debrief does. Decisions and reasons are weighted per finding (must-not-miss findings weigh more); the schedule is the plain average over all findings. Ordering judges the
         order of your worklist, evidence judges what you found in the scan data. The stakeholder note earns coaching and XP, never points. A schedule and reasons only
         count when the decision they belong to earns something: a finding whose decision is wrong or missing earns nothing for its schedule and its reasons.
       </p>
@@ -279,22 +285,22 @@ function Grading() {
           <tr>
             <th scope="row">Decisions</th>
             <td class="num mono">{VULN_POINTS.decisions}</td>
-            <td class="small">Patch, mitigate, avoid, accept, transfer or false positive. Half credit for a near miss (for example accept and mitigate, or patch when avoiding the component was the answer; avoid when a patch was needed earns nothing). When mitigate is the answer, it earns full credit only with a control from ControlInventory that covers the path; with a missing or wrong control it earns half. On a finding that needs a patch, mitigate earns half only with such a control, otherwise nothing. Leaving a real must-not-miss finding open costs 5 each (up to 10): dismissing it as a false positive, leaving it unscheduled (unless the right answer is no change), or scheduling it later than its SLA allows. It keeps its decision credit otherwise.</td>
+            <td class="small">Patch, mitigate, avoid, accept, transfer or false positive (a duplicate detection is closed as a false positive with the reason Duplicate root cause: the flaw is real and is fixed once, on the package-level finding). Half credit for a near miss (for example accept and mitigate, or patch when avoiding the component was the answer; avoid when a patch was needed earns nothing). When mitigate is the answer, it earns full credit only with a control from ControlInventory that covers the path; with a missing or wrong control it earns half. On a finding that needs a patch, mitigate earns half only with such a control, otherwise nothing. Leaving a real must-not-miss finding open costs 5 each (up to 10): dismissing it as a false positive, leaving it unscheduled (unless the right answer is no change), or scheduling it later than its SLA allows. It keeps its decision credit otherwise.</td>
           </tr>
           <tr>
             <th scope="row">Ordering</th>
             <td class="num mono">{VULN_POINTS.ordering}</td>
-            <td class="small">How close the order of your worklist is to the ideal urgency order. Each must-not-miss finding outside the top k places (k = the number of must-not-miss findings + 1; unranked counts as outside) costs 4 ordering points.</td>
+            <td class="small">How close the order of your worklist is to the ideal urgency order. Each must-not-miss finding outside the top k places (k = the number of must-not-miss findings + 1; unranked counts as outside) costs 4 ordering points. Findings the case ranks have an urgency tier (1 is the most urgent). False positives, findings that need no change and some low-urgency ones (usually standard-cycle patches) have none. Findings in the same tier may come in any order. A finding with no tier earns nothing wherever it stands but pushes the others down, so put those last. The debrief shows the share of the ideal urgency score to one decimal, rounded down, so 100% means an ideal order.</td>
           </tr>
           <tr>
             <th scope="row">Schedule</th>
             <td class="num mono">{VULN_POINTS.schedule}</td>
-            <td class="small">Emergency change, next maintenance window, standard cycle or no change. A finding left unscheduled earns nothing; exactly right earns full credit and one step off earns half. An emergency change on a real finding that did not need one also earns half, however early; for a false positive it earns nothing. Any other window two or more steps off earns nothing, and so does one later than the SLA allows; changes beyond a window's capacity lose their credit. No schedule credit when the finding's decision earned nothing.</td>
+            <td class="small">Emergency change, next maintenance window, standard patch cycle or no change. A finding left unscheduled earns nothing; exactly right earns full credit and one step off earns half. An emergency change on a real finding that did not need one also earns half, however early; for a false positive it earns nothing. Any other window two or more steps off earns nothing, and so does one later than the SLA allows; changes beyond a window's capacity lose their credit. No schedule credit when the finding's decision earned nothing.</td>
           </tr>
           <tr>
             <th scope="row">Justification</th>
             <td class="num mono">{VULN_POINTS.justification}</td>
-            <td class="small">Up to three reasons per finding; only the first three distinct ones count. Share of the required reasons you chose (out of at most three); a finding that needs no reason earns full marks for being decided. A reason the finding does not need takes a quarter off, so ticking every box never pays; a reason the evidence contradicts takes half off. A finding whose decision earned nothing earns nothing here.</td>
+            <td class="small">Up to three reasons per finding; only the first three distinct ones count. Share of the required reasons you chose (out of at most three); a finding that needs no reason earns full marks for being decided. Each finding's reason credit runs from 0% to 100% and stops at 0%. A reason the finding does not need takes 25% credit off, so ticking every box never pays; a reason the evidence contradicts takes 50% credit off (fixed amounts, not a share of what you earned). A finding whose decision earned nothing earns nothing here.</td>
           </tr>
           <tr>
             <th scope="row">Evidence</th>
@@ -317,13 +323,132 @@ function Grading() {
       <h2>XP and ranks</h2>
       <p>
         XP = score × difficulty (Tier 1 ×{DIFFICULTY_MULTIPLIER.tier1}, Tier 2 ×{DIFFICULTY_MULTIPLIER.tier2}, Tier 3 ×{DIFFICULTY_MULTIPLIER.tier3}) + 3 per point your
-        handover note covers. Ranks: {RANKS.map((r) => `${r.name} (${r.minXp.toLocaleString()})`).join(' → ')}.
+        handover or stakeholder note covers. Ranks: {RANKS.map((r) => `${r.name} (${r.minXp.toLocaleString()})`).join(' → ')}.
       </p>
       <h2>Shifts</h2>
       <p>
         Shift score = {CASE_SHARE}% verdict quality (weighted by true severity, with real incidents weighing more) + {PRIORITY_SHARE}% prioritisation — how close your
         handling order came to the ideal (real, escalation-worthy incidents by severity first), measured as nDCG. Alerts left in the queue score zero. A clean shift
         (no missed incidents, no false escalations, nothing left) earns {CLEAN_SHIFT_BONUS} bonus XP.
+      </p>
+    </>
+  );
+}
+
+function ExternalLink({ href, children }: { href: string; children: string }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer">
+      {children}
+      <span class="visually-hidden"> (opens in a new tab)</span>
+    </a>
+  );
+}
+
+function Vuln() {
+  return (
+    <>
+      <h1>Vulnerability management</h1>
+      <p class="lede">
+        A scan review hands you a worklist of scanner findings. For each one you decide what to do, when to do it and why, then put the whole list in the order you would
+        work it. The scan data is in the console: <a href="#/vuln">browse the vulnerability cases</a>. Everything here is fictional, including the feeds.
+      </p>
+      <h2 id="vuln-glossary">Glossary</h2>
+      <dl class="vuln-glossary">
+        <dt id="vg-credentialed">Credentialed vs unauthenticated scan</dt>
+        <dd>
+          A credentialed (or agent) scan logs in and reads the installed package versions, so it knows what is on the host. An unauthenticated scan reads the service banner and
+          guesses from the version string. If a credentialed login fails, the run either falls back to the banner (the finding's Evidence says so) or only logs an
+          &quot;Authentication failure: local checks not run&quot; row. In that case nothing re-tested the host and an older result stays shown. The count is in{' '}
+          <code>ScanRuns.AuthFailures</code>.
+        </dd>
+        <dt id="vg-backport">Backport</dt>
+        <dd>
+          A distribution can ship a security fix inside its own package version while the upstream version string stays old. A banner or upstream-version comparison then flags a
+          flaw that is already fixed: a false positive. Check <code>SoftwareInventory</code> and <code>PatchHistory</code>.
+        </dd>
+        <dt id="vg-stale">Stale result</dt>
+        <dd>
+          A finding the scan reported before the fix was installed. If <code>PatchHistory</code> shows the update installed after the scan, the result is out of date. A pending
+          reboot means the update is not yet in effect, so the finding is still real until the host restarts.
+        </dd>
+        <dt id="vg-duplicate">Duplicate finding</dt>
+        <dd>
+          Several detections for one root cause, such as one per service that loads the same library. Fix the root once and close the duplicates as False positive with the reason
+          Duplicate root cause. Check bundled copies first: a copy inside another product is its own fix. Strictly, a duplicate is not a false positive: the flaw is real
+          and is fixed through its root-cause finding. This mode has no separate decision for it, so it is closed as False positive with that reason.
+        </dd>
+        <dt id="vg-cvss">CVSS base vs environmental</dt>
+        <dd>
+          The base score describes the flaw itself. The environmental score adjusts it for this organisation: for example <code>MAV:A</code> behind segmentation turns a 9.8 into
+          an 8.8. In this mode the severity class always comes from the base score; the SLA follows that class unless a policy rule overrides it (a Sim-KEV listing, or in some cases an asset-tier row), so read the attached policy.
+        </dd>
+        <dt id="vg-kev">Sim-KEV</dt>
+        <dd>
+          Simulated list modeled on the CISA Known Exploited Vulnerabilities (KEV) catalog: vulnerabilities with evidence of exploitation in the wild. Entries here are fictional.
+          The real catalog: <ExternalLink href="https://www.cisa.gov/known-exploited-vulnerabilities-catalog">CISA Known Exploited Vulnerabilities catalog</ExternalLink>.
+        </dd>
+        <dt id="vg-epss">Sim-EPSS</dt>
+        <dd>
+          Simulated score modeled on FIRST's Exploit Prediction Scoring System (EPSS): estimated probability that a vulnerability is exploited in the wild in the next 30 days, with
+          its percentile rank. Values here are fictional but follow the real distribution. The real score: <ExternalLink href="https://www.first.org/epss/">FIRST EPSS</ExternalLink>.
+        </dd>
+        <dt id="vg-control">Compensating control</dt>
+        <dd>
+          Something that blocks the vulnerable path while the fix waits (or while no fix exists): a WAF rule or an ACL in block mode, or network isolation. Verify the mode and coverage in{' '}
+          <code>ControlInventory</code> and the traffic in <code>FirewallLogs</code>; detect-only does not count. Record <em>Mitigate</em> naming the control, and put the permanent
+          fix in the next window; if the vendor has no fix, raise a risk exception.
+        </dd>
+      </dl>
+      <h2 id="vuln-decisions">The six decisions</h2>
+      <dl class="vuln-glossary">
+        <dt>Patch</dt>
+        <dd>Install the fix. Pair it with the schedule that meets the deadline.</dd>
+        <dt>Mitigate</dt>
+        <dd>Keep the component and put a control in front of it (see compensating control). The permanent fix follows in a later window; if the vendor has none, raise a risk exception.</dd>
+        <dt>Avoid</dt>
+        <dd>Remove or disable the component, so the attack surface is gone. Unlike mitigate, nothing is left running that a control has to protect.</dd>
+        <dt>Accept</dt>
+        <dd>Live with the risk, but only under an approved, unexpired risk exception.</dd>
+        <dt>Transfer</dt>
+        <dd>Another party owns the fix, for example a vendor-operated service you do not run. The fix moves to them; accountability for your data stays with you.</dd>
+        <dt>False positive</dt>
+        <dd>Close the row. Three cases: the host is not affected, the flaw is already fixed, or the row is a duplicate of a finding you fix elsewhere (reason Duplicate root cause).</dd>
+      </dl>
+      <h2 id="vuln-schedule">Schedules, deadlines and freezes</h2>
+      <dl class="vuln-glossary">
+        <dt>Schedule</dt>
+        <dd>
+          Emergency change, next maintenance window, standard patch cycle or no change. An emergency change needs approval and is for a deadline that falls before the next window;
+          each window has a capacity, and what does not fit waits for the following one.
+        </dd>
+        <dt>SLA by severity class</dt>
+        <dd>
+          Each case attaches its organisation's policy: a number of days per class (Critical, High, Medium, Low) counted from first detection, and often a shorter clock for a
+          Sim-KEV listing. The deadline is the end of that day; a window that ends by then meets it.
+        </dd>
+        <dt>Change freeze</dt>
+        <dd>A period with no planned changes. No maintenance window falls inside it, so planned changes wait for the first window after it ends. Approved emergency changes can still go in during a freeze.</dd>
+      </dl>
+      <h2 id="vuln-grading-terms">How a case is judged</h2>
+      <dl class="vuln-glossary">
+        <dt id="vg-mnm">Must-not-miss finding</dt>
+        <dd>
+          A real flaw the case cannot afford to leave open, for example a known-exploited one. The worklist does not mark them; the debrief does. Dismissing one, or leaving it
+          unscheduled or past its SLA, costs points.
+        </dd>
+        <dt id="vg-lesson">Lesson finding and key finding</dt>
+        <dd>
+          Each case turns on one or more lesson findings: the finding the case is built to teach. Lesson findings and must-not-miss findings are the key findings; missing one caps the
+          score at {KEY_MISS_CAP}, and the debrief leads with it.
+        </dd>
+        <dt id="vg-tier">Urgency tier</dt>
+        <dd>
+          The debrief groups the most urgent findings into tiers, tier 1 first. Ties inside a tier are free: any order of findings in the same tier earns the same. A finding with no
+          tier (a false positive, one that needs no change, or low urgency) earns nothing for its place and pushes the others down, so put those last.
+        </dd>
+      </dl>
+      <p class="small">
+        Points and penalties are in <a href="#/help/grading">Grading</a>; the tables are in <a href="#/help/tables">Tables</a>.
       </p>
     </>
   );
@@ -424,6 +549,7 @@ export function Help({ section }: { section?: string }) {
           {cur === 'reference' && <Reference />}
           {cur === 'tables' && <Tables />}
           {cur === 'grading' && <Grading />}
+          {cur === 'vuln' && <Vuln />}
           {cur === 'keys' && <Keys />}
           {cur === 'about' && <About />}
         </article>

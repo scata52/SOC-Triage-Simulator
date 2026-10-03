@@ -1,6 +1,7 @@
 # PROGRESS — Vulnerability Management
 
-Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, #6, #7, WP2–WP3 via PR #8).
+Branch: `feat/vuln-mgmt-wp6-wp7` (from `main` @ eadf4b6; WP1 merged via PRs #4, #6, #7, WP2–WP3 via PR #8, WP4–WP5 via PR #9,
+human decisions of 2026-10-03 via PR #10).
 
 ## Done
 - **WP0 — Kickoff and progress file** (2026-09-28). Baseline on `main` @ 849adce: `npm run typecheck` ok, `npm test` 16 files / 233 tests
@@ -122,11 +123,59 @@ Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, 
   A3b/A7–A9), each verified on 250–750 real-hook shifts; coordinator wording fixes; reviewer gate PASS (first attempt);
   fact-checker PASS-WITH-CHANGES (three wording hedges applied, reviewer delta sign-off).
 
+- **WP6 — Polish** (2026-10-03).
+  - **Help:** new section `#/help/vuln`, linked from the vuln library, the case brief, the debrief and Start, Tables and
+    Grading. It holds a glossary:
+    - scans: credentialed vs unauthenticated, backport, stale result, duplicate;
+    - CVSS base vs environmental;
+    - Sim-KEV and Sim-EPSS: the §3.1 text verbatim, with CISA and FIRST sources;
+    - compensating control; the six decisions with avoid vs mitigate; schedules, SLA and freeze;
+    - must-not-miss, lesson finding, urgency tier.
+  - **Nav:** a **Vulns** item between Practice and Study.
+  - **Debrief copy:**
+    - the ordering percent shows one decimal, rounded down;
+    - a closed duplicate is named as one;
+    - the deduction wording matches the grader;
+    - the cap is in the live-region announcement;
+    - finding cards have headings;
+    - the debrief survives leaving the page (sessionStorage).
+  - **Library copy:** fixes in the vuln library text.
+  - **Rubric:**
+    - every template's keywords were retuned; the new vuln-only matcher `vulnRubricHits` matches whole words and drops
+      possessives; SOC is unchanged;
+    - dates are generated from the case's own calendar;
+    - generic guards in `tests/vuln-scenarios/rubric.test.ts`: the model note ticks all four items, a content-free note at
+      most one, the other twin's honest notes tick neither the risk nor the action item, no containment between twins, a date
+      keyword needs a number.
+  - **Template text:**
+    - T8 says "non-intrusive read" and has no vendor scanning;
+    - every briefing has the same six-decision list;
+    - the kev risk text reads correctly.
+  - **Version realism:** worklist flaws on different hosts get different products. Data-rules V1 checks it; it failed on HEAD
+    for 8 templates. Data-rules H1 checks the hints (≥ 2 each, every named table exists).
+  - **Totals:** 43 files / 1,754 tests (+21 opt-in), build ok, e2e 52/52.
+  - **Proofs:**
+    - vuln truths byte-identical to HEAD (400 cases);
+    - hardening unchanged;
+    - scores and components identical to HEAD's grader (3,200 + 3,840 submissions; reviewer 2,400); only `rubricHits` and
+      so XP differ.
+  - **SOC UI change (ADR-24),** deliberate and display only, no SOC score moves:
+    - the shared header gains the nav item;
+    - nav icons are hidden at 901–1140 px and the XP bar at 901–1000 px, so eight items fit without sideways scroll at any
+      rank, with or without a live shift;
+    - the open mobile menu is capped at the viewport height and scrolls;
+    - Help gains the section, and its XP line says "handover or stakeholder note".
+  - **Process:**
+    - copy audit with skeptics: 36 → 22 kept;
+    - parallel build (implementer + scenario-author) with a T8 fact-check (PASS-WITH-CHANGES, applied);
+    - pre-gate review, 5 lenses with skeptics: 45 → 40 kept, 6 blocking;
+    - fix rounds, each verified independently, then rubric rounds 4–5 ending in test guards;
+    - fact-checker PASS; reviewer gate PASS (first attempt).
+
 ## In progress
-- None. Next session starts WP6.
+- WP7 — Hardening (next in this session).
 
 ## Next
-- WP6 — Polish
 - WP7 — Hardening
 
 ## Decisions
@@ -489,6 +538,92 @@ Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, 
   a pentest sentence ("raises its own alert") that sat against the case's "attacker hiding in the noise" warning was reworded.
   Pentest grades vs `main`: 84 grades (3 worlds × 4 seeds × 7 verdicts), 0 differences.
 
+- 2026-10-03 (coordinator, before WP6): session start found PLAN, PROGRESS and repo in agreement (WP0–WP5 merged via PR #9,
+  the human decisions via PR #10, `main` @ eadf4b6; no WP6/WP7 file). `main` was clean and in sync with origin. Work goes on
+  `feat/vuln-mgmt-wp6-wp7`. Baseline 42 files / 1,453 tests (+21 opt-in), build ok. The one discrepancy was this file's header,
+  which still named the merged WP4–WP5 branch (fixed). This session does WP6 and WP7 only. Ultracode is on, so each stage runs as a
+  workflow: an audit of hints, rubric and UI copy with one skeptic per audit (36 findings, 22 confirmed) and fact probes.
+  Open items PROGRESS left to the coordinator for WP6, resolved:
+  1. **Nav item** (WP1e: "WP6 decides"): add **Vulns** → `#/vuln`, between Practice and Study. Reason: the mode is a peer of
+     Practice and Shift. Today only the Home card leads to it, so a keyboard user on any other screen has no direct route.
+  2. **Ordering percent** (WP1c): **one decimal, still rounded down**, so §5.6's sort-by-CVSS reads 69.7 % (nDCG 0.6978). Reason: the copy
+     audit found the whole percent disagreeing with the points beside it (14/20 next to 69 %). One decimal agrees with the points
+     to within rounding and still never claims 100 % for a non-ideal order. Display only; scores are unchanged.
+  3. **Tier skew** (WP3: "WP6 may promote pairs"): **no promotion.** Tiers are size classes (§2.3: 4–6, 8–12, ≥ 15 findings).
+     Relabelling a pair without resizing it would misstate its difficulty. Resizing is new content, with new hardening and
+     fact-check work, so it is not polish. Future work.
+  4. **T8 "scan" → "version read"** (fact-checker, WP3): **reword** the vendor-operated-service policy row and the prose that
+     relies on it. The new rule: no scanning or testing of a vendor platform; the only check on a vendor-hosted tenant is reading
+     the version that the org's own hostname shows. Truths unchanged.
+  5. **T10 closed duplicates shown as plain "False positive"** (WP3): the decision code and its label stay, because the grader,
+     Stats and the e2e tests are keyed on them. Instead:
+     - the false-positive option gloss names the three ways to close a row: not affected, already fixed, a duplicate;
+     - the debrief calls a closed duplicate a duplicate;
+     - Help explains it;
+     - Transfer gets a gloss too.
+  6. **"Query this finding in the console"** (WP1e candidate): **declined.** It is not in WP6's goal or DESIGN §7. One more
+     control on every worklist row adds screen-reader verbosity and 360 px density, and the console's examples already show the
+     query. Future work.
+  7. **Version realism** (WP2/WP3: "WP6/WP7"): **fixed in WP6** by the scenario-author.
+     - The problem: a host sits below another worklist flaw's fixed version on the same product, without that finding.
+     - Probe over 200 seeds: 5 template pairs show it (seeds affected: backport 42, waf 49, noncred/cred 33, legacy 15,
+       exposed-edge 13); none elsewhere.
+     - Version strings alone cannot fix it: VulnIntel holds only a fixed-in version.
+     - So worklist flaws on different hosts get different products unless the data explains the gap. No truth changes; a
+       data-rules test guards it.
+  WP6 acceptance readings. The criteria are thin as written ("Help reachable by keyboard; every template has ≥ 2 hints; reviewer
+  PASS"), so they are flagged here, not guessed silently:
+  1. **Help reachable by keyboard.**
+     - A Help section for the mode (`#/help/vuln`) holds the glossary.
+     - Tab + Enter reaches it from the vuln library, the case screen, the debrief and the nav (keyboard-only e2e).
+     - axe is clean on it (full rule set, both themes), with no horizontal scroll at 360/320 px.
+  2. **Hints.**
+     - Every template ≥ 2 hints is already true (3 each); it stays a test.
+     - Also tested: twins share hint 1 (exists), and every table a hint names exists.
+     - The ladder audit found no blocking defect: hint 1 is shared and neutral in all 10 pairs. Later hints may stay
+       twin-specific (WP1f).
+  3. **Debrief copy.** The confirmed copy findings are fixed. They are display only, so a probe must show every vuln score and
+     component identical before and after.
+  4. **Rubric tuning.** Superseded by ruling I16 (WP6 pre-gate entry below): the vuln grade uses the word-boundary `vulnRubricHits`; the SOC
+     `detectRubricHits` (substring) is unchanged. Only vuln keywords and the vuln matcher change, so vuln XP can move only
+     through `rubricHits`. Per template:
+     - a model note ticks all four items;
+     - a content-free note (generic verbs and risk words; no host, team, product, date or schedule term) ticks at most one;
+     - the other twin's model note misses this twin's action item;
+     - the right date alone, in ISO form, ticks the date item.
+     Today the content-free note ticks owner and date in 20/20.
+  5. **Glossary content.**
+     - Terms: the goal's terms, plus must-not-miss, urgency tier, lesson finding, duplicate, stale result, and CVSS base vs
+       environmental.
+     - The Sim-KEV and Sim-EPSS explainers are quoted verbatim from §3.1, with the real names and their sources.
+     - Fact-checker PASS on the glossary and on the T8 wording.
+
+- WP6 pre-gate (workflow: fact-checker on the built copy, PASS-WITH-CHANGES, applied; 5 review lenses with a skeptic per lens:
+  45 findings, 40 kept, 6 blocking, many duplicated across lenses; fix rounds, each checked by an independent verifier).
+  Coordinator rulings:
+  - **I1, debrief kept across navigation** (blocking: the new Help link on the debrief threw the debrief away, as any nav link
+    already did). Not a new tab: the debrief is stored in sessionStorage (`vdone:` per slug + seed + template, validated
+    against the stored score) and shown whenever the same case URL opens again in that tab, so Back, a reload and the WP5
+    continuity link from the SOC alert debrief land on the finished debrief. The attempt is never recorded twice; "Work it
+    again" clears it.
+  - **I16, vuln rubric matcher** (the substring matcher cannot keep 'oct 3' from matching 'oct 31'). Vuln notes are matched by
+    `vulnRubricHits` (`src/core/vuln/grade.ts`), SOC keeps `detectRubricHits` unchanged:
+    - both sides are lowercased; a possessive ('s or ’s at a word end) is dropped first, so 'app01 console' matches "APP01's
+      console" ("it's" becomes "it", "its" is unchanged);
+    - every run of non-[a-z0-9] becomes one space; the note is trimmed and padded with a space at each end;
+    - a keyword keeps its edge spaces to demand a word boundary; one with no letter or digit never matches; an empty note
+      hits nothing.
+    Vuln scores and components are identical to before (3,840 random submissions vs HEAD's grader); only `rubricHits`
+    (+3 XP each) can move vuln XP.
+  - **"passive read" → "non-intrusive read"** (T8): CS0-003 2.1 calls scanning passive only when no traffic is sent; one
+    ordinary request to our own hostname is active but non-intrusive (fact-checker PASS). The external run that reads the
+    hosted aliases now lasts 1–10 minutes instead of 45–180 (same draw count; truths and evidence unchanged).
+  - **Negations** ("not acceptable", "no sign that…") are a limitation of keyword coaching (ADR-3: the rubric gives coaching
+    and XP only); cheap traps were avoided, no more.
+  - **Rubric rounds stop at test guards.** Each round's fresh honest notes found new cross-ticks, so round 4 turned the
+    classes into generic guards (pair cross-tick with honest variants, a containment guard with an empty exception list,
+    dates must contain a number). Round 5 closed the last action-item leaks a verifier found with fresh notes.
+
 ## Known issues
 - WP5 (not blocking): (fixed 2026-10-03, ADR-24: the authorised-pentest case no longer claims that no other attacker exists, so
   a WEB01 hook in the same shift no longer contradicts it). The hook's routine-client sessions can come from a laptop that
@@ -505,15 +640,16 @@ Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, 
 - WP3 gate notes (not blocking): the avoid e2e test has no axe or 360 px pass (UI unchanged); `common.ts` classes the T10
   library product as 'server' in `PRODUCT_KINDS`; the T8 K5 exemption strips 5 DeviceInfo columns of the headline host; T8's
   passive version read of a vendor-hosted tenant is defensible, but some SaaS terms forbid any scanning, so WP6 may reword
-  "scan" to "version read" (fact-checker); "Halbrenn" is one letter off a small UK firm (kept); the case library is skewed
-  toward tier 1 (7 case types; tier 2: 2; tier 3: 1), WP6 may promote pairs.
+  "scan" to "version read" (fact-checker; done in WP6: "non-intrusive read"); "Halbrenn" is one letter off a small UK firm (kept); the case library is skewed
+  toward tier 1 (7 case types; tier 2: 2; tier 3: 1), WP6 may promote pairs (WP6 decided not to:
+  tiers are size classes).
 - WP3 (pre-gate, not blocking): dismissing one real non-key finding alone still passes in every template (probe, 20 runs):
   decoys 75–86 (T3 dev box, T4/T5 detect-only decoys, T6 expired-exception and detect-only decoys, T8 contract and second
   hosted service, T11 second console and console-in-use), padding about 89–97. WP1f accepted this; WP7 should decide whether
   lesson-named decoys become key findings at tiers 1–2 or a separate "must not dismiss" flag is worth a grader change. The
-  generic UI and Help label T10's closed duplicates as plain "False positive" (the case text explains): WP6 copy review. WP2
+  generic UI and Help label T10's closed duplicates as plain "False positive" (fixed in WP6: gloss, debrief, Help). WP2
   templates can show one worklist product below another worklist flaw's fixed version on another host (about 57 of 200 seeds
-  for backport-fp, scenario-author note): realism, WP6/WP7. Some T6 decider points also accept shared ScanRuns/ticket rows. The
+  for backport-fp, scenario-author note): realism, WP6/WP7 (fixed in WP6: data-rules V1). Some T6 decider points also accept shared ScanRuns/ticket rows. The
   e2e tier-3 and avoid tests find their twin through `resolveVulnTemplate` and assert it from the data; a new template in either
   case type can change the pick (fails visibly). Hardening S4's "one step earlier" slip can land on a closed duplicate.
 - WP2, minor (reviewer / pre-gate, not blocking): `vm-exposed-edge` shotgun S1 max is 69.4 (structural: the same over 200
@@ -536,7 +672,7 @@ Branch: `feat/vuln-mgmt-wp4-wp5` (from `main` @ 78c9078; WP1 merged via PRs #4, 
 - WP1e follow-ups: (Stats and study include vuln attempts since WP4); (the control-picker e2e with a non-empty ControlInventory landed in WP2);
   the query engine still knows the six vuln tables in SOC
   sessions (empty results, a did-you-mean could name one); a "Query this finding in the console" button was dropped (WP6
-  candidate); devtools on one's own profile shows the template id of an earlier attempt of the same seed; SQL mode has no
+  declined it: future work); devtools on one's own profile shows the template id of an earlier attempt of the same seed; SQL mode has no
   autocomplete popup in either mode (pre-existing; the SQL schema map is inert). (Help's mitigate sentence, the twin-telling first
   hint and the twin `VulnIntel` row counts were fixed in WP1f.)
 - `tests/helpers/vuln-scenario-check.ts` covers build, structure, corpus integrity, synthetic guardrails, determinism (per run since
