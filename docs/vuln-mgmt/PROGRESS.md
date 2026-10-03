@@ -224,8 +224,37 @@ human decisions of 2026-10-03 via PR #10).
     (implementer, scenario-author and a name sweep in parallel; independent verifiers with nothing open; fact re-check PASS
     on all ten subjects) → coordinator inline edits → reviewer gate.
 
+- **WP8 — Brief readability** (2026-10-03, human request: the open attachments in a vuln case brief were "a couple of
+  characters wide"). Measured first (screenshots on the system Chrome, `.probe.local/shot.mjs`): with the brief 320 px wide
+  the shared `.kv` grid (`max-content 1fr`) gave the keys 159 px (policy) / 231 px (calendar) and the values 89 / 17 px of
+  monospace; attachments 4,813 / 2,177 px tall; 105 / 33 px at 360 px. Design from a judged panel (three proposals, two
+  judges, PLAN WP8): `.vc-brief` is an inline-size container; under a 640 px content box the pairs stack (key, then a
+  full-width value), above it two columns with the key capped at 38 % minus the column gap; values in the sans face with
+  tabular figures (`VulnBrief.tsx` drops `dd.mono`; `Panels.tsx` keeps it), keys at weight 500; wrapped titles keep the
+  icon on the first line; at ≥ 1200 px the brief column is `clamp(320px, 25%, 480px)` and a spare `1fr` row absorbs the
+  brief's height. After: values 260 px at 1280 (276 at 360, 412 at 1920), policy 1,666 px / calendar 312 px at 1280
+  (1,598 / 290 at 360), overflow 0 at nine widths, both themes. Tests: `e2e/vuln.spec.ts` "brief readability" (nine widths
+  × two themes: value share ≥ 60 % or own line, track counts, icon line, no mono values, height caps 1,800 / 400, brief
+  ≥ 340 at 1440 and ≥ 440 at 1920, worklist card slack ≤ 130, overflow, keyboard toggle of each summary at 360, full axe
+  with attachments open, SOC guard: two tracks, mono values, regular keys, centred summaries); `e2e/vuln-a11y.spec.ts` T1
+  sweep with both attachments open (`sweep` takes a `prepare` callback). Checks: typecheck, 43 files / 1,764 tests
+  (+21 skipped), build, e2e 64/64. **Deliberate right-column changes (vuln screen only, no SOC effect):** the wider brief
+  column from 1440 px up (352 at 1440, 472 at 1920; the worklist keeps ≥ 1,400 px) and the spare grid row, whose one side
+  effect is a 12 px row gap under the submit card when both attachments are closed at ≥ 1200 px (accepted). First use of
+  CSS container queries and the `lh` unit (Chrome 109+, Firefox 120+, Safari 16.4+; without them the brief falls back to
+  the capped two-column list and an unshifted icon). Process: measurements → PLAN WP8 → design workflow (3 proposers,
+  2 judges; the judges split, the grafts they agreed on make the design) → implementer (opus) → coordinator probe → gate
+  workflow (reviewer, code-reviewer, guardrail-auditor, two skeptics per finding): reviewer PASS-WITH-NOTES, code-reviewer
+  FAIL on a "CI fonts differ" premise refuted by both skeptics (IBM Plex is bundled; the test awaits `document.fonts.ready`),
+  guardrail-auditor PASS-WITH-NOTES; two surviving minors fixed inline by the coordinator (the key cap is 38 % minus the column
+  gap, so a value keeps ≥ 62 % in the 706–711 px band too — 40 % minus the gap landed on exactly 60.0 % there; the SOC
+  guard also pins key weight and summary alignment); reviewer re-gate of the delta: FAIL once on a wrong ADR tag in this
+  file (ADR-26 was taken; now ADR-28), then PASS (typecheck, 1,764 tests, build, full e2e 64/64; 1 px sweep 700–716 px:
+  lowest value share 0.620; the SOC guard caught injected un-scoped edits to key weight, summary alignment, icon margin and
+  grid).
+
 ## In progress
-- None. Every planned package (WP0–WP7) is done; the workstream is closed.
+- None. Every planned package (WP0–WP8) is done; the workstream is closed.
 
 ## Next
 - No package is planned. Future work is listed under Known issues and in DESIGN §10.
@@ -733,7 +762,20 @@ human decisions of 2026-10-03 via PR #10).
   - F7: e2e on a SOC phishing case: the attacker domain in a query result and in the debrief is in no anchor; every external anchor is an
     ATT&CK or reference link with the new-tab cue. F8: a "Simulated data" badge in the vuln case header and the debrief hero.
 
+- 2026-10-03 (WP8, coordinator; ADR-28): the vuln brief's key/value attachments stack under a 640 px brief and show two
+  columns above it (container query on `.vc-brief`); their values are set in the sans face (policy sentences and
+  timestamps, not identifiers — the SOC panel keeps monospace); the vuln case grid at ≥ 1200 px gets a brief column of
+  `clamp(320px, 25%, 480px)` and a spare `1fr` row. All of it vuln-only; an e2e guard pins the SOC `.kv` shape.
+
 ## Known issues
+- WP8 (not blocking, follow-ups for a human to approve): the change calendar sits below the policy excerpt in the brief
+  (≈ 1,500 px down at 1280 px with both open) though it is used for every schedule decision — swapping the attachment
+  order in `common.ts policyAttachments()` is a one-line scenario-author change (tests find the calendar by title); the
+  policy title repeats the org name and wraps to 2–3 lines; in the 761–1199 px one-column band both attachments stay open
+  by default (`open={!narrow}`) and push the worklist about 1,000 px down. With both attachments closed at ≥ 1200 px the
+  spare grid row leaves a 12 px row gap under the submit card. Running two Playwright processes on the same checkout at
+  once makes a test fail with an ENOENT on its own trace artefact (shared `test-results/`), which looks like a WP8
+  failure; run suites one at a time or with `--output`.
 - WP5 (not blocking): (fixed 2026-10-03, ADR-24: the authorised-pentest case no longer claims that no other attacker exists, so
   a WEB01 hook in the same shift no longer contradicts it). The hook's routine-client sessions can come from a laptop that
   another alert in the shift treats as a foothold (seen once in 756 shifts: one extra row in that case's query). The hook alert

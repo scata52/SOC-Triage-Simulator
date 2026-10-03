@@ -48,7 +48,7 @@ export function VulnBrief({
                 {att.body.map(([k, v]) => (
                   <>
                     <dt>{k}</dt>
-                    <dd class="mono">{v}</dd>
+                    <dd>{v}</dd>
                   </>
                 ))}
               </dl>
