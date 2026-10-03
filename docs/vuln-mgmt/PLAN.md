@@ -179,6 +179,19 @@ Every package: reviewer PASS, `npm run typecheck && npm test && npm run build` g
 - Goal: full accessibility audit (all new screens, both themes, 360 px, keyboard, screen-reader names), fact-check sweep of all vuln content, guardrail-auditor run, update `ARCHITECTURE.md`, `README.md`, AS-BUILT.md, close PROGRESS.md.
 - Owner: reviewer + fact-checker + guardrail-auditor; coordinator edits docs.
 - Acceptance: zero axe violations; fact-checker PASS on every template; NEEDS-HUMAN-CHECK list resolved or explicitly deferred by a human; CI green on the branch.
+- Readings (coordinator, 2026-10-03, PROGRESS): "zero axe violations" = full axe rule set on every vuln screen and state, both
+  themes, 1280/360/320 px, as an e2e sweep plus a manual keyboard/screen-reader audit; "fact-checker PASS on every template" =
+  one verdict per template (20) plus the Help glossary; "CI green on the branch" = the pull request's checks on the final commit.
+- As built (2026-10-03): implementer — new `e2e/vuln-a11y.spec.ts` (42 states × 3 widths × 2 themes, full rule set, page
+  scroll), fixes in `src/ui/screens/{VulnCase,VulnDebrief,VulnLibrary,Help,Settings}.tsx`, `src/ui/components/{Worklist,
+  Workspace,Debrief}.tsx`, `src/ui/styles/{screens,components}.css`, `src/core/vuln/{worklist,scan-writer}.ts`,
+  `src/state/storage.ts` (`clearTabSession`; `Shift.tsx` imports its handover key from there), `tests/helpers/{guardrails,cve-guard}.ts` and their callers, `tests/{profile,
+  vuln-continuity,vuln-corpus,vuln-guardrails}.test.ts`, `e2e/vuln.spec.ts`; scenario-author — renames in
+  `src/core/vuln/catalogue.ts` + `tests/vuln-catalogue.test.ts` (assigned by path, ADR-25) and the templates, the
+  vm-unused-service lesson, T10 objectives, the exam reference label, `batch-b`; coordinator inline — SOC registrar names in
+  `src/core/synth/domains.ts`, the KQL-guide link cue in `Workspace.tsx`, three wording fixes, DESIGN §1/§3.1/§9,
+  `README.md`, `ARCHITECTURE.md`, `AS-BUILT.md`, PLAN, PROGRESS. SOC changes are display/test only (ADR-24), listed in
+  PROGRESS. NEEDS-HUMAN-CHECK: none open.
 
 ---
 ## PROGRESS.md template (for WP0)
@@ -282,3 +295,14 @@ Resolved 2026-09-28 (sources in DESIGN):
   current package (PLAN.md) or the coordinator's brief assigns to it by path (e.g. a linked SOC template); never an unassigned SOC
   template. Reason: in WP5 it declined the two files PLAN assigned to it, once, because its definition named only the vuln area.
   Model and effort unchanged.
+- **ADR-26 Vuln rubric matcher with word boundaries (2026-10-03, WP6, coordinator).** Vuln stakeholder notes are matched by
+  `vulnRubricHits` (lowercase, possessives dropped, punctuation runs → one space, note padded; keywords may carry edge spaces as
+  word boundaries); SOC keeps the substring `detectRubricHits`. Reason: substring matching cannot keep a date keyword such as
+  'oct 3' from matching "Oct 31", and the rubric keyword audit showed generic words ticking content-free notes. Rubric
+  quality is held by generic tests (model note, content-free note, twin cross-ticks, containment), not by single phrases.
+  Keyword coaching stays approximate (negations), as ADR-3 accepts. Scores unchanged; only vuln rubric XP can move.
+- **ADR-27 SOC attacker-role domains keep their generated names (2026-10-03, WP7, coordinator).** DESIGN §9 rule 10 is not
+  applied to SOC data in this workstream: reserved TLDs on attacker domains alone would make the TLD a perfect tell (1,355 vs
+  0 in 100 SOC builds) and empty the lessons that turn on telling a fictitious partner or vendor domain from an attacker's.
+  The complete fix re-domains the shared world's fictitious partner and vendor namespaces too, a SOC content project of its
+  own. Mitigations in place: no domain is rendered as a link (SOC and vuln e2e), Help tells learners not to visit them.

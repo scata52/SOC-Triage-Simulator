@@ -215,7 +215,7 @@ export const PRODUCTS: readonly ProductDef[] = [
   { vendor: 'Velmarrow Software', product: 'Larkspur Portal' },
   { vendor: 'Ashgrove Labs', product: 'Ironbark Wiki' },
   { vendor: 'Ravenmere Systems', product: 'Wrenwick Relay' },
-  { vendor: 'Dravenholt Software', product: 'Foxglove Helpdesk' },
+  { vendor: 'Dravenholt Software', product: 'Wickerlow Helpdesk' },
   { vendor: 'Tallowfield Networks', product: 'Sablecrest Gateway' },
   { vendor: 'Brackenridge Data', product: 'Tamarind Backup' },
   { vendor: 'Ferrowick Industries', product: 'Copperfield Print Server' },
@@ -224,7 +224,7 @@ export const PRODUCTS: readonly ProductDef[] = [
   { vendor: 'Ombrelune Digital', product: 'Ombrelune Files' },
   { vendor: 'Harrowgate Tech', product: 'Harrowgate Directory Sync' },
   { vendor: 'Pinecrest Analytics', product: 'Pinecrest Dashboards' },
-  { vendor: 'Vantorn Corp', product: 'Vantorn Build Runner' },
+  { vendor: 'Vexholm Corp', product: 'Vexholm Build Runner' },
   { vendor: 'Wexcombe Cloud', product: 'Wexcombe Object Store' },
   { vendor: 'Brackenridge Data', product: 'Brackenridge DB Console' },
   { vendor: 'Dravenholt Software', product: 'Thistledown CMS' },
@@ -234,7 +234,7 @@ export const PRODUCTS: readonly ProductDef[] = [
   { vendor: 'Ashgrove Labs', product: 'Tarnwick Inventory Agent' },
   { vendor: 'Tallowfield Networks', product: 'Gallowglass Firewall Manager' },
   { vendor: 'Pinecrest Analytics', product: 'Hollowmere Reporting' },
-  { vendor: 'Vantorn Corp', product: 'Ivorygate Payments Adapter' },
+  { vendor: 'Vexholm Corp', product: 'Ivorygate Payments Adapter' },
   { vendor: 'Wexcombe Cloud', product: 'Kestrelmoor Telemetry Agent' },
 ];
 

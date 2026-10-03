@@ -63,7 +63,7 @@ describe('shift corpora', () => {
       const plan = planShift({ world: w, seed: `suite-${i}`, number: i });
       const s = buildShift(w, plan);
       expect(s.cases.map((c) => c.alertId)).toEqual(plan.items.map((x) => x.alertId));
-      expect(syntheticViolations(s.corpus, w)).toEqual([]);
+      expect(syntheticViolations(s.corpus, w, s.cases)).toEqual([]);
       const db = new SiemDatabase(await sqljs(), s.corpus);
       try {
         for (const c of s.cases) {
@@ -328,7 +328,7 @@ describe('continuity: a shift with the hook (needs endpoint-known-vuln-exploit)'
   it('is solvable and gradeable with the other alerts as background', async () => {
     const p = plans('shift-plan', 'solve', 1);
     const s = buildShift(p.w, p.with);
-    expect(syntheticViolations(s.corpus, p.w)).toEqual([]);
+    expect(syntheticViolations(s.corpus, p.w, s.cases)).toEqual([]);
     const db = new SiemDatabase(await sqljs(), s.corpus);
     try {
       for (const c of s.cases) {

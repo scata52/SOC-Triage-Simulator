@@ -172,11 +172,63 @@ human decisions of 2026-10-03 via PR #10).
     - fix rounds, each verified independently, then rubric rounds 4–5 ending in test guards;
     - fact-checker PASS; reviewer gate PASS (first attempt).
 
+- **WP7 — Hardening** (2026-10-03).
+  - **Accessibility.** New `e2e/vuln-a11y.spec.ts` runs the full axe rule set (no tag filter) on 42 vuln states × 1280/360/320
+    px × light/dark (252 scans), plus a no-page-scroll check. States: Home, nav, library, tier 1–3 cases in 7 states each,
+    debrief variants, control picker, Help, Stats, Study, and the SOC shift with the vuln alert and its link back.
+    - Result: zero violations of any impact.
+    - Fixed:
+      - the vuln debrief scrolled sideways on long identifiers;
+      - the SOC workspace scrolled the page sideways (hidden lang-toggle legend; also hit the vuln follow-up alert);
+      - the worklist table now fits 1101–1440 px (Reasons sit under the selects);
+      - distinct "Decision…" / "Schedule…" placeholders;
+      - plural fix; tab strips under 360 px.
+    - The reviewer's manual keyboard and screen-reader audit found the rest. It accepts the Stats tables scrolling inside
+      focusable, labelled regions at 360 px (WCAG 1.4.10 exception for data tables).
+  - **Fact-check sweep.** One verdict per template plus Help and objectives: 20/20 PASS after the changes.
+    - Renames: "Vantorn" → "Vexholm", "Foxglove Helpdesk" → "Wickerlow Helpdesk"; both near-real names were added to the
+      catalogue name guard.
+    - vm-unused-service's lesson no longer treats "installed by default" as evidence of non-use.
+    - T10 gains objective 2.1.
+    - The exam reference label is accurate; glossary wording uses exam vocabulary (credentialed vs non-credentialed).
+  - **Guardrail audit.** No blocking finding. Changes:
+    - Help states the as-built domain rules per mode;
+    - the synthetic-data checker now scans case text (IPv4/IPv6, CVE ids) for SOC cases, shifts, campaigns and vuln specs,
+      takes URL and e-mail hosts from every cell, and uses a dot boundary;
+    - the CVE guard catches spaced, underscored and Unicode-dash variants and scans `src/**`;
+    - the real CVE literals in two test fixtures are gone;
+    - SOC debrief external links carry the new-tab cue;
+    - Reset and Move to a new organisation clear the tab's session keys;
+    - a SOC e2e checks that no data domain is a link;
+    - a "Simulated data" badge sits in the vuln case header and debrief (DESIGN §9 rule 2).
+  - **Decisions:**
+    - SOC registrar names renamed: "Quillon Domains" → "Ardovane Domains", "Brightmark Names" → "Halvern Names",
+      "Offshore Name Co." → "Skerrin Name Co." (each fact-checker swept; "OffshoreName" is a real registrar);
+    - lesson-named decoys unchanged;
+    - SOC attacker domains not changed (decision 3, DESIGN §9 rule 10).
+  - **Docs:** `README.md` (the mode in What you do, grading, synthetic data, testing, case table, layout, adding a scan
+    review, privacy), `ARCHITECTURE.md` (§4 layout, §11, new §13), `AS-BUILT.md` (dated delta section), DESIGN §1 typo, §3.1,
+    §9 rules 2 and 10.
+  - **Totals:** 43 files / 1,764 tests (+21 opt-in), build ok, e2e 63/63.
+  - **Proofs:** vuln truths byte-identical (400 cases); hardening report identical to HEAD for all 20 templates; no SOC data
+    change except the three registrar strings.
+  - **SOC changes under ADR-24,** display and test only, no SOC score moves:
+    - the lang-toggle position;
+    - debrief link cues;
+    - session clearing on reset/move;
+    - tab padding under 360 px;
+    - the KQL-guide link cue;
+    - the registrar names;
+    - the stronger synthetic-data checker.
+  - **Process:** audit workflow (implementer sweep, reviewer manual audit, 6 fact-checkers, guardrail-auditor) → fix workflow
+    (implementer, scenario-author and a name sweep in parallel; independent verifiers with nothing open; fact re-check PASS
+    on all ten subjects) → coordinator inline edits → reviewer gate.
+
 ## In progress
-- WP7 — Hardening (next in this session).
+- None. Every planned package (WP0–WP7) is done; the workstream is closed.
 
 ## Next
-- WP7 — Hardening
+- No package is planned. Future work is listed under Known issues and in DESIGN §10.
 
 ## Decisions
 - ADR-1 … ADR-17 live in PLAN.md "Decision log"; this file records only execution-time decisions.
@@ -624,6 +676,63 @@ human decisions of 2026-10-03 via PR #10).
     classes into generic guards (pair cross-tick with honest variants, a containment guard with an empty exception list,
     dates must contain a number). Round 5 closed the last action-item leaks a verifier found with fresh notes.
 
+- 2026-10-03 (coordinator, before WP7): WP6 committed (310395e) and pushed. Open items PROGRESS left to WP7, resolved:
+  1. **Lesson-named decoys at tiers 1–2** (WP3: "WP7 should decide"): **no change.**
+     - Probe (seed s1, everything else perfect): no tier-1/2 lesson text names a decoy that is not flagged. The decoys
+       appear only in explanations.
+     - Dismissing one of them alone scores 83.8–91.5 today.
+     - Flagging decoys named only in explanations would raise 9 pairs to 2–3 key findings each, and cap a single honest
+       error at 60. ADR-22 accepted that cost for the lesson and for must-not-miss findings only.
+     - Since WP1f, authors make every finding whose dismissal must fail a key finding, and they chose not to for these.
+     - The dismissal still costs 9–16 points and is shown in the debrief.
+  2. **"Quillon Domains"** (SOC registrar list, a real company name): **rename it in WP7** (coordinator inline, name swept by
+     the fact-checker).
+     - Only the `DomainIntel.Registrar` string changes: the list keeps its length and no grading, hint or rubric reads it.
+     - SOC content change under ADR-24; no SOC score moves.
+  3. **SOC attacker-role domains → reserved TLDs** (DESIGN §9 rule 10): **not in WP7.**
+     - Probe (25 templates × 2 worlds × 2 seeds): 1,355 attacker domains vs a benign set of about 30 real services, 13
+       fictitious partner domains (`contoso.com`, …), 4 `phish-sim.<fictitious>.com` hosts and CloudFront hosts.
+     - Moving only the attacker domains to `.example`/`.test`/`.invalid` would make the TLD a perfect tell (1,355 vs 0). It
+       would also empty two lessons that turn on telling a fictitious partner or vendor domain from an attacker's:
+       `ops-phishing-simulation` and `email-phish-attachment`.
+     - Doing it right means re-domaining the shared world's fictitious partner and vendor namespaces too. That touches
+       every SOC and vuln case (identity columns, mail, case text) and is a SOC content project with its own review, not
+       hardening.
+     - Risk today is low: no domain is rendered as a link (checked 2026-10-02).
+     - Stays in Known issues as future work; DESIGN §9 rule 10 records why.
+  WP7 acceptance readings:
+  - **"zero axe violations"**: the full axe rule set, not only the WCAG tags, on every vuln-related screen and state, in both
+    themes, at 1280, 360 and 320 px. Screens: the vuln library, a case at tiers 1–3 (control picker, avoid, hints, console,
+    note, submit gate), debrief variants, `#/help/vuln`, the Stats and Study vuln parts, Home, the SOC shift with the vuln
+    alert and its link back. The evidence is an e2e sweep, plus a manual keyboard and screen-reader audit by the reviewer.
+  - **"fact-checker PASS on every template"**: one verdict per template (20) plus the Help glossary.
+  - **"CI green on the branch"**: the pull request's checks on the final commit.
+- 2026-10-03 (implementer, WP7 fix round): UI and test fixes from the audit. Vuln truths identical to `wp6-truths-head.json` (400 cases),
+  hardening unchanged, `npm test` 1764 passed, build green, full e2e 63 passed (port 4173).
+  - **SOC UI changes under ADR-24 (display only, no SOC score or data moves):** (1) `.lang-toggle { position: relative }` for every
+    console (was only `.vc-console`): the hidden "Query language" legend no longer widens every SOC workspace page (A11Y-2); (2) the SOC
+    debrief's ATT&CK and "Read more" links carry the visually hidden "(opens in a new tab)" (F5); (3) Settings: "Reset everything" and "Move
+    to a new organisation" also clear this tab's `draft:`, `q:`, `vdraft:`, `vdone:`, `vq:` and `soc-last-handover` sessionStorage keys
+    (`clearTabSession` in `src/state/storage.ts`, F6); (4) the tab strips shrink their padding under 360 px (A11Y-6, shared Tools).
+  - A11Y-1: the `.vd` word-wrap from the sweep already covers the vm-segmented debrief (seed e2e-ctl): the sweep's control-picker debrief
+    passes the no-page-scroll check at 360 and 320 px. A11Y-3: placeholders "Decision…" and "Schedule…" (accessible names unchanged).
+    A11Y-4: the worklist table drops the separate Reasons column (the Reasons button and chips sit under the two selects, header "Your
+    call and reasons"), headers and the priority controls wrap, and the two-column case layout starts at 1200 px (was 1101); the table now fits
+    its region at 1101, 1200, 1280 and 1440 px (e2e checks it). A11Y-5: "1 case type shown".
+  - F1: Help states the as-built domain facts (vuln: reserved names; SOC: generated, unlikely but not guaranteed unregistered, never visit)
+    and narrows "checked automatically" to what the tests check. FC4 (`scan-writer.ts`: "installed-software inventory", Help glossary says
+    "installed software versions"), FC7 (glossary title, "mostly infers", "usually not yet in effect") done.
+  - F2 (`tests/helpers/guardrails.ts`): the checker now also scans case text (SOC practice cases, shifts, campaign builds, vuln specs) for
+    non-synthetic IPv4/IPv6 and CVE ids, takes hosts from URL and e-mail tokens in every string cell, uses a dot boundary for the org
+    domain, and accepts reserved names; self-tests in `tests/vuln-guardrails.test.ts`. **No real SOC data violation found.** The only new hits
+    were campaign-carried attacker domains of earlier shifts (ThreatIntel and IncidentHistory rows), generated names of the same class as
+    decision 3; the campaign tests pass them as `extraGenerated`. Known limitation (b): a domain still counts as "generated" when the
+    corpus's own DomainIntel lists it as non-Good, so a hard-coded real domain with a Malicious row would pass in SOC data.
+  - F3: the two real-CVE literals in tests replaced by `'CVE' + '-0000-00000'`. F4: `cve-guard.ts` adds a wide pattern (space,
+    underscore, minus, U+2010..2015) with a self-test, and a new test runs the CVE guard over every file under `src/**`.
+  - F7: e2e on a SOC phishing case: the attacker domain in a query result and in the debrief is in no anchor; every external anchor is an
+    ATT&CK or reference link with the new-tab cue. F8: a "Simulated data" badge in the vuln case header and the debrief hero.
+
 ## Known issues
 - WP5 (not blocking): (fixed 2026-10-03, ADR-24: the authorised-pentest case no longer claims that no other attacker exists, so
   a WEB01 hook in the same shift no longer contradicts it). The hook's routine-client sessions can come from a laptop that
@@ -633,11 +742,11 @@ human decisions of 2026-10-03 via PR #10).
   finding left with no decision writes no ledger entry (the submit gate asks for every decision, so it cannot happen in the app).
   CHG-STD-0007's own window can run past 18:00 although it says "business hours" (`network.ts`, pre-existing SOC content).
   The e2e link test runs the WCAG-tag axe; the reviewer's full-rule check was clean.
-- WP4 (not blocking): at 360 px the Stats tables (objectives, matrix, SOC "By category") scroll sideways inside their focusable
+- WP4 (not blocking; WP7: the table scroll inside focusable, labelled regions is accepted under WCAG 1.4.10): at 360 px the Stats tables (objectives, matrix, SOC "By category") scroll sideways inside their focusable
   regions now that the bars have a width (the page itself does not scroll); the Study page's own e2e runs the WCAG-tag axe only
   (the reviewer's full-rule probe was clean); every existing vuln attempt recorded before WP4 has no card until the case is
   worked again.
-- WP3 gate notes (not blocking): the avoid e2e test has no axe or 360 px pass (UI unchanged); `common.ts` classes the T10
+- WP3 gate notes (not blocking): the avoid e2e test has no axe or 360 px pass (covered since WP7 by `e2e/vuln-a11y.spec.ts`); `common.ts` classes the T10
   library product as 'server' in `PRODUCT_KINDS`; the T8 K5 exemption strips 5 DeviceInfo columns of the headline host; T8's
   passive version read of a vendor-hosted tenant is defensible, but some SaaS terms forbid any scanning, so WP6 may reword
   "scan" to "version read" (fact-checker; done in WP6: "non-intrusive read"); "Halbrenn" is one letter off a small UK firm (kept); the case library is skewed
@@ -658,8 +767,7 @@ human decisions of 2026-10-03 via PR #10).
   mirrored hosts (batch-a pins the specifics); the vuln-worklist assertion "every registered case type is a twin pair" must
   change if a single-template type is registered; `VulnDebrief.tsx:245` could guard the "Missed" codes line when enough codes
   matched (no template triggers it); T4's hint 2 names the three clue tables.
-- SOC registrar list `src/core/synth/domains.ts:155` contains "Quillon Domains"; "Quillon" is a real company (fact-checker,
-  2026-10-02). Since 2026-10-03 (ADR-24) the coordinator may rename it; not done yet (candidate for WP6/WP7).
+- (Fixed in WP7: the SOC registrar list no longer names real companies — "Quillon", "Brightmark" and "Offshore Name" renamed.)
 - SOC attacker-role domains do not meet DESIGN §9 rule 10 (checked 2026-10-02, reported, SOC output unchanged as the human asked):
   every one comes from `attackerDomain()` (`src/core/synth/domains.ts:120-142`; random labels under real TLDs: `SUSPICIOUS_TLDS`
   .top/.xyz/… at :80, `GENERIC_TLDS` .com/.net/.org/.io/… at :81, lookalike `.com/.net/.co`), called by `src/core/cases/infra.ts:83`
@@ -709,3 +817,12 @@ human decisions of 2026-10-03 via PR #10).
 - `scan-writer.ts` hygiene findings report their basis without honouring a failed login (cosmetic).
 - `query/engine.ts` column-type map now also types new column names (`Port`, `Started`, …); only affects type labels on aliased SQL
   result columns, no conflicts found.
+- WP7 side effects (accepted): the catalogue renames reseed `describedFor` (it seeds on the product name), so in 6 of 4,000
+  cases an unscored background row on BUILD01 gets a different component word in its title (both twins alike); T10's new
+  objective 2.1 counts in the study scheduler for past attempts (it reads template objectives live), while Stats keeps the
+  objectives saved with each record. The synthetic-data checker still lets a domain count as generated when the corpus's own
+  DomainIntel lists it as non-Good (limitation b); campaign tests pass carried attacker domains as `extraGenerated`.
+- Maintenance: CS0-003 (English) retires 2026-12-22 (ADR-17). Re-check the exam reference URL and objective titles when the
+  target exam changes (DESIGN §9 rule 8); not a NEEDS-HUMAN-CHECK until a retarget is decided.
+- The worklist table still scrolls inside its focusable region at about 761–830 px (smaller than before WP7); the case layout
+  stacks the brief above the worklist below 1200 px (was 1101).

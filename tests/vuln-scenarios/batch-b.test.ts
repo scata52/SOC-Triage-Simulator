@@ -725,7 +725,7 @@ const T10: PairRow = {
     // The twins' ideal orders differ only by the portal's place (a standard-cycle Medium: tier 3 in B, untiered in A).
     expect(a.case.tiers.flat(), `${label}: A leaves the closed duplicate out`).not.toContain(a.case.findings[0].findingId);
     expect(b.case.tiers[2], `${label}: B ranks the portal's own update in tier 3`).toContain(b.case.findings[0].findingId);
-    expect(byId('vm-dup-plugins').objectives, `${label}: objectives`).toEqual(['2.2', '2.3', '2.5', '4.1']);
+    expect(byId('vm-dup-plugins').objectives, `${label}: objectives`).toEqual(['2.1', '2.2', '2.3', '2.5', '4.1']);
   },
 };
 

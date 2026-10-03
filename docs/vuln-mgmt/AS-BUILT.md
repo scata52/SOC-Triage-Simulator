@@ -86,3 +86,54 @@ e2e/app.spec.ts      Playwright + axe
 - Existing agents have no `model:` frontmatter (inherit).
 - No network egress to CISA/NVD/FIRST from this build environment (proxy rejected `www.cisa.gov`), so real vuln data cannot be pulled here.
 - No CLAUDE.md existed before this workstream.
+
+---
+
+## After the workstream (state on 2026-10-03, WP0–WP7 done)
+
+Delta against the baseline above, by section. Details: `PROGRESS.md` (Done, Decisions), `PLAN.md` (ADR-1 onward).
+
+**Folder layout.** New `src/core/vuln/` (model, cvss31, ids, catalogue, classes, coherence, scan-writer, scenario,
+registry, grade, worklist, `templates/` with 20 templates in 10 twin pairs), `src/core/shift/vuln-hook.ts`,
+`src/state/vuln-stats.ts`, `src/core/cases/templates/vuln-link.ts` (`LINKED_TEMPLATES`, outside `ALL_TEMPLATES`),
+`src/ui/screens/Vuln{Library,Case,Debrief}.tsx`, `src/ui/components/Worklist.tsx`, `src/ui/lib/vuln-link.ts`.
+`.claude/agents/` gained explorer, implementer, scenario-author, fact-checker and reviewer; every agent pins a model or
+follows the session's, with `effort: high` where the model has effort levels (ADR-9, ADR-23). `CLAUDE.md` exists.
+
+**Data model.** Six context tables appended after the SOC tables: `VulnFindings`, `ScanRuns`, `VulnIntel`,
+`SoftwareInventory`, `PatchHistory`, `ControlInventory` (SOC sessions hide them; the RecordId sequence of every SOC table is
+unchanged). Vulnerabilities are fictional `SIMVULN-YYYY-NNNNN` entries on fictional products with CVSS 3.1 vectors and the
+simulated Sim-KEV / Sim-EPSS feeds.
+
+**Template format.** `VulnTemplate` / `VulnCaseSpec` beside the SOC types: findings with truth (decision, schedule,
+`slaLatest`, reasons, contradicting codes, `alsoAccept`), weight, lesson and must-not-miss flags, evidence; required urgency
+`tiers` and `idealOrder`; policy and calendar attachments; hints, solution, rubric, explanation, pitfalls, references.
+
+**Grading.** `gradeVulnCase`: decisions 40, ordering 20, schedule 10, reasons 15, evidence 15; lesson gate (a missed key
+finding caps at 60, ADR-22). Ordinal credit and evidence scoring moved to `grading/shared.ts` (SOC output unchanged). Vuln
+notes use `vulnRubricHits` (word boundaries); SOC keeps `detectRubricHits`.
+
+**Query console.** The KQL parser accepts a bare table on the right of `join`. The worker builds vuln scenarios too
+(`SessionInfo.vulnCase`).
+
+**Persistence.** Profile still `version: 2`, additive fields only: vuln attempts (`mode: 'vuln'`, `category: 'vulnmgmt'`,
+optional `AttemptRecord.vuln` with per-decision verdicts), vuln SRS cards, `vulnLedger` (cap 50) and
+`activeShift.vulnHook`. Session storage holds the unfinished draft and the finished debrief of a scan review.
+
+**Org / continuity.** The hook the baseline lacked exists: a must-not-miss finding left open writes a ledger entry and the
+next shift gets exactly one extra alert (`selectVulnFollowUp` → `planShift`), built after every other item; campaign state is
+unchanged.
+
+**Taxonomy.** `CYSA_OBJECTIVES` (2.1–2.5, 4.1, titles verified against the official CS0-003 objectives) and an `objective`
+skill kind in the study scheduler.
+
+**Tests + CI.** `npm test`: 43 files / 1,764 tests (+21 opt-in sweeps); `npm run test:e2e`: 63 tests, including the full-rule
+axe sweep `e2e/vuln-a11y.spec.ts`. The vuln suites are listed in `ARCHITECTURE.md` §13. The synthetic-data checker also scans
+case text and every URL/e-mail host, and the CVE guard scans `src/**`. CI: `ci.yml` is unchanged in intent; Claude Code
+workflows (`claude.yml`, `claude-code-review.yml`) were added and fixed along the way (PROGRESS Decisions, 2026-10-01/02).
+
+**Fragile / unfinished (closed or still open).**
+- Closed: SOC-shaped unions were widened additively; objective-level taxonomy exists; profile coerces old and new data;
+  routes added to the closed union; agents carry models.
+- Still open: see `PROGRESS.md` → Known issues (notably SOC attacker-role domains under DESIGN §9 rule 10, WP7
+  decision 3).

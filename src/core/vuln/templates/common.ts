@@ -176,7 +176,7 @@ const VENDOR_OF: Record<string, string> = {
   'Larkspur Portal': 'Velmarrow Software',
   'Ironbark Wiki': 'Ashgrove Labs',
   'Wrenwick Relay': 'Ravenmere Systems',
-  'Foxglove Helpdesk': 'Dravenholt Software',
+  'Wickerlow Helpdesk': 'Dravenholt Software',
   'Sablecrest Gateway': 'Tallowfield Networks',
   'Tamarind Backup': 'Brackenridge Data',
   'Copperfield Print Server': 'Ferrowick Industries',
@@ -185,7 +185,7 @@ const VENDOR_OF: Record<string, string> = {
   'Ombrelune Files': 'Ombrelune Digital',
   'Harrowgate Directory Sync': 'Harrowgate Tech',
   'Pinecrest Dashboards': 'Pinecrest Analytics',
-  'Vantorn Build Runner': 'Vantorn Corp',
+  'Vexholm Build Runner': 'Vexholm Corp',
   'Wexcombe Object Store': 'Wexcombe Cloud',
   'Brackenridge DB Console': 'Brackenridge Data',
   'Thistledown CMS': 'Dravenholt Software',
@@ -195,11 +195,11 @@ const VENDOR_OF: Record<string, string> = {
   'Tarnwick Inventory Agent': 'Ashgrove Labs',
   'Gallowglass Firewall Manager': 'Tallowfield Networks',
   'Hollowmere Reporting': 'Pinecrest Analytics',
-  'Ivorygate Payments Adapter': 'Vantorn Corp',
+  'Ivorygate Payments Adapter': 'Vexholm Corp',
   'Kestrelmoor Telemetry Agent': 'Wexcombe Cloud',
 };
 const FILES = ['Ombrelune Files', 'Tamarind Backup', 'Wexcombe Object Store'];
-const APPS = ['Larkspur Portal', 'Velmarrow Forms', 'Foxglove Helpdesk', 'Pinecrest Dashboards', 'Hollowmere Reporting', 'Thistledown CMS', 'Elderfen Chat Server', 'Ivorygate Payments Adapter', 'Dunmore Badge Manager'];
+const APPS = ['Larkspur Portal', 'Velmarrow Forms', 'Wickerlow Helpdesk', 'Pinecrest Dashboards', 'Hollowmere Reporting', 'Thistledown CMS', 'Elderfen Chat Server', 'Ivorygate Payments Adapter', 'Dunmore Badge Manager'];
 const HOST_PRODUCTS: Record<string, readonly string[]> = {
   FS01: FILES,
   FS02: FILES,
@@ -207,8 +207,8 @@ const HOST_PRODUCTS: Record<string, readonly string[]> = {
   APP01: APPS,
   WEB01: ['Larkspur Portal', 'Thistledown CMS', 'Velmarrow Forms', 'Marrowgate Proxy'],
   SQL01: ['Brackenridge DB Console', 'Pinecrest Dashboards', 'Hollowmere Reporting'],
-  BUILD01: ['Vantorn Build Runner', 'Cinderpath Scheduler', 'Ironbark Wiki'],
-  DEVBOX01: ['Vantorn Build Runner', 'Ironbark Wiki', 'Cinderpath Scheduler', 'Brackenridge DB Console'],
+  BUILD01: ['Vexholm Build Runner', 'Cinderpath Scheduler', 'Ironbark Wiki'],
+  DEVBOX01: ['Vexholm Build Runner', 'Ironbark Wiki', 'Cinderpath Scheduler', 'Brackenridge DB Console'],
   JUMP01: ['Sablecrest Gateway', 'Marrowgate Proxy', 'Wrenwick Relay', 'Gallowglass Firewall Manager'],
   DC01: ['Harrowgate Directory Sync', 'Dunmore Badge Manager'],
   DC02: ['Harrowgate Directory Sync', 'Dunmore Badge Manager'],
@@ -660,7 +660,7 @@ export type ProductKind = 'web-app' | 'agent' | 'server' | 'appliance';
 export const PRODUCT_KINDS: Readonly<Record<string, ProductKind>> = {
   'Larkspur Portal': 'web-app',
   'Ironbark Wiki': 'web-app',
-  'Foxglove Helpdesk': 'web-app',
+  'Wickerlow Helpdesk': 'web-app',
   'Velmarrow Forms': 'web-app',
   'Pinecrest Dashboards': 'web-app',
   'Thistledown CMS': 'web-app',
@@ -672,7 +672,7 @@ export const PRODUCT_KINDS: Readonly<Record<string, ProductKind>> = {
   'Ombrelune Files': 'server',
   'Tamarind Backup': 'server',
   'Wexcombe Object Store': 'server',
-  'Vantorn Build Runner': 'server',
+  'Vexholm Build Runner': 'server',
   'Harrowgate Directory Sync': 'server',
   'Dunmarrow httpd': 'server',
   'Sablecrest Gateway': 'appliance',
@@ -975,4 +975,4 @@ export function writeUnrelatedPatches(ctx: VulnContext, hosts: readonly string[]
 export const REF_CVSS: CaseReference = { label: 'FIRST: CVSS v3.1 specification', url: 'https://www.first.org/cvss/v3.1/specification-document' };
 export const REF_KEV: CaseReference = { label: 'CISA: Known Exploited Vulnerabilities catalog (the real list Sim-KEV is modelled on)', url: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog' };
 export const REF_EPSS: CaseReference = { label: 'FIRST: Exploit Prediction Scoring System (the real score Sim-EPSS is modelled on)', url: 'https://www.first.org/epss/' };
-export const REF_EXAM: CaseReference = { label: 'CompTIA CySA+ CS0-003 exam objectives', url: 'https://www.comptia.org/en-us/certifications/cybersecurity-analyst/v3/' };
+export const REF_EXAM: CaseReference = { label: 'CompTIA CySA+ CS0-003 certification page (exam objectives download)', url: 'https://www.comptia.org/en-us/certifications/cybersecurity-analyst/v3/' };

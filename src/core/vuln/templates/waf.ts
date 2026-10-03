@@ -71,7 +71,7 @@ const BUILD = 'BUILD01';
 const JUMP = 'JUMP01';
 const PRINT = 'PRINT01';
 const HTTPS = 443;
-const PORTAL_PRODUCTS = ['Larkspur Portal', 'Velmarrow Forms', 'Foxglove Helpdesk', 'Thistledown CMS'] as const;
+const PORTAL_PRODUCTS = ['Larkspur Portal', 'Velmarrow Forms', 'Wickerlow Helpdesk', 'Thistledown CMS'] as const;
 // What customers do with each component the headline can sit in: the portal's role in DeviceInfo says so (the avoid ruling rests on it).
 const COMPONENT_USE: Record<string, string> = { 'search endpoint': 'customers search their orders here', 'login form': 'customers sign in here to track their orders', 'API query parameter': 'the order-status page calls it' };
 

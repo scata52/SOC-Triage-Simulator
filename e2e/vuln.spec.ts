@@ -4,6 +4,8 @@ import { VULN_TEMPLATES } from '../src/core/vuln/registry.ts';
 import { resolveVulnTemplate, vulnCaseTypes } from '../src/core/vuln/worklist.ts';
 import { buildVulnScenario } from '../src/core/vuln/scenario.ts';
 import { generateWorld } from '../src/core/world/world.ts';
+import { buildPracticeCase } from '../src/core/cases/scenario.ts';
+import { resolveCase, slugOf } from '../src/ui/lib/cases.ts';
 
 // Vulnerability-management mode: acceptance criteria (1)-(10) of WP1e.
 // A fixed profile so every run works in the same fictional organisation.
@@ -149,7 +151,7 @@ const liveCount = (page: Page, text: string) => page.evaluate((t) => (window as 
 // Domains in vuln data are never links (human decision 2026-10-02). Every rendered a[href] is an in-app route (#...)
 // or a documentation-citation host; no anchor's href or text contains a domain that appears in the page data.
 const CITATION_HOSTS = ['www.first.org', 'www.cisa.gov', 'www.comptia.org'];
-async function noDataLinks(page: Page, label: string): Promise<number> {
+async function noDataLinks(page: Page, label: string, citationHosts: string[] = CITATION_HOSTS): Promise<number> {
   const r = await page.evaluate((cites) => {
     const anchors = [...document.querySelectorAll('a')].map((a) => ({ href: a.getAttribute('href'), text: (a.textContent ?? '').toLowerCase() }));
     const hostRe = /(?<![\w.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?![\w-])/gi;
@@ -172,7 +174,7 @@ async function noDataLinks(page: Page, label: string): Promise<number> {
       for (const d of data) if (href.toLowerCase().includes(d) || a.text.includes(d)) bad.push(`data domain ${d} in anchor ${href} "${a.text.trim()}"`);
     }
     return { bad, anchors: anchors.length, data: data.length };
-  }, CITATION_HOSTS);
+  }, citationHosts);
   expect(r.bad, `${label}: links`).toEqual([]);
   expect(r.anchors, `${label}: has anchors`).toBeGreaterThan(0);
   return r.data;
@@ -386,7 +388,7 @@ test.describe('vulnerability mode', () => {
 
     const sortButtons = page.locator('button.th-sort');
     await expect(sortButtons).toHaveCount(6);
-    expect(await page.locator('thead th').evaluateAll((ths) => ths.filter((t) => !t.querySelector('button')).map((t) => t.textContent!.trim()))).toEqual(['Priority', 'Pins', 'Your call', 'Reasons']);
+    expect(await page.locator('thead th').evaluateAll((ths) => ths.filter((t) => !t.querySelector('button')).map((t) => t.textContent!.trim()))).toEqual(['Priority', 'Pins', 'Your call and reasons']);
     const pairs = await sortButtons.evaluateAll((bs) => bs.map((b) => [b.getAttribute('aria-label')!, b.querySelector('.th-label')!.textContent!]));
     expect(pairs.map((p) => p[1])).toEqual(['Finding', 'Host', 'Vulnerability', 'Severity (scanner)', 'CVSS', 'First seen']);
     for (const [label, visible] of pairs) expect(label.startsWith(visible), label).toBe(true);
@@ -1674,7 +1676,7 @@ test.describe('polish: nav, Help glossary, debrief wording', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vulnerability management');
     const main = page.locator('main');
     for (const term of [
-      'Credentialed vs unauthenticated scan', 'Backport', 'Stale result', 'Duplicate finding', 'CVSS base vs environmental', 'Sim-KEV', 'Sim-EPSS', 'Compensating control',
+      'Credentialed vs non-credentialed (unauthenticated) scan', 'Backport', 'Stale result', 'Duplicate finding', 'CVSS base vs environmental', 'Sim-KEV', 'Sim-EPSS', 'Compensating control',
       'Patch', 'Mitigate', 'Avoid', 'Accept', 'Transfer', 'False positive', 'Schedule', 'SLA by severity class', 'Change freeze', 'Must-not-miss finding', 'Lesson finding and key finding', 'Urgency tier',
     ]) {
       await expect(main.locator('dt', { hasText: term }).first(), term).toBeVisible();
@@ -1798,6 +1800,52 @@ test.describe('polish: nav, Help glossary, debrief wording', () => {
       await expect(lead).toContainText('The right call was False positive (closed as a duplicate)');
     }
     expect(await page.locator('li.vd-finding > .finding-head > h3').count()).toBe(built.case.findings.length);
+    expect(errors).toEqual([]);
+  });
+});
+
+// Rule 10, SOC side (DESIGN section 9): SOC attacker-role domains are generated names under real TLDs (decision 3), so the
+// UI must never make one clickable. A phishing case: the domain is in a query result and in the debrief; no anchor on
+// either page carries it, and every external anchor is an ATT&CK or reference link of the case.
+test.describe('SOC cases: no data domain is a link', () => {
+  test('query result and debrief of a phishing case', async ({ page }) => {
+    test.setTimeout(120_000);
+    const errors = watchErrors(page);
+    const world = generateWorld(PROFILE.worldSeed);
+    const slug = slugOf('email-phish-credential');
+    const seed = ['e2e', 'e2e-b', 'e2e-d', 'e2e-e', 'e2e-f', 'e2e-g'].find((x) => resolveCase(slug, x)?.id === 'email-phish-credential');
+    expect(seed, 'a seed that resolves to the credential phish').toBeTruthy();
+    const c = buildPracticeCase(world, 'email-phish-credential', seed!).cases[0];
+    const domain = c.indicators.block.find((i) => i.kind === 'domain')!.value;
+    const hosts = ['attack.mitre.org', ...c.references.map((x) => new URL(x.url).host)];
+
+    await withProfile(page);
+    await page.goto(`/#/case/${slug}/${seed}`);
+    await expect(page.locator('.ws-grid')).toBeVisible({ timeout: 30_000 });
+    await runQuery(page, `EmailEvents
+| where SenderFromDomain == "${domain}"
+| project TimeGenerated, SenderFromAddress, SenderFromDomain, Urls
+| take 5`);
+    await expect(page.locator('.results-table')).toContainText(domain);
+    const onCase = await noDataLinks(page, 'SOC case with a query result', hosts);
+    expect(onCase).toBeGreaterThan(0);
+
+    await page.getByRole('radio', { name: 'True positive' }).check();
+    await page.getByRole('radio', { name: 'High' }).check();
+    await page.getByRole('radio', { name: 'Escalate to IR' }).check();
+    const combo = page.getByRole('combobox', { name: 'MITRE ATT&CK' });
+    await combo.fill('T1566.002');
+    await combo.press('Enter');
+    await page.getByLabel('Handover note').fill('Credential phish to a look-alike portal; block the sender domain and reset the affected account.');
+    await page.getByRole('button', { name: 'Pin row 1 as evidence' }).click();
+    await page.getByRole('button', { name: 'Submit verdict' }).click();
+    await expect(page.locator('.debrief-hero h1')).not.toBeEmpty();
+    await expect(page.locator('.debrief')).toContainText(domain);
+    await noDataLinks(page, 'SOC debrief', hosts);
+    // The ATT&CK and reference links are the only external ones and say they open a new tab.
+    const external = page.locator('.debrief a[target="_blank"]');
+    expect(await external.count()).toBeGreaterThan(0);
+    for (const a of await external.all()) await expect(a.locator('.visually-hidden')).toHaveText(/opens in a new tab/);
     expect(errors).toEqual([]);
   });
 });

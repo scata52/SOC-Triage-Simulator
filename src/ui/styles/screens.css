@@ -261,6 +261,9 @@
 .editor .cm-editor {
   height: 100%;
 }
+.lang-toggle {
+  position: relative; /* contain the visually-hidden legend, or it widens the page */
+}
 .lang-toggle label {
   padding: 2px 8px;
   font-size: 0.75rem;
@@ -1164,9 +1167,6 @@
 .vc-console .panel-head {
   flex-wrap: wrap;
 }
-.vc-console .lang-toggle {
-  position: relative;
-}
 .vc-tool .tool-panel {
   max-height: 420px;
 }
@@ -1184,7 +1184,7 @@
 .vc-submit .submit-btn {
   margin-top: var(--space-3);
 }
-@media (min-width: 1101px) {
+@media (min-width: 1200px) {
   .vc {
     grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
     grid-template-areas:
@@ -1227,8 +1227,23 @@
   flex-basis: 100%;
   margin: 0;
 }
-.wl-table th {
-  white-space: nowrap;
+/* Fit the table in its region from 1200 px up: header labels and the priority controls wrap, the reasons button sits
+   under the two selects. */
+.wl-table th,
+.wl-table .th-sort {
+  white-space: normal;
+}
+.wl-table .th-sort {
+  text-align: left;
+}
+.wl-your-call {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+.wl-your-call .wl-reasons-cell {
+  align-items: flex-start;
 }
 .wl-table td {
   vertical-align: top;
@@ -1237,7 +1252,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  min-width: 11em;
+  min-width: 9em;
 }
 .wl-call select {
   width: 100%;
@@ -1254,6 +1269,10 @@
   align-items: center;
   gap: 2px;
   flex-wrap: nowrap;
+}
+.wl-table .wl-priority {
+  flex-wrap: wrap;
+  max-width: 5.5em;
 }
 .wl-prio {
   width: 3.5em;
@@ -1420,9 +1439,15 @@
 .vd-evidence {
   margin-top: var(--space-2);
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .vd-pts {
   margin-left: var(--space-2);
+}
+/* Case text (explanations, pitfalls, rubric lines) may carry long identifiers, e.g. ACL and rule names: wrap them. */
+.vd .card p,
+.vd .card li {
+  overflow-wrap: anywhere;
 }
 .vd-lead {
   border-left: 3px solid var(--warn);

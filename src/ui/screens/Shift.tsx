@@ -10,6 +10,7 @@ import { emptyVerdict, DISPOSITION_LABELS, type Verdict } from '../../core/gradi
 import { scoreShift, type ShiftResult } from '../../core/shift/score.ts';
 import { recordShift, actorOf, type CampaignEntry } from '../../core/campaign/campaign.ts';
 import { finishShift, recordAttempt, recentShiftTemplates, updateShift, nextShiftNumber } from '../../state/profile.ts';
+import { HANDOVER_KEY } from '../../state/storage.ts';
 import { Workspace } from '../components/Workspace.tsx';
 import { Debrief } from '../components/Debrief.tsx';
 import { Icon } from '../components/Icon.tsx';
@@ -149,7 +150,6 @@ interface HandoverRecord {
   timeUp: boolean;
 }
 
-const HANDOVER_KEY = 'soc-last-handover';
 function saveHandover(h: HandoverRecord): void {
   try {
     sessionStorage.setItem(HANDOVER_KEY, JSON.stringify(h));

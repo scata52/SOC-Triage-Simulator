@@ -13,6 +13,34 @@ export interface KeyValueStore {
   setItem(key: string, value: string): void;
 }
 
+// What this tab keeps in sessionStorage (never in the profile): case drafts and console text ("draft:", "q:"), vulnerability
+// case drafts, finished attempts and console text ("vdraft:", "vdone:", "vq:") and the last shift's handover.
+export const HANDOVER_KEY = 'soc-last-handover';
+export const SESSION_KEY_PREFIXES = ['draft:', 'q:', 'vdraft:', 'vdone:', 'vq:'] as const;
+
+export interface SessionStore {
+  readonly length: number;
+  key(index: number): string | null;
+  removeItem(key: string): void;
+}
+
+// Removes this app's keys from the tab's session store, so "Reset everything" really leaves nothing behind.
+// Other keys are left alone. Never throws: an unavailable store is simply skipped.
+export function clearTabSession(store?: SessionStore | null): void {
+  try {
+    const s = store === undefined ? globalThis.sessionStorage : store;
+    if (!s) return;
+    const mine: string[] = [];
+    for (let i = 0; i < s.length; i++) {
+      const k = s.key(i);
+      if (k !== null && (k === HANDOVER_KEY || SESSION_KEY_PREFIXES.some((p) => k.startsWith(p)))) mine.push(k);
+    }
+    for (const k of mine) s.removeItem(k);
+  } catch {
+    /* storage unavailable: nothing to clear */
+  }
+}
+
 export type LoadSource = 'v2' | 'v1-migrated' | 'new' | 'recovered' | 'memory';
 
 export function browserStorage(): KeyValueStore | null {

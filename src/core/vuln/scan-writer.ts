@@ -6,7 +6,7 @@
 //   Unauthenticated  sees the network only: the version it reports is the one
 //                    in the service banner. Distribution packages backport
 //                    fixes without changing the banner, so this is a guess.
-//   Credentialed     logs in and reads the package database: the version it
+//   Credentialed     logs in and reads the installed-software inventory: the version it
 //                    reports is the installed package version. If the login
 //                    fails on a device, that device falls back to the banner.
 //   Agent            runs on the device and reports package versions too.
@@ -518,7 +518,7 @@ export class ScanWriter {
       return `${lead} Version taken from the banner only; installed packages and vendor backports were not inspected. ${fix}`;
     }
     const how = run.method === 'Agent' ? 'Agent local check' : 'Credentialed local check';
-    const via = run.method === 'Agent' ? 'reported by the endpoint agent' : 'read from the package database over an authenticated session';
+    const via = run.method === 'Agent' ? 'reported by the endpoint agent' : 'read from the installed-software inventory over an authenticated session';
     return `${how}: ${entry.product} ${v.installed} installed (package source: ${v.source}), ${via}. ${fix}`;
   }
 }

@@ -467,6 +467,9 @@ export function VulnCase({ slug, seed }: { slug: string; seed: string }) {
         <h1 class="vc-h1">{view.title}</h1>
         <span class="diff">{DIFF_LABEL[view.difficulty]}</span>
         <span class="badge badge-accent">vulnerability case</span>
+        <span class="badge" data-simulated="true">
+          Simulated data
+        </span>
         {profile.value.settings.timerEnabled && <Timer since={started.current} />}
       </header>
 

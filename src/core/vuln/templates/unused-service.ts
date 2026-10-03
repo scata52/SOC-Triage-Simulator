@@ -388,7 +388,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
         {
           id: 'inventory-above-fix',
           label: `SoftwareInventory shows ${f4Entry.product} on ${JOB} above the fixed version, and the credentialed run reached the host`,
-          why: `The sweep (${newRun.id}, Method Unauthenticated) read ${f4Banner} from a banner on ${JOB}, below the fix in ${f4Entry.fixedVersion}; its Evidence says the version was taken from the banner only. SoftwareInventory has ${f4Entry.product} ${f4Newer} on ${JOB}, installed ${ymd(Number(f4Soft.row.InstalledOn))}, before the older credentialed run (${oldRun.id}), which logged in to ${JOB} (a local check row, no authentication failure). The installed release is itself above the fix (VulnIntel), so this is no backport: the banner was a guess. Dismiss it and ask for a credentialed rescan.`,
+          why: `The sweep (${newRun.id}, Method Unauthenticated) read ${f4Banner} from a banner on ${JOB}, below the fix in ${f4Entry.fixedVersion}; its Evidence says the version was taken from the banner only. SoftwareInventory has ${f4Entry.product} ${f4Newer} on ${JOB}, installed ${ymd(Number(f4Soft.row.InstalledOn))}, before the older credentialed run (${oldRun.id}), which logged in to ${JOB} (a local check row, no authentication failure). The installed release is itself above the fix (VulnIntel), so this is no backport: the banner was a guess. A banner string can lag the installed release, so a banner alone cannot outvote the package record; had the service simply not been restarted since an update, the credentialed rescan would show that. Dismiss it and ask for a credentialed rescan.`,
           rows: [f4Soft, f4Intel, covered.row],
         },
       ],
@@ -530,7 +530,7 @@ export const unusedService: VulnTemplate = {
   id: 'vm-unused-service',
   twin: 'vm-needed-service',
   lesson:
-    "FirewallLogs show no session to the optional admin console's port in two weeks, longer than twice the longest cycle the owner documents (the scanner's own connections are not use), Tickets holds the owner's confirmation that no process needs it, and SoftwareInventory shows it is an optional component installed by default: remove or disable it (avoid) instead of patching, because a patch fixes the flaw but keeps the attack surface. The twin has the same flaw, but FirewallLogs show regular sessions from a job and Tickets a process record: the business needs the console, so patch it.",
+    "FirewallLogs show no session to the optional admin console's port in two weeks, longer than twice the longest cycle the owner documents (the scanner's own connections are not use), and Tickets holds the owner's confirmation that no process needs it: remove or disable it (avoid) instead of patching, because a patch fixes the flaw but keeps the attack surface. SoftwareInventory shows only that it is an optional component installed by default, which alone proves nothing. The twin has the same flaw, but FirewallLogs show regular sessions from a job and Tickets a process record: the business needs the console, so patch it.",
   build: (ctx) => build('unused', ctx),
 };
 

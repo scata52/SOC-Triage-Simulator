@@ -17,7 +17,7 @@ Source: *CompTIA CySA+ CS0-003 Certification Exam: Exam Objectives, Version 1.0*
 retrieved 2026-09-28) and the CompTIA CySA+ V3 page (https://www.comptia.org/en-us/certifications/cybersecurity-analyst/v3/, retrieved 2026-09-28).
 
 Domain weightings (CS0-003): 1.0 Security Operations 33% · **2.0 Vulnerability Management 30%** · 3.0 Incident Response
-Management 20% · 4.0 Reporting and Communication 17%. (The earlier "22%" was wrong.)
+and Management 20% · 4.0 Reporting and Communication 17%. (The earlier "22%" was wrong.)
 
 Exam lifecycle: CS0-003 (English) retires **2026-12-22** (Japanese, Portuguese, Spanish: 2027-03-23). Its successor **CS0-004** launched
 2026-06-23 (https://www.comptia.org/en-us/certifications/cybersecurity-analyst/v4/, retrieved 2026-09-28): Security Operations 34%,
@@ -137,7 +137,8 @@ KEV and EPSS at work; an invented acronym teaches a word that exists nowhere, an
 a laptop line). The `Sim-` prefix plus the "Simulated data" badge keeps the fiction explicit. CS0-003 itself names neither feed
 (2.3 says "exploitability/weaponization"), so the mode teaches the concept under the exam's term and the real-world names alongside it.
 - Column/table names stay plain: `VulnIntel.KnownExploited`, `KnownExploitedAdded`, `ExploitProbability`, `ExploitPercentile`.
-- Intel panel headings: "Known exploited (Sim-KEV)" and "Exploit probability, next 30 days (Sim-EPSS)", each with a one-line explainer:
+- Intel panel headings (as built: the `VulnIntel` column docs in the schema browser and the Help glossary carry these names and
+  explainers; there is no separate panel): "Known exploited (Sim-KEV)" and "Exploit probability, next 30 days (Sim-EPSS)", each with a one-line explainer:
   - Sim-KEV: "Simulated list modeled on the CISA Known Exploited Vulnerabilities (KEV) catalog: vulnerabilities with evidence of
     exploitation in the wild. Entries here are fictional."
   - Sim-EPSS: "Simulated score modeled on FIRST's Exploit Prediction Scoring System (EPSS): estimated probability that a vulnerability
@@ -499,7 +500,8 @@ Decision (2026-09-28): **fictional only for v1; no real-vulnerability reference 
 1. All organizations, hosts, users, IPs, hashes and credentials are synthetic. Nothing is presented as a real incident or real company.
 2. **Scenario data is fully fictional.** Vulnerability ids use `SIMVULN-<4-digit year>-<5 digits>` (e.g., `SIMVULN-2026-10421`), which
    cannot be mistaken for a CVE; products are fictional; CVSS vectors are authored for fictional entries and scored by our calculator;
-   exploitation signals come only from the simulated feeds Sim-KEV and Sim-EPSS (§3.1). Intel panels carry a "Simulated data" badge.
+   exploitation signals come only from the simulated feeds Sim-KEV and Sim-EPSS (§3.1). Intel panels carry a "Simulated data" badge (as built, WP7: there is no separate intel panel — `VulnIntel` is read in
+   the console — so the badge sits in the vuln case header, visible through the case and the debrief).
    "Scenario data" = everything under `src/core/vuln/**` (templates included) and everything a vuln case generates (corpus rows,
    briefing, hints, solution, explanation, debrief text).
 3. No vulnerability fact (CVE id, real CVSS score or vector, KEV status, EPSS value, affected versions) is ever written from model memory.
@@ -523,6 +525,10 @@ Decision (2026-09-28): **fictional only for v1; no real-vulnerability reference 
     reserved names everywhere else) and `e2e/vuln.spec.ts` checks that vuln screens link only in-app routes and citation hosts. SOC
     data is outside this test; its attacker-role domains were checked and reported (PROGRESS Known issues), not changed. Since
     2026-10-03 SOC content may change for quality (PLAN ADR-24), so bringing them under this rule is open work, not a human decision.
+    *WP7 (2026-10-03, coordinator):* not done in WP7. Reserved TLDs on attacker domains alone would make the TLD a perfect
+    tell (1,355 attacker domains vs 0 benign in 100 SOC builds) and empty two lessons that turn on telling a fictitious
+    partner or vendor domain from an attacker's; doing it right means re-domaining the fictitious partner/vendor namespaces
+    too, a SOC content project of its own. Help states the difference between the modes; no domain is rendered as a link.
 
 ## 10. Non-goals and risks
 Non-goals: real scanner file import (Nessus/Qualys XML); CVSS v4.0 calculator; live feeds; i18n; backend. (Editing existing SOC

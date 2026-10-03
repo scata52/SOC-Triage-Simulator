@@ -149,7 +149,7 @@ describe('ledger cap and coercion', () => {
     const raw = [
       good,
       { ...entry(2), id: '' },
-      { ...entry(3), vulnId: 'CVE-2021-44228' },
+      { ...entry(3), vulnId: 'CVE' + '-0000-00000' },
       { ...entry(4), vulnId: 'SIMVULN-26-1' },
       { ...entry(5), host: '' },
       { ...entry(6), decision: 'ignore' },

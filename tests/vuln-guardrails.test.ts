@@ -16,6 +16,7 @@ import { buildVulnScenario } from '../src/core/vuln/scenario.ts';
 import { cveViolations, type Source } from './helpers/cve-guard.ts';
 import { fixtureTier3 } from './helpers/vuln-fixture.ts';
 import { world } from './helpers/scenario-check.ts';
+import { specViolations, syntheticViolations } from './helpers/guardrails.ts';
 import { buildFor, vulnRuns } from './helpers/vuln-scenario-check.ts';
 
 const VULN_DIR = 'src/core/vuln';
@@ -71,6 +72,22 @@ describe('no real CVE identifiers in scenario data (DESIGN section 9)', () => {
       expect(cveViolations({ label: 't', text: fine }), fine).toEqual([]);
     }
     expect(cveViolations({ label: 'f', text: 'ok\nbad ' + cve('2019', '0007') + '\nok' })).toEqual(['f:2: ' + cve('2019', '0007')]);
+  });
+
+  it('also flags space, underscore and Unicode-dash variants of a CVE id', () => {
+    const v = (sep1: string, sep2: string) => 'CVE' + sep1 + '2021' + sep2 + '90001';
+    for (const flagged of [v(' ', '-'), v('_', '_'), v('-', ' '), v('', '-'), v('\u2010', '\u2011'), v('\u2012', '\u2013'), v('\u2014', '\u2015'), v('\u2212', '\u2212'), 'x ' + v(' ', ' ') + ' y']) {
+      expect(cveViolations({ label: 't', text: flagged }), flagged).toHaveLength(1);
+    }
+    for (const fine of ['CVE 20 1234', 'CVE 2021 123', 'CVSS 3.1 2021 90001', 'SIMVULN-2026-10421', 'the CVE list']) {
+      expect(cveViolations({ label: 't', text: fine }), fine).toEqual([]);
+    }
+  });
+
+  it('scans every source file under src/** (UI copy, schema and reference text included)', () => {
+    const files = allFiles('src').map((p) => ({ label: p.split('\\').join('/'), text: readFileSync(p, 'utf8') }));
+    expect(files.length).toBeGreaterThan(50);
+    expect(files.flatMap(cveViolations)).toEqual([]);
   });
 
   it('scans every file under src/core/vuln/**', () => {
@@ -297,4 +314,56 @@ describe('reserved domains in generated vuln data (human decision 2026-10-02)', 
     expect(orgCells, 'the benign org-domain columns are exercised').toBeGreaterThan(0);
     expect([...new Set(found)].slice(0, 40)).toEqual([]);
   }, 60_000);
+});
+
+// The SOC and vuln corpus guard (tests/helpers/guardrails.ts) must actually catch what it claims to.
+describe('the synthetic-data checker catches violations (self-test)', () => {
+  const w = world('guardrail-self-test');
+  const built = buildVulnScenario({ worldSeed: w.seed, templateId: fixtureTier3.id, seed: 'self', world: w, template: fixtureTier3 });
+
+  // A copy of the corpus whose first free-text cell (not an id or hash column) holds `text`.
+  function withCell(text: string) {
+    const corpus = structuredClone(built.corpus);
+    for (const table of Object.values(corpus.tables)) {
+      const ci = table.columns.findIndex((c) => ['Evidence', 'Description', 'Title', 'Message', 'Details'].includes(c));
+      if (ci >= 0 && table.rows.length > 0) {
+        table.rows[0][ci] = text;
+        return corpus;
+      }
+    }
+    throw new Error('no free-text column in the fixture corpus');
+  }
+
+  it('is quiet on the untouched fixture, case text included', () => {
+    expect(syntheticViolations(built.corpus, w, built.case)).toEqual([]);
+  });
+
+  it('flags a non-synthetic IPv4 in any cell and in the case text', () => {
+    expect(syntheticViolations(withCell('beacon to 8.8.8.8 seen'), w).join('\n')).toContain('8.8.8.8');
+    expect(syntheticViolations(built.corpus, w, { briefing: 'call 8.8.8.8 now' }).join('\n')).toContain('8.8.8.8');
+    expect(syntheticViolations(built.corpus, w, { a: ['x', { b: 'host 203.0.113.9 and 10.1.2.3 and Chrome/131.0.0.0' }] })).toEqual([]);
+  });
+
+  it('flags a non-documentation IPv6 in the case text, not a MAC address or a time', () => {
+    expect(specViolations({ t: 'peer 2606:4700::1111 replied' }).join('\n')).toContain('2606:4700::1111');
+    expect(specViolations({ t: 'peer 2001:db8::5 replied' })).toEqual([]);
+    expect(specViolations({ t: 'mac aa:bb:cc:dd:ee:ff at 10:30:45' })).toEqual([]);
+  });
+
+  it('flags a CVE id in the case text', () => {
+    expect(specViolations({ t: 'see ' + 'CVE' + '-' + '2020' + '-' + '1234' })).toHaveLength(1);
+    expect(specViolations({ t: 'see ' + 'CVE' + ' ' + '2020' + '_' + '1234' })).toHaveLength(1);
+  });
+
+  it('flags a real domain inside a URL or an e-mail address in any cell, and accepts reserved names', () => {
+    expect(syntheticViolations(withCell('download from https://payload.realsite.io/x.bin'), w).join('\n')).toContain('realsite.io');
+    expect(syntheticViolations(withCell('contact ops@mail.realsite.io today'), w).join('\n')).toContain('realsite.io');
+    expect(syntheticViolations(withCell('see https://c2.attacker.example/x and ops@corp.invalid'), w)).toEqual([]);
+  });
+
+  it('applies a dot boundary to the organisation domain', () => {
+    expect(syntheticViolations(withCell('https://x' + w.org.domain + '/a'), w).join('\n')).toContain('x' + w.org.domain);
+    expect(syntheticViolations(withCell('https://portal.' + w.org.domain + '/a'), w)).toEqual([]);
+    expect(syntheticViolations(withCell('https://' + w.org.domain + '/a'), w)).toEqual([]);
+  });
 });

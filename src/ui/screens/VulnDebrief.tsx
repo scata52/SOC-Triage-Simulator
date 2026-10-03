@@ -103,7 +103,12 @@ export function VulnDebrief({
       <section class="card debrief-hero" aria-labelledby="debrief-h">
         <Ring value={g.percent / 100} label={`${g.percent}`} sub="/ 100" color={scoreColor(g.percent)} />
         <div class="debrief-hero-text">
-          <p class="eyebrow">Debrief · {c.title}</p>
+          <p class="eyebrow">
+            Debrief · {c.title}{' '}
+            <span class="badge" data-simulated="true">
+              Simulated data
+            </span>
+          </p>
           <h1 id="debrief-h">{c.lesson}</h1>
           {cap !== null && (
             <p class="vd-gate" data-gate="missed">

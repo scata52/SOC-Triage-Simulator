@@ -23,7 +23,7 @@ export const MAX_REASONS = 3;
 export type SchemaMode = 'soc' | 'vuln';
 
 export const DECISION_OPTION_TEXT: Record<VulnDecision | '', string> = {
-  '': 'Choose…',
+  '': 'Decision…',
   patch: 'Patch',
   mitigate: 'Mitigate: put a control in front',
   avoid: 'Avoid: remove or disable the component',

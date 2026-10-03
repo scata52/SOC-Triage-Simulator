@@ -127,7 +127,7 @@ describe('buildVulnScenario', () => {
     for (let i = 0; i < 6; i++) {
       const w = world(`vuln-syn-${i % 3}`);
       const s = buildVulnScenario({ worldSeed: w.seed, templateId: FIXTURE_TEMPLATE_ID, seed: `syn-${i}`, world: w, template: fixtureTier3 });
-      expect(syntheticViolations(s.corpus, w), `seed ${i}`).toEqual([]);
+      expect(syntheticViolations(s.corpus, w, s.case), `seed ${i}`).toEqual([]);
     }
   });
 
@@ -337,7 +337,7 @@ describe('scan writer: method semantics', () => {
     expect(row.DetectedVersion).toBe('4.1.2');
     expect(JSON.stringify(row)).not.toContain('esm2');
     expect(String(row.Evidence)).toMatch(/banner/i);
-    expect(String(row.Evidence)).not.toMatch(/package database/);
+    expect(String(row.Evidence)).not.toMatch(/package database|installed-software inventory/);
     expect(row.Port).toBe(443);
     expect(row.Service).toBe('https');
     // The inventory, which no scan produced, still tells the truth.

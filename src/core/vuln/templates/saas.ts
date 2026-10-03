@@ -63,7 +63,7 @@ import {
 type Variant = 'transfer' | 'self';
 
 const HEAD_HOST = 'HELPDESK01'; // findings[0] in both twins
-const HEAD_PRODUCT = 'Foxglove Helpdesk';
+const HEAD_PRODUCT = 'Wickerlow Helpdesk';
 const HEAD_VENDOR = 'Dravenholt Software';
 const HEAD_CLOUD = 'dravenholt-cloud.example'; // the vendor's hosting domain (reserved name)
 const SAAS_HOST = 'DASHSVC01'; // findings[2] in both twins: a second vendor-hosted service

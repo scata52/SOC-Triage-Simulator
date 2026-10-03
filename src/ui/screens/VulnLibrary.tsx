@@ -59,7 +59,7 @@ export function VulnLibrary() {
       </div>
 
       <p class="visually-hidden" role="status">
-        {list.length} case types shown
+        {list.length} {list.length === 1 ? 'case type' : 'case types'} shown
       </p>
       {list.length === 0 ? (
         <p class="muted">{q.trim() ? `No case type matches "${q.trim()}".` : 'No vulnerability cases at this tier yet.'}</p>

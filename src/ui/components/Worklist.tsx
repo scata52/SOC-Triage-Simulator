@@ -48,7 +48,7 @@ const EMPTY: VulnFindingAnswer = { decision: null, control: null, schedule: null
 
 const SEV_CLASS: Record<string, string> = { critical: 'critical', high: 'high', medium: 'medium', low: 'low', info: 'informational' };
 
-const SCHEDULE_OPTION_TEXT: Record<VulnSchedule | '', string> = { '': 'Choose…', ...SCHEDULE_LABELS };
+const SCHEDULE_OPTION_TEXT: Record<VulnSchedule | '', string> = { '': 'Schedule…', ...SCHEDULE_LABELS };
 
 const val = (e: Event) => (e.target as HTMLSelectElement).value;
 
@@ -381,8 +381,7 @@ export function Worklist(p: WorklistProps) {
                 {sortButton('firstSeen')}
               </th>
               <th scope="col">Pins</th>
-              <th scope="col">Your call</th>
-              <th scope="col">Reasons</th>
+              <th scope="col">Your call and reasons</th>
             </tr>
           </thead>
           {order.map((fid, i) => {
@@ -409,14 +408,14 @@ export function Worklist(p: WorklistProps) {
                     {pins(r)}
                   </td>
                   <td>
-                    {decision(r)}
-                  </td>
-                  <td>
-                    {reasonsButton(r)}
+                    <div class="wl-your-call">
+                      {decision(r)}
+                      {reasonsButton(r)}
+                    </div>
                   </td>
                 </tr>
                 <tr class="wl-reasons-row" hidden={!open.has(fid)}>
-                  <td colSpan={10}>
+                  <td colSpan={9}>
                     {reasonsPanel(r)}
                   </td>
                 </tr>

@@ -236,6 +236,7 @@ export function Debrief({ c, grade, verdict, actions }: { c: ResolvedCase; grade
                     <span class={`badge ${hit ? 'badge-ok' : g.techniques.missed.includes(id) ? 'badge-bad' : 'badge-warn'}`}>{hit ? 'tagged' : g.techniques.missed.includes(id) ? 'missed' : 'related'}</span>{' '}
                     <a href={`https://attack.mitre.org/techniques/${id.replace('.', '/')}/`} target="_blank" rel="noopener noreferrer" class="mono">
                       {id}
+                      <span class="visually-hidden"> (opens in a new tab)</span>
                     </a>{' '}
                     {techniqueName(id)}
                   </li>
@@ -299,6 +300,7 @@ export function Debrief({ c, grade, verdict, actions }: { c: ResolvedCase; grade
                   <li>
                     <a href={r.url} target="_blank" rel="noopener noreferrer">
                       {r.label} <Icon name="external" />
+                      <span class="visually-hidden"> (opens in a new tab)</span>
                     </a>
                   </li>
                 ))}

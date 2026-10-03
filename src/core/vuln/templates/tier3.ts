@@ -100,7 +100,7 @@ const BUILD = 'BUILD01'; // a background-like worklist item
 
 const PAY_PRODUCTS = ['Brackenridge DB Console', 'Hollowmere Reporting', 'Pinecrest Dashboards'];
 // The Sim-KEV Critical and the Medium on APP01 use products that only APP01 runs (no other worklist host and no background host does), so no host sits below their fix with no finding, and the products stay out of the background's way.
-const APP_ONLY_PRODUCTS = ['Foxglove Helpdesk', 'Thistledown CMS', 'Ivorygate Payments Adapter'];
+const APP_ONLY_PRODUCTS = ['Wickerlow Helpdesk', 'Thistledown CMS', 'Ivorygate Payments Adapter'];
 
 interface Service {
   product: string;
@@ -365,7 +365,7 @@ function build(variant: Variant, ctx: VulnContext): VulnCaseSpec {
       evidence: [
         {
           id: 'package-level-root',
-          label: `The credentialed run read ${LIB} ${libVersion} from the package database on ${LIB_HOST}, below the fixed version`,
+          label: `The credentialed run read ${LIB} ${libVersion} from the installed-software inventory on ${LIB_HOST}, below the fixed version`,
           why: `The package-level finding comes from the credentialed run (${oldRun.id}): ${LIB} ${libVersion} is installed as a system package on ${LIB_HOST}, below the fixed version ${libEntry.fixedVersion} (VulnIntel, vendor fix available, no Sim-KEV listing, low Sim-EPSS). It is the finding that carries the fix for every service that links the system package. Medium: 90 days from first detection (due ${ymd(pDeadline)}, end of day), after the standard cycle (${ymd(cal.cycle.start)}): patch in the standard cycle, then restart the services that load the library, because a running process keeps the old copy in memory.`,
           rows: [sysRow, libIntel],
         },
@@ -641,7 +641,7 @@ const COMMON: Omit<VulnTemplate, 'id' | 'lesson' | 'build' | 'twin'> = {
   difficulty: 'tier3',
   title: TITLE,
   cysaDomains: ['2.0', '4.0'],
-  objectives: ['2.2', '2.3', '2.5', '4.1'],
+  objectives: ['2.1', '2.2', '2.3', '2.5', '4.1'],
   kind: 'vuln',
 };
 

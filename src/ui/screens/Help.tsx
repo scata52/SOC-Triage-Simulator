@@ -354,10 +354,10 @@ function Vuln() {
       </p>
       <h2 id="vuln-glossary">Glossary</h2>
       <dl class="vuln-glossary">
-        <dt id="vg-credentialed">Credentialed vs unauthenticated scan</dt>
+        <dt id="vg-credentialed">Credentialed vs non-credentialed (unauthenticated) scan</dt>
         <dd>
-          A credentialed (or agent) scan logs in and reads the installed package versions, so it knows what is on the host. An unauthenticated scan reads the service banner and
-          guesses from the version string. If a credentialed login fails, the run either falls back to the banner (the finding's Evidence says so) or only logs an
+          A credentialed (or agent) scan logs in and reads the installed software versions, so it knows what is on the host. An unauthenticated scan mostly infers it from the banner or
+          version string. If a credentialed login fails, the run either falls back to the banner (the finding's Evidence says so) or only logs an
           &quot;Authentication failure: local checks not run&quot; row. In that case nothing re-tested the host and an older result stays shown. The count is in{' '}
           <code>ScanRuns.AuthFailures</code>.
         </dd>
@@ -369,7 +369,7 @@ function Vuln() {
         <dt id="vg-stale">Stale result</dt>
         <dd>
           A finding the scan reported before the fix was installed. If <code>PatchHistory</code> shows the update installed after the scan, the result is out of date. A pending
-          reboot means the update is not yet in effect, so the finding is still real until the host restarts.
+          reboot means the update is usually not yet in effect, so the finding is still real until the host restarts.
         </dd>
         <dt id="vg-duplicate">Duplicate finding</dt>
         <dd>
@@ -502,8 +502,9 @@ function About() {
           internal ones from private ranges (RFC 1918); autonomous-system numbers from the private range (RFC 6996).
         </li>
         <li>
-          <strong>Attacker domains</strong> are generated per case and never point anywhere; <strong>hashes</strong> are random. None of them is an indicator of
-          compromise — do not block them anywhere real.
+          <strong>Attacker domains</strong> differ by case type. In vulnerability cases they are reserved names (.example, .test, .invalid) that cannot resolve. In SOC cases
+          they are generated names that are very unlikely to exist but are not guaranteed to be unregistered: never visit them. <strong>Hashes</strong> are random. None of
+          them is an indicator of compromise — do not block them anywhere real.
         </li>
         <li>
           <strong>Threat actors</strong> are invented (coined names that follow no vendor's naming scheme). Their activity appears as a defender sees it in
@@ -515,8 +516,8 @@ function About() {
         </li>
       </ul>
       <p>
-        Every case is checked automatically: its data stays inside these rules, and its reference investigation — run against a real SQLite database — surfaces every
-        finding and indicator the grade expects.
+        The test suite checks every case type's data and text, over sampled worlds and seeds, for addresses outside these ranges and for CVE identifiers, and its log data for
+        domains outside these rules (SOC attacker domains are generated, as above). Each case's reference investigation, run against a real SQLite database, surfaces every finding and indicator the grade expects.
       </p>
       <h2>Frameworks</h2>
       <p>
